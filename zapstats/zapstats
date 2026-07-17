@@ -115,17 +115,37 @@ LINHA_RE = re.compile(
 
 # ---------------------------------------------------------------- parsing
 
+def detectar_dia_primeiro(texto):
+    """Decide UMA vez, olhando o arquivo inteiro, se as datas são dd/mm (BR)
+    ou mm/dd (export en-US). Evita interpretar cada linha de um jeito."""
+    primeiro_alto = segundo_alto = False
+    for linha in texto.splitlines():
+        m = LINHA_RE.match(linha)
+        if not m:
+            continue
+        if int(m.group(1)) > 12:
+            primeiro_alto = True
+        if int(m.group(2)) > 12:
+            segundo_alto = True
+    if primeiro_alto and not segundo_alto:
+        return True
+    if segundo_alto and not primeiro_alto:
+        return False
+    return True  # ambíguo (nenhum dia >12 no período): assume dd/mm
+
+
 def parse_arquivo(caminho):
     try:
         texto = open(caminho, encoding="utf-8-sig").read()
     except OSError as e:
         die(f"não consegui ler {caminho}: {e}")
+    dia_primeiro = detectar_dia_primeiro(texto)
     msgs = []            # (datetime, autor, texto)
     atual = None
     for linha in texto.splitlines():
         m = LINHA_RE.match(linha)
         if m:
-            dt = montar_data(m)
+            dt = montar_data(m, dia_primeiro)
             resto = m.group(8)
             corpo = re.match(r"([^:]{1,60}?):\s(.*)$", resto, re.DOTALL)
             if not corpo or dt is None:
@@ -143,9 +163,9 @@ def parse_arquivo(caminho):
     return [(dt, a, t) for dt, a, t in msgs]
 
 
-def montar_data(m):
-    d, mth, y, hh, mm, ss, ap = (m.group(i) for i in range(1, 8))
-    d, mth, y, hh, mm = int(d), int(mth), int(y), int(hh), int(mm)
+def montar_data(m, dia_primeiro=True):
+    a, b, y, hh, mm, ss, ap = (m.group(i) for i in range(1, 8))
+    a, b, y, hh, mm = int(a), int(b), int(y), int(hh), int(mm)
     ss = int(ss) if ss else 0
     if y < 100:
         y += 2000
@@ -155,7 +175,8 @@ def montar_data(m):
             hh += 12
         elif ap == "am" and hh == 12:
             hh = 0
-    # tenta dd/mm; se dia inválido, tenta mm/dd (export en-US)
+    d, mth = (a, b) if dia_primeiro else (b, a)
+    # ordem detectada primeiro; troca só como último recurso (linha fora do padrão)
     for dia, mes in ((d, mth), (mth, d)):
         try:
             return datetime(y, mes, dia, hh, mm, ss)
