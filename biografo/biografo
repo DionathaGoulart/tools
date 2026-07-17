@@ -273,14 +273,18 @@ def consumir_pergunta(pergunta):
 
 # ---------------------------------------------------------------- comandos
 
-def cmd_diario(followup=False):
+def cmd_diario(followup=False, extra=False):
     hoje = f"{datetime.now():%Y-%m-%d}"
     arquivo_hoje = RESP_DIR / f"{hoje}.md"
+    eh_extra = False
     if arquivo_hoje.exists():
-        print(f"✅ Você já respondeu hoje ({hoje}).")
-        print("   Pra responder outra mesmo assim:  biografo -x")
-        print("   Pra ver o histórico:  biografo -l")
-        return
+        if not extra:
+            print(f"✅ Você já respondeu hoje ({hoje}).")
+            print("   Pra responder outra mesmo assim:  biografo -x")
+            print("   Pra ver o histórico:  biografo -l")
+            return
+        eh_extra = True
+        arquivo_hoje = RESP_DIR / f"{hoje}-{datetime.now():%H%M}.md"
 
     if followup:
         respostas = respostas_existentes()
@@ -301,12 +305,13 @@ def cmd_diario(followup=False):
     if not followup:
         pergunta = proxima_pergunta()
 
-    print(f"\n\033[1;35m📖 pergunta de hoje\033[0m ({hoje})\n")
+    titulo = "pergunta extra" if eh_extra else "pergunta de hoje"
+    print(f"\n\033[1;35m📖 {titulo}\033[0m ({hoje})\n")
     print(f"  {pergunta}\n")
-    print("Responde abaixo (linha só \".\" ou Ctrl-D encerra; linha vazia pula pra amanhã):")
+    print("Responde abaixo (linha só \".\" ou Ctrl-D encerra; linha vazia pula):")
     resposta = ler_multilinha()
     if not resposta:
-        print("Pulado. A mesma pergunta volta amanhã.")
+        print("Vazio — nada salvo." if eh_extra else "Pulado. A mesma pergunta volta amanhã.")
         return
 
     RESP_DIR.mkdir(parents=True, exist_ok=True)
@@ -380,7 +385,7 @@ def main():
     ap.add_argument("-f", "--followup", action="store_true",
                     help="pergunta personalizada baseada nas últimas respostas (envia dados ao modelo)")
     ap.add_argument("-x", "--extra", action="store_true",
-                    help="responder outra pergunta mesmo já tendo respondido hoje")
+                    help="responder outra pergunta mesmo já tendo respondido hoje (combina com -f)")
     ap.add_argument("-l", "--listar", action="store_true", help="lista respostas e status")
     ap.add_argument("-m", "--modelos", action="store_true", help="lista modelos :free disponíveis")
     args = ap.parse_args()
@@ -393,26 +398,8 @@ def main():
         cmd_capitulo()
     elif args.comando == "perguntas":
         cmd_perguntas()
-    elif args.extra:
-        # remove o arquivo de hoje da checagem respondendo numa data-hora
-        hoje = f"{datetime.now():%Y-%m-%d}"
-        alvo = RESP_DIR / f"{hoje}.md"
-        if alvo.exists():
-            alt = RESP_DIR / f"{hoje}-{datetime.now():%H%M}.md"
-            pergunta = proxima_pergunta()
-            print(f"\n\033[1;35m📖 pergunta extra\033[0m\n\n  {pergunta}\n")
-            resposta = ler_multilinha()
-            if resposta:
-                RESP_DIR.mkdir(parents=True, exist_ok=True)
-                alt.write_text(f"# {pergunta}\n\n{resposta}\n", encoding="utf-8")
-                consumir_pergunta(pergunta)
-                print(f"💾 salvo em {alt}")
-            else:
-                print("Vazio — nada salvo.")
-        else:
-            cmd_diario(followup=args.followup)
     else:
-        cmd_diario(followup=args.followup)
+        cmd_diario(followup=args.followup, extra=args.extra)
 
 
 if __name__ == "__main__":
