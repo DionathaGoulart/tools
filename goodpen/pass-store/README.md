@@ -1,4 +1,4 @@
-# pendrive — gerenciador de senhas com `pass` + USB
+# pass-store — gerenciador de senhas com `pass` + USB
 
 Guia completo pra transformar um pendrive num cofre de senhas criptografado usando [`pass`](https://www.passwordstore.org/) (o gerenciador de senhas oficial do Unix).
 
@@ -18,7 +18,7 @@ pendrive (git bare repo)  ←→  ~/.password-store (local)
 ## Setup rápido
 
 ```bash
-bash ~/Desktop/tools/goodpen/pendrive/setup.sh
+bash ~/Desktop/tools/goodpen/pass-store/setup.sh
 ```
 
 O script faz tudo:

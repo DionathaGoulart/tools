@@ -2,7 +2,7 @@
 
 Versão "programinha" do cofre de senhas: **um executável só, zero dependências**, roda em Windows, macOS e Linux. Criptografia [age](https://age-encryption.org) (X25519 — moderna, auditada), sincronização com pendrive e backup da chave por **QR code** embutidos.
 
-É a evolução do setup [pendrive/](../pendrive) (`pass` + GPG): mesma ideia, mas sem precisar instalar `pass`, `gpg` nem `git` — tudo dentro do binário.
+É a evolução do setup [pass-store/](../pass-store) (`pass` + GPG): mesma ideia, mas sem precisar instalar `pass`, `gpg` nem `git` — tudo dentro do binário.
 
 ## Instalar
 
