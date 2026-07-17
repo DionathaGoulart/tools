@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# good — system info at a glance, with the good logo (macOS / Linux)
+#
+# usage: good            show logo + system info
+#        good --refresh  rebuild the hardware cache (model, GPU, resolution)
+#        good -h | --help
+
+set -u
+
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/good"
+CACHE_FILE="$CACHE_DIR/hardware"
+
+case "${1:-}" in
+  -h|--help)
+    echo "usage: good [--refresh]"
+    echo "  --refresh   rebuild the hardware cache (model, GPU, resolution)"
+    exit 0
+    ;;
+  --refresh) rm -f "$CACHE_FILE" ;;
+esac
+
+# ---------- colors ----------
+USE_COLOR=1
+USE_TRUECOLOR=0
+[ -n "${NO_COLOR:-}" ] && USE_COLOR=0
+[ -t 1 ] || USE_COLOR=0
+case "${COLORTERM:-}" in *truecolor*|*24bit*) USE_TRUECOLOR=1 ;; esac
+
+RESET="" BOLD="" ACCENT=""
+if [ "$USE_COLOR" -eq 1 ]; then
+  RESET=$'\033[0m'
+  BOLD=$'\033[1m'
+fi
+
+# gradient endpoints: violet -> cyan (override with GOOD_COLOR=rrggbb)
+R1=139 G1=92  B1=246
+R2=34  G2=211 B2=238
+if [ -n "${GOOD_COLOR:-}" ]; then
+  hex="${GOOD_COLOR#\#}"
+  R1=$((16#${hex:0:2})); G1=$((16#${hex:2:2})); B1=$((16#${hex:4:2}))
+  R2=$R1; G2=$G1; B2=$B1
+fi
+
+if [ "$USE_COLOR" -eq 1 ]; then
+  if [ "$USE_TRUECOLOR" -eq 1 ]; then
+    ACCENT=$(printf '\033[1;38;2;%d;%d;%dm' "$R1" "$G1" "$B1")
+  else
+    ACCENT=$'\033[1;38;5;141m'
+  fi
+fi
+
+# ---------- logo (each line exactly 36 chars) ----------
+LOGO=(
+'      ▄████████      ████████▄      '
+'      █████████      █████████      '
+'      █████████      █████████      '
+'▄▄▄▄▄▄████████████████████████▄▄▄▄▄▄'
+'████████▀  ▀████████████▀  ▀████████'
+'████████    ████████████    ████████'
+'████████    ████████████    ████████'
+'▀██████████████████████████████████▀'
+'      ████████████████████████      '
+'      █████████▀▀▀▀▀▀█████████      '
+'  ▄▄▄▄█████████▄▄▄▄▄▄█████████▄▄▄▄  '
+'█████████▀▀▀▀██████████▀▀▀▀█████████'
+'████████      ████████      ████████'
+'████████      ████████      ████████'
+'████████      ▀███████      ████████'
+)
+LOGO_W=36
+GAP='   '
+
+# ---------- helpers ----------
+INFO=()
+add() { # add "Label" "value"
+  INFO+=("$(printf '%s%-8s%s %s' "$ACCENT" "$1:" "$RESET" "$2")")
+}
+
+fmt_uptime() { # $1 = seconds
+  local s=$1 d h m out=""
+  d=$((s / 86400)); h=$((s % 86400 / 3600)); m=$((s % 3600 / 60))
+  [ "$d" -gt 0 ] && out="${d}d "
+  [ "$h" -gt 0 ] && out="${out}${h}h "
+  out="${out}${m}m"
+  echo "$out"
+}
+
+shell_info() {
+  local name ver=""
+  name=$(basename "${SHELL:-sh}")
+  ver=$("$name" --version 2>/dev/null | head -1 | grep -Eo '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  echo "$name${ver:+ $ver}"
+}
+
+# ---------- collect ----------
+OS_KERNEL="$(uname -s)"
+
+USER_NAME="${USER:-$(whoami)}"
+HOST_NAME="$(hostname -s 2>/dev/null || hostname)"
+TITLE_PLAIN="${USER_NAME}@${HOST_NAME}"
+
+INFO+=("${ACCENT}${USER_NAME}${RESET}@${ACCENT}${HOST_NAME}${RESET}")
+INFO+=("$(printf '%*s' "${#TITLE_PLAIN}" '' | tr ' ' '-')")
+
+if [ "$OS_KERNEL" = "Darwin" ]; then
+  # hardware cache: system_profiler is slow, run it once
+  if [ ! -f "$CACHE_FILE" ]; then
+    mkdir -p "$CACHE_DIR"
+    sp=$(system_profiler SPHardwareDataType SPDisplaysDataType 2>/dev/null)
+    {
+      printf 'HW_MODEL="%s"\n' "$(echo "$sp" | awk -F': +' '/Model Name/{print $2; exit}')"
+      printf 'HW_GPU="%s"\n'   "$(echo "$sp" | awk -F': +' '/Chipset Model/{print $2}' | paste -sd ', ' -)"
+      printf 'HW_RES="%s"\n'   "$(echo "$sp" | awk -F': +' '/Resolution/{print $2}' | paste -sd ', ' -)"
+    } > "$CACHE_FILE"
+  fi
+  HW_MODEL="" HW_GPU="" HW_RES=""
+  . "$CACHE_FILE"
+
+  add OS "$(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
+  add Host "${HW_MODEL:-Mac} ($(sysctl -n hw.model))"
+  add Kernel "$OS_KERNEL $(uname -r)"
+
+  boot=$(sysctl -n kern.boottime | sed 's/.*sec = \([0-9]*\), usec.*/\1/')
+  add Uptime "$(fmt_uptime $(( $(date +%s) - boot )))"
+
+  add Shell "$(shell_info)"
+  [ -n "${HW_RES:-}" ] && add Display "$HW_RES"
+  add Term "${TERM_PROGRAM:-$TERM}${TERM_PROGRAM_VERSION:+ $TERM_PROGRAM_VERSION}"
+  add CPU "$(sysctl -n machdep.cpu.brand_string)"
+  [ -n "${HW_GPU:-}" ] && add GPU "$HW_GPU"
+
+  total=$(sysctl -n hw.memsize)
+  page=$(sysctl -n hw.pagesize)
+  used=$(vm_stat | awk -v page="$page" '
+    /Pages active/                {a=$NF}
+    /Pages wired down/            {w=$NF}
+    /Pages occupied by compressor/{c=$NF}
+    END {gsub(/\./,"",a); gsub(/\./,"",w); gsub(/\./,"",c); print (a+w+c)*page}')
+  add Memory "$(awk -v u="$used" -v t="$total" 'BEGIN{printf "%.1f GiB / %.1f GiB (%d%%)", u/2^30, t/2^30, u*100/t}')"
+
+  disk_target=/System/Volumes/Data
+  [ -d "$disk_target" ] || disk_target=/
+  add Disk "$(df -H "$disk_target" | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')"
+
+  brews=0 casks=0
+  for cellar in /opt/homebrew/Cellar /usr/local/Cellar; do
+    [ -d "$cellar" ] && brews=$((brews + $(ls -1 "$cellar" | wc -l)))
+  done
+  for caskroom in /opt/homebrew/Caskroom /usr/local/Caskroom; do
+    [ -d "$caskroom" ] && casks=$((casks + $(ls -1 "$caskroom" | wc -l)))
+  done
+  [ "$((brews + casks))" -gt 0 ] && add Pkgs "$(echo "$brews (brew), $casks (cask)" | tr -s ' ')"
+
+  batt=$(pmset -g batt 2>/dev/null | grep -Eo '[0-9]+%' | head -1)
+  if [ -n "$batt" ]; then
+    state=$(pmset -g batt | grep -Eo 'charging|discharging|charged|finishing charge' | head -1)
+    add Battery "$batt${state:+ ($state)}"
+  fi
+else
+  # Linux
+  os_pretty="Linux"
+  [ -f /etc/os-release ] && os_pretty="$(. /etc/os-release && echo "$PRETTY_NAME")"
+  add OS "$os_pretty $(uname -m)"
+
+  if [ -r /sys/devices/virtual/dmi/id/product_name ]; then
+    add Host "$(cat /sys/devices/virtual/dmi/id/product_name)"
+  fi
+  add Kernel "$OS_KERNEL $(uname -r)"
+
+  up=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)
+  add Uptime "$(fmt_uptime "$up")"
+
+  add Shell "$(shell_info)"
+  add Term "${TERM_PROGRAM:-$TERM}"
+  add CPU "$(awk -F': +' '/model name/{print $2; exit}' /proc/cpuinfo)"
+
+  gpu=$(lspci 2>/dev/null | grep -iE 'vga|3d controller' | head -1 | sed 's/.*: //')
+  [ -n "$gpu" ] && add GPU "$gpu"
+
+  if [ -r /proc/meminfo ]; then
+    add Memory "$(awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{u=t-a; printf "%.1f GiB / %.1f GiB (%d%%)", u/1048576, t/1048576, u*100/t}' /proc/meminfo)"
+  fi
+  add Disk "$(df -H / | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')"
+
+  pkgs=""
+  if command -v dpkg >/dev/null 2>&1; then pkgs="$(dpkg -l 2>/dev/null | grep -c '^ii') (dpkg)"
+  elif command -v pacman >/dev/null 2>&1; then pkgs="$(pacman -Q 2>/dev/null | wc -l | tr -d ' ') (pacman)"
+  elif command -v rpm >/dev/null 2>&1; then pkgs="$(rpm -qa 2>/dev/null | wc -l | tr -d ' ') (rpm)"
+  fi
+  [ -n "$pkgs" ] && add Pkgs "$pkgs"
+
+  for bat in /sys/class/power_supply/BAT*/capacity; do
+    [ -r "$bat" ] && add Battery "$(cat "$bat")%" && break
+  done
+fi
+
+# palette strip
+if [ "$USE_COLOR" -eq 1 ]; then
+  pal1="" pal2=""
+  for c in 0 1 2 3 4 5 6 7; do
+    pal1="${pal1}$(printf '\033[3%sm███' "$c")"
+    pal2="${pal2}$(printf '\033[9%sm███' "$c")"
+  done
+  INFO+=("")
+  INFO+=("${pal1}${RESET}")
+  INFO+=("${pal2}${RESET}")
+fi
+
+# ---------- print ----------
+echo
+NLOGO=${#LOGO[@]}
+NINFO=${#INFO[@]}
+ROWS=$NLOGO
+[ "$NINFO" -gt "$ROWS" ] && ROWS=$NINFO
+
+i=0
+while [ "$i" -lt "$ROWS" ]; do
+  if [ "$i" -lt "$NLOGO" ]; then
+    line="${LOGO[$i]}"
+    if [ "$USE_COLOR" -eq 1 ]; then
+      if [ "$USE_TRUECOLOR" -eq 1 ]; then
+        n=$((NLOGO - 1))
+        r=$((R1 + (R2 - R1) * i / n))
+        g=$((G1 + (G2 - G1) * i / n))
+        b=$((B1 + (B2 - B1) * i / n))
+        printf '\033[38;2;%d;%d;%dm%s%s' "$r" "$g" "$b" "$line" "$RESET"
+      else
+        printf '\033[38;5;141m%s%s' "$line" "$RESET"
+      fi
+    else
+      printf '%s' "$line"
+    fi
+  else
+    printf '%*s' "$LOGO_W" ''
+  fi
+  printf '%s%s\n' "$GAP" "${INFO[$i]:-}"
+  i=$((i + 1))
+done
+echo
