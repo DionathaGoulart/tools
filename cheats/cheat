@@ -8,6 +8,13 @@ usage() {
   echo "usage: cheat <topic>     — view sheet"
   echo "       cheat -e <topic>  — edit/create sheet"
   echo "       cheat -l          — list sheets"
+  echo "       cheat -s <term>   — search inside all sheets"
+}
+
+valid_topic() {
+  case "$1" in
+    */*|.*|'') echo "invalid topic name: '$1' (no slashes, no leading dot)"; return 1 ;;
+  esac
 }
 
 pick_editor() {
@@ -36,7 +43,21 @@ list() {
   done
 }
 
+search() {
+  if [ -z "${1:-}" ]; then
+    echo "usage: cheat -s <term>"
+    return 1
+  fi
+  matches="$(grep -RIni -- "$1" "$SHEET_DIR" 2>/dev/null)"
+  if [ -z "$matches" ]; then
+    echo "no matches for '$1'"
+    return 1
+  fi
+  echo "$matches" | sed "s|^$SHEET_DIR/||"
+}
+
 show() {
+  valid_topic "$1" || return 1
   if [ -f "$SHEET_DIR/$1" ]; then
     if command -v bat >/dev/null 2>&1; then
       bat --style=plain --paging=never "$SHEET_DIR/$1"
@@ -62,14 +83,16 @@ edit() {
     echo "usage: cheat -e <topic>"
     return 1
   fi
+  valid_topic "$1" || return 1
   mkdir -p "$SHEET_DIR"
   "$(pick_editor)" "$SHEET_DIR/$1"
 }
 
 case "${1:-}" in
-  "")                 usage ;;
-  -h|--help|help)     usage ;;
-  -l|--list|list)     list ;;
-  -e|--edit|edit)     shift; edit "${1:-}" ;;
-  *)                  show "$1" ;;
+  "")                    usage ;;
+  -h|--help|help)        usage ;;
+  -l|--list|list)        list ;;
+  -e|--edit|edit)        shift; edit "${1:-}" ;;
+  -s|--search|search)    shift; search "${1:-}" ;;
+  *)                     show "$1" ;;
 esac
