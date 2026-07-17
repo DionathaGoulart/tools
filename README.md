@@ -19,3 +19,10 @@ Instalação:
 source ~/Desktop/tools/cheats/setup.sh
 # e coloca essa linha no ~/.zshrc
 ```
+
+### [pendrive](./pendrive)
+Guia completo pra usar `pass` (password-store) com um pendrive como cofre de senhas criptografado.
+
+```bash
+bash ~/Desktop/tools/pendrive/setup.sh
+```

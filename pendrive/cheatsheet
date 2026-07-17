@@ -1,0 +1,36 @@
+# pass — colinha rápida
+
+## Básico
+
+| Comando | O que faz |
+|---------|-----------|
+| `pass` | lista todas as senhas |
+| `pass insert github/rafael` | salva nova senha |
+| `pass github/rafael` | mostra a senha |
+| `pass -c github/rafael` | copia pro clipboard (some em 45s) |
+| `pass edit github/rafael` | edita senha existente |
+| `pass rm github/rafael` | remove senha |
+| `pass generate github/rafael 20` | gera senha de 20 caracteres |
+
+## Sincronia com pendrive
+
+| Comando | O que faz |
+|---------|-----------|
+| `pass git push` | salva alterações no pendrive |
+| `pass git pull` | puxa alterações do pendrive |
+| `pass git status` | ver o que mudou |
+| `pass git log` | histórico de alterações |
+
+## Fluxo no fim do dia
+
+```bash
+pass git push          # backup pro pendrive
+# desmonta o pendrive seguro
+```
+
+## Fluxo em outro PC
+
+```bash
+# monta pendrive
+pass git pull          # baixa senhas
+```
