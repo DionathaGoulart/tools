@@ -1,0 +1,10 @@
+lsof -i :3000               # quem está na porta 3000
+kill -9 $(lsof -ti :3000)   # matar processo na porta
+kill -9 $(lsof -ti :3000,:3001)  # múltiplas portas
+
+nc -zv localhost 5432       # testar se porta está aberta
+ping -c 3 google.com        # ping básico
+dig +short google.com       # IP do domínio
+curl -I https://site.com    # ver headers HTTP
+curl -w "\n%{http_code}\n" https://site.com  # só o status code
+ss -tuln                    # todas portas escutando (mac: lsof -iTCP -sTCP:LISTEN -P -n)

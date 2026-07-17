@@ -1,0 +1,11 @@
+tar -czf archive.tar.gz dir/        # criar .tar.gz
+tar -xzf archive.tar.gz             # extrair .tar.gz
+tar -tf archive.tar.gz              # listar conteúdo
+tar -czf archive.tar.gz --exclude='node_modules' dir/   # excluir pasta
+
+tar -cjf archive.tar.bz2 dir/       # criar .tar.bz2
+tar -xjf archive.tar.bz2            # extrair .tar.bz2
+
+tar -xf archive.tar                 # extrair .tar sem compressão
+
+tar -czf - dir/ | ssh user@host tar -xzf - -C /dest  # copiar via ssh

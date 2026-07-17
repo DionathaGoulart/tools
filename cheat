@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# tools/cheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SHEET_DIR="$SCRIPT_DIR/cheats"
+
+show() {
+  if [ -f "$SHEET_DIR/$1" ]; then
+    if command -v bat >/dev/null 2>&1; then
+      bat --style=plain --paging=never "$SHEET_DIR/$1"
+    else
+      cat "$SHEET_DIR/$1"
+    fi
+  else
+    echo "cheat sheet '$1' not found"
+    echo "available:"
+    ls "$SHEET_DIR" 2>/dev/null || echo "  (none yet)"
+  fi
+}
+
+edit() {
+  mkdir -p "$SHEET_DIR"
+  "${EDITOR:-nano}" "$SHEET_DIR/$1"
+}
+
+case "${1:-help}" in
+  -e|--edit|edit)  shift; edit "$1" ;;
+  -l|--list|list)  ls "$SHEET_DIR" 2>/dev/null || echo "(empty)" ;;
+  help)            echo "usage: cheat <topic>     — view"
+                   echo "       cheat -e <topic>  — edit/create"
+                   echo "       cheat -l          — list all" ;;
+  *)               show "$1" ;;
+esac

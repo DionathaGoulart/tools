@@ -1,0 +1,10 @@
+docker ps                    # containers rodando
+docker ps -a                 # todos containers
+docker compose up -d         # subir serviços em background
+docker compose down          # parar tudo
+docker compose logs -f       # logs em tempo real
+docker exec -it <container> sh   # enter no container
+docker system df             # espaço usado
+docker system prune -af      # limpar tudo não usado
+docker stats                 # CPU/memória dos containers
+docker logs <container>      # logs de um container
