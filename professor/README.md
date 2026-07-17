@@ -35,12 +35,18 @@ Precisa de Python 3 e uma chave da [OpenRouter](https://openrouter.ai/keys)
 (grátis).
 
 ```bash
-# 1. chave da API no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
+# 1. chave da API. Duas formas (escolha uma):
+#    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
+#    b) ou num .env dentro desta pasta:
+cp ~/Desktop/tools/professor/.env.example ~/Desktop/tools/professor/.env
+#    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
 bash ~/Desktop/tools/professor/setup.sh
 ```
+
+> A variável exportada no shell tem prioridade sobre o `.env`.
 
 Abra um terminal novo e rode `professor "qualquer coisa"`.
 

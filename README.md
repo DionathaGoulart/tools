@@ -30,10 +30,16 @@ bash ~/Desktop/tools/zapstats/setup.sh
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual.
 
-**Ferramentas de IA** também precisam de uma chave grátis da [OpenRouter](https://openrouter.ai/keys) no seu rc:
+**Ferramentas de IA** também precisam de uma chave grátis da [OpenRouter](https://openrouter.ai/keys). No seu rc:
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
+```
+
+Ou, por ferramenta, copie o `.env.example` da pasta pra `.env` e preencha (o `.env` não é versionado; o env do shell tem prioridade):
+
+```bash
+cp ~/Desktop/tools/professor/.env.example ~/Desktop/tools/professor/.env
 ```
 
 > ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma ferramenta manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.

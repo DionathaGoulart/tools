@@ -50,12 +50,18 @@ Precisa de Python 3. A camada `--roast` também precisa de uma chave da
 [OpenRouter](https://openrouter.ai/keys) (grátis) — sem ela, tudo o mais roda.
 
 ```bash
-# 1. (só pra --roast) chave da API no seu rc:
+# 1. (só pra --roast) chave da API. Duas formas (escolha uma):
+#    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
+#    b) ou num .env dentro desta pasta:
+cp ~/Desktop/tools/zapstats/.env.example ~/Desktop/tools/zapstats/.env
+#    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
 bash ~/Desktop/tools/zapstats/setup.sh
 ```
+
+> A variável exportada no shell tem prioridade sobre o `.env`.
 
 ## Configuração
 

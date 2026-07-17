@@ -1,0 +1,7 @@
+# segredos locais das ferramentas de IA — nunca versionar
+.env
+**/.env
+
+# python
+__pycache__/
+*.pyc

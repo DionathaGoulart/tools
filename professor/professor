@@ -22,6 +22,26 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+def carregar_dotenv():
+    """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
+    está exportado no shell (env real tem prioridade)."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        linhas = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+
+
+carregar_dotenv()
+
 BASE_DIR = Path(os.environ.get("PROFESSOR_DIR", Path.home() / ".professor"))
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"

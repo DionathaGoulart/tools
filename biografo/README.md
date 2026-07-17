@@ -47,12 +47,18 @@ Precisa de Python 3 e uma chave da [OpenRouter](https://openrouter.ai/keys)
 (grátis — só usada pra gerar perguntas, follow-up e capítulos).
 
 ```bash
-# 1. chave da API no seu rc:
+# 1. chave da API. Duas formas (escolha uma):
+#    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
+#    b) ou num .env dentro desta pasta:
+cp ~/Desktop/tools/biografo/.env.example ~/Desktop/tools/biografo/.env
+#    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
 bash ~/Desktop/tools/biografo/setup.sh
 ```
+
+> A variável exportada no shell tem prioridade sobre o `.env`.
 
 ### Lembrete diário (opcional)
 
