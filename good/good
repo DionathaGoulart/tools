@@ -37,8 +37,15 @@ R1=139 G1=92  B1=246
 R2=34  G2=211 B2=238
 if [ -n "${GOOD_COLOR:-}" ]; then
   hex="${GOOD_COLOR#\#}"
-  R1=$((16#${hex:0:2})); G1=$((16#${hex:2:2})); B1=$((16#${hex:4:2}))
-  R2=$R1; G2=$G1; B2=$B1
+  case "$hex" in
+    [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])
+      R1=$((16#${hex:0:2})); G1=$((16#${hex:2:2})); B1=$((16#${hex:4:2}))
+      R2=$R1; G2=$G1; B2=$B1
+      ;;
+    *)
+      echo "good: GOOD_COLOR inválido ('$GOOD_COLOR') — use 6 dígitos hex, ex: GOOD_COLOR=ff5500" >&2
+      ;;
+  esac
 fi
 
 if [ "$USE_COLOR" -eq 1 ]; then
