@@ -5,24 +5,46 @@ Cheatsheets organizadas por tópico. Bater o olho e lembrar.
 ## Uso
 
 ```bash
-source ~/Desktop/tools/cheats/setup.sh   # uma vez no ~/.zshrc
-cheat tar                                  # ver colinha
-cheat -e docker                            # editar/criar
-cheat -l                                   # listar todas
+cheat tar          # ver colinha
+cheat -l           # listar todas (com descrição)
+cheat -e docker    # editar/criar
+cheat -h           # ajuda
 ```
 
-## Adicionar nova
+Se `bat` estiver instalado, usa ele pra exibir; senão, `cat`.
+
+## Instalação
+
+Adicione ao `~/.zshrc`, `~/.bashrc` ou `~/.bash_profile` (Git Bash no Windows):
+
+```bash
+[ -f "$HOME/Desktop/tools/cheats/setup.sh" ] && source "$HOME/Desktop/tools/cheats/setup.sh"
+```
+
+O `setup.sh` detecta o próprio caminho — funciona de qualquer lugar que o repo esteja clonado.
+
+## Estrutura
+
+```
+cheats/
+  cheat        ← o CLI
+  setup.sh     ← adiciona esta pasta ao PATH
+  sheets/      ← as colinhas (uma por arquivo, sem extensão)
+  compose/     ← docker compose files usados pela sheet compose-recipes
+```
+
+## Adicionar nova colinha
 
 ```bash
 cheat -e meu-comando
 ```
 
-Ou crie manualmente um arquivo aqui dentro.
+Ou crie um arquivo em `sheets/`. Dica: comece o arquivo com `# descrição` — a primeira linha aparece no `cheat -l`.
 
 ## Sheets disponíveis
 
-- `tar` — compactar/extrair arquivos
-- `git` — comandos do dia a dia
-- `docker` — containers e compose
-- `network` — portas, DNS, troubleshooting
-- `compose-recipes` — docker compose files prontos
+```bash
+cheat -l
+```
+
+(a lista vem dos arquivos em `sheets/` — sempre atualizada)

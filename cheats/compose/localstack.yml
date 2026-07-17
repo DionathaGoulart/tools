@@ -1,0 +1,13 @@
+name: dev-localstack
+
+services:
+  localstack:
+    image: localstack/localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566"   # endpoint único pra todos os serviços AWS
+    environment:
+      SERVICES: s3,sqs,sns,dynamodb
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"

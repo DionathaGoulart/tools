@@ -1,8 +1,40 @@
 #!/usr/bin/env bash
-# tools/cheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
+# cheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SHEET_DIR="$SCRIPT_DIR"
+SHEET_DIR="$SCRIPT_DIR/sheets"
+
+usage() {
+  echo "usage: cheat <topic>     — view sheet"
+  echo "       cheat -e <topic>  — edit/create sheet"
+  echo "       cheat -l          — list sheets"
+}
+
+pick_editor() {
+  if [ -n "${EDITOR:-}" ]; then
+    echo "$EDITOR"
+  elif command -v nano >/dev/null 2>&1; then
+    echo "nano"
+  else
+    echo "vi"
+  fi
+}
+
+list() {
+  if [ ! -d "$SHEET_DIR" ] || [ -z "$(ls -A "$SHEET_DIR" 2>/dev/null)" ]; then
+    echo "(no sheets yet — create one with: cheat -e <topic>)"
+    return
+  fi
+  for f in "$SHEET_DIR"/*; do
+    [ -f "$f" ] || continue
+    desc="$(head -1 "$f")"
+    case "$desc" in
+      '#'*) desc="$(echo "$desc" | sed 's/^# *//')" ;;
+      *)    desc="" ;;
+    esac
+    printf "%-18s %s\n" "$(basename "$f")" "$desc"
+  done
+}
 
 show() {
   if [ -f "$SHEET_DIR/$1" ]; then
@@ -13,21 +45,31 @@ show() {
     fi
   else
     echo "cheat sheet '$1' not found"
-    echo "available:"
-    ls "$SHEET_DIR" 2>/dev/null || echo "  (none yet)"
+    matches="$(ls "$SHEET_DIR" 2>/dev/null | grep -i -- "$1")"
+    if [ -n "$matches" ]; then
+      echo "did you mean:"
+      echo "$matches" | sed 's/^/  /'
+    else
+      echo "available:"
+      list | sed 's/^/  /'
+    fi
+    return 1
   fi
 }
 
 edit() {
+  if [ -z "${1:-}" ]; then
+    echo "usage: cheat -e <topic>"
+    return 1
+  fi
   mkdir -p "$SHEET_DIR"
-  "${EDITOR:-nano}" "$SHEET_DIR/$1"
+  "$(pick_editor)" "$SHEET_DIR/$1"
 }
 
-case "${1:-help}" in
-  -e|--edit|edit)  shift; edit "$1" ;;
-  -l|--list|list)  ls "$SHEET_DIR" 2>/dev/null || echo "(empty)" ;;
-  help)            echo "usage: cheat <topic>     — view"
-                   echo "       cheat -e <topic>  — edit/create"
-                   echo "       cheat -l          — list all" ;;
-  *)               show "$1" ;;
+case "${1:-}" in
+  "")                 usage ;;
+  -h|--help|help)     usage ;;
+  -l|--list|list)     list ;;
+  -e|--edit|edit)     shift; edit "${1:-}" ;;
+  *)                  show "$1" ;;
 esac

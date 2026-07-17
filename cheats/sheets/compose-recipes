@@ -1,0 +1,19 @@
+# Docker compose files prontos (em cheats/compose/)
+
+COMPOSE=~/Desktop/tools/cheats/compose   # ajuste se clonou em outro lugar
+
+## Postgres + Redis (postgres:5432, redis:6379 — user/senha/db: dev)
+docker compose -f $COMPOSE/postgres-redis.yml up -d
+
+## MailHog (SMTP dev — smtp:1025, ui: http://localhost:8025)
+docker compose -f $COMPOSE/mailhog.yml up -d
+
+## LocalStack (AWS local — s3/sqs/sns/dynamodb em localhost:4566)
+docker compose -f $COMPOSE/localstack.yml up -d
+
+## Todas as stacks de uma vez
+docker compose -f $COMPOSE/postgres-redis.yml -f $COMPOSE/mailhog.yml up -d
+
+## Derrubar (mesmo -f que subiu)
+docker compose -f $COMPOSE/postgres-redis.yml down       # mantém dados
+docker compose -f $COMPOSE/postgres-redis.yml down -v    # apaga volume

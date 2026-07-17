@@ -1,0 +1,9 @@
+name: dev-mailhog
+
+services:
+  mailhog:
+    image: mailhog/mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP — aponte seu app pra localhost:1025
+      - "8025:8025"   # UI web — http://localhost:8025
