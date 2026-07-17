@@ -18,7 +18,7 @@ pendrive (git bare repo)  ←→  ~/.password-store (local)
 ## Setup rápido
 
 ```bash
-bash ~/Desktop/tools/pendrive/setup.sh
+bash ~/Desktop/tools/goodpen/pendrive/setup.sh
 ```
 
 O script faz tudo:

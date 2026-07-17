@@ -21,11 +21,11 @@ Instalação (uma vez):
 
 > O caminho é detectado automaticamente — se clonar o repo em outro lugar, só ajuste a linha acima.
 
-## Cofre de senhas — duas versões da mesma ideia
+## [goodpen](./goodpen) — cofre de senhas em duas versões
 
-Existem **duas** ferramentas aqui pra guardar senhas criptografadas com backup em pendrive. Fazem **a mesma coisa** — mudam só o "como". Escolha uma:
+Dentro de [`goodpen/`](./goodpen) tem **duas** ferramentas pra guardar senhas criptografadas com backup em pendrive. Fazem **a mesma coisa** — mudam só o "como". Escolha uma:
 
-| | [**cofre**](./cofre) | [**pendrive**](./pendrive) |
+| | [**cofre**](./goodpen/cofre) | [**pendrive**](./goodpen/pendrive) |
 |---|---|---|
 | O que é | Um programa próprio (binário único) | Guia + script que configuram ferramentas prontas |
 | Motor | age (embutido no binário) | `pass` + `gpg` + `git` (instala no sistema) |
@@ -40,22 +40,22 @@ Existem **duas** ferramentas aqui pra guardar senhas criptografadas com backup e
 
 **Regra rápida:** quer simplicidade, QR e rodar em qualquer sistema sem instalar nada → **cofre**. Quer o padrão consagrado e usar apps de celular/extensão de browser → **pendrive**. São independentes; teste os dois e fique com o que gostar.
 
-### [cofre](./cofre) — a versão programinha
+### [cofre](./goodpen/cofre) — a versão programinha
 
 ```bash
 cofre          # menu no terminal
 cofre web      # interface no navegador
 ```
 
-Um executável único (Windows/macOS/Linux), zero dependências, backup da chave por QR code (escaneia e guarda no Bitwarden). Detalhes em [cofre/README.md](./cofre/README.md).
+Um executável único (Windows/macOS/Linux), zero dependências, backup da chave por QR code (escaneia e guarda no Bitwarden). Detalhes em [goodpen/cofre/README.md](./goodpen/cofre/README.md).
 
-### [pendrive](./pendrive) — a versão "ferramentas Unix"
+### [pendrive](./goodpen/pendrive) — a versão "ferramentas Unix"
 
 ```bash
-bash ~/Desktop/tools/pendrive/setup.sh
+bash ~/Desktop/tools/goodpen/pendrive/setup.sh
 ```
 
-Configura `pass` (password-store) + GPG + git com um pendrive como cofre. Padrão da indústria, integra com apps de celular e browser. Guia completo em [pendrive/README.md](./pendrive/README.md).
+Configura `pass` (password-store) + GPG + git com um pendrive como cofre. Padrão da indústria, integra com apps de celular e browser. Guia completo em [goodpen/pendrive/README.md](./goodpen/pendrive/README.md).
 
 ## Estrutura
 
@@ -66,11 +66,12 @@ tools/
     setup.sh         ← adiciona ao PATH
     sheets/          ← as colinhas (uma por arquivo)
     compose/         ← docker compose files prontos
-  cofre/             ← cofre de senhas (programinha, binário único)
-    *.go             ← o código (Go)
-    README.md        ← uso, build e modelo de segurança
-  pendrive/          ← cofre de senhas (pass + gpg + git)
-    setup.sh         ← setup interativo
-    README.md        ← guia completo
-    cheatsheet       ← colinha do pass
+  goodpen/           ← cofre de senhas (duas versões)
+    cofre/           ← versão programinha (binário único, Go)
+      *.go           ← o código
+      README.md      ← uso, build e modelo de segurança
+    pendrive/        ← versão pass + gpg + git
+      setup.sh       ← setup interativo
+      README.md      ← guia completo
+      cheatsheet     ← colinha do pass
 ```
