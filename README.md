@@ -21,20 +21,41 @@ Instalação (uma vez):
 
 > O caminho é detectado automaticamente — se clonar o repo em outro lugar, só ajuste a linha acima.
 
-### [pendrive](./pendrive)
-Guia completo pra usar `pass` (password-store) com um pendrive como cofre de senhas criptografado.
+## Cofre de senhas — duas versões da mesma ideia
 
-```bash
-bash ~/Desktop/tools/pendrive/setup.sh
-```
+Existem **duas** ferramentas aqui pra guardar senhas criptografadas com backup em pendrive. Fazem **a mesma coisa** — mudam só o "como". Escolha uma:
 
-### [cofre](./cofre)
-O mesmo cofre de senhas em versão **programinha**: um executável único (Windows/macOS/Linux), zero dependências, menu no terminal + interface no navegador, backup da chave por QR code (escaneia e guarda no Bitwarden).
+| | [**cofre**](./cofre) | [**pendrive**](./pendrive) |
+|---|---|---|
+| O que é | Um programa próprio (binário único) | Guia + script que configuram ferramentas prontas |
+| Motor | age (embutido no binário) | `pass` + `gpg` + `git` (instala no sistema) |
+| Dependências | **Zero** — só baixar o executável | Precisa instalar 3 programas |
+| Windows | Roda nativo (`.exe`) | Só via WSL / Git Bash |
+| Interface | Menu no terminal **+ web no navegador** | Linha de comando pura |
+| Criptografia | X25519 (age) | RSA 4096 (GPG) — as duas são fortes |
+| Backup da chave | **QR code** (cabe no Bitwarden) | Arquivo de ~7KB (sem QR) |
+| Esqueceu a passphrase | Recupera com o QR da chave | Perdeu tudo |
+| Gera passphrase forte | Sim (`cofre frase`) | Não |
+| Apps de celular / browser | Não (formato próprio) | Sim (ecossistema `pass`) |
+
+**Regra rápida:** quer simplicidade, QR e rodar em qualquer sistema sem instalar nada → **cofre**. Quer o padrão consagrado e usar apps de celular/extensão de browser → **pendrive**. São independentes; teste os dois e fique com o que gostar.
+
+### [cofre](./cofre) — a versão programinha
 
 ```bash
 cofre          # menu no terminal
 cofre web      # interface no navegador
 ```
+
+Um executável único (Windows/macOS/Linux), zero dependências, backup da chave por QR code (escaneia e guarda no Bitwarden). Detalhes em [cofre/README.md](./cofre/README.md).
+
+### [pendrive](./pendrive) — a versão "ferramentas Unix"
+
+```bash
+bash ~/Desktop/tools/pendrive/setup.sh
+```
+
+Configura `pass` (password-store) + GPG + git com um pendrive como cofre. Padrão da indústria, integra com apps de celular e browser. Guia completo em [pendrive/README.md](./pendrive/README.md).
 
 ## Estrutura
 
@@ -45,11 +66,11 @@ tools/
     setup.sh         ← adiciona ao PATH
     sheets/          ← as colinhas (uma por arquivo)
     compose/         ← docker compose files prontos
-  pendrive/
-    setup.sh         ← setup interativo do pass + pendrive
+  cofre/             ← cofre de senhas (programinha, binário único)
+    *.go             ← o código (Go)
+    README.md        ← uso, build e modelo de segurança
+  pendrive/          ← cofre de senhas (pass + gpg + git)
+    setup.sh         ← setup interativo
     README.md        ← guia completo
     cheatsheet       ← colinha do pass
-  cofre/
-    *.go             ← o programinha (Go, binário único)
-    README.md        ← uso, build e modelo de segurança
 ```
