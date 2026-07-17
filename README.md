@@ -2,7 +2,45 @@
 
 Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scripts leves, portáteis e sem dependências — funcionam em macOS, Linux e Windows (Git Bash / WSL).
 
-## Ferramentas
+## Índice
+
+| Ferramenta | Comando | O que faz |
+|---|---|---|
+| **Terminal** | | |
+| [cheats](./cheats) | `cheat` | Cheatsheets de comandos que eu sempre esqueço |
+| [good](./good) | `good` | Fetch de sistema estilo neofetch com logo em ASCII |
+| **IA** (OpenRouter `:free`) | | |
+| [professor](./professor) | `professor` | Estudo Feynman invertido: te sabatina até você dominar |
+| [biografo](./biografo) | `biografo` | Sua autobiografia, uma pergunta por dia |
+| [zapstats](./zapstats) | `zapstats` | Retrô de uma conversa exportada do WhatsApp |
+| **Senhas** | | |
+| [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
+
+## Instalação
+
+Cada ferramenta tem um `setup.sh` que a adiciona ao `PATH`. Rode uma vez a(s) que quiser:
+
+```bash
+bash ~/Desktop/tools/cheats/setup.sh
+bash ~/Desktop/tools/good/setup.sh
+bash ~/Desktop/tools/professor/setup.sh
+bash ~/Desktop/tools/biografo/setup.sh
+bash ~/Desktop/tools/zapstats/setup.sh
+```
+
+Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual.
+
+**Ferramentas de IA** também precisam de uma chave grátis da [OpenRouter](https://openrouter.ai/keys) no seu rc:
+
+```bash
+export OPENROUTER_API_KEY="sk-or-..."
+```
+
+> ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma ferramenta manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.
+
+---
+
+## Terminal
 
 ### [cheats](./cheats)
 Cheatsheets de comandos que eu sempre esqueço. Mais rápido que abrir o Google.
@@ -13,11 +51,6 @@ cheat -l           # listar todas
 cheat -e docker    # editar ou criar nova
 ```
 
-Instalação (uma vez):
-```bash
-bash ~/Desktop/tools/cheats/setup.sh   # instala no ~/.zshrc (ou ~/.bashrc)
-```
-
 ### [good](./good)
 Fetch de sistema estilo neofetch, com o logo good em ASCII art colorido. Mostra OS, kernel, uptime, CPU, GPU, memória, disco, pacotes e bateria.
 
@@ -26,22 +59,11 @@ good            # logo + infos do sistema
 good --refresh  # refaz o cache de hardware
 ```
 
-Instalação (uma vez):
-```bash
-bash ~/Desktop/tools/good/setup.sh     # instala no ~/.zshrc (ou ~/.bashrc)
-```
+---
 
-> Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. Depois de instalar, abra um terminal novo ou rode `source ~/.zshrc`.
+## IA
 
-## Ferramentas com IA
-
-Usam a [OpenRouter](https://openrouter.ai) com modelos `:free` (sufixo `:free`) — de graça, sem cartão. Só precisam de uma chave e da variável `OPENROUTER_API_KEY` no seu rc:
-
-```bash
-export OPENROUTER_API_KEY="sk-or-..."   # chave grátis em https://openrouter.ai/keys
-```
-
-> ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma destas ferramentas manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.
+Usam a [OpenRouter](https://openrouter.ai) com modelos `:free` — de graça, sem cartão. Precisam do `OPENROUTER_API_KEY` (veja [Instalação](#instalação)). Todas aceitam `-m` pra listar os modelos disponíveis no momento e `OPENROUTER_MODEL` pra escolher outro.
 
 ### [professor](./professor)
 Estudo pela técnica Feynman invertida: você explica um assunto, ele fura sua explicação com perguntas socráticas até você travar ou provar que domina. Nunca entrega a resposta.
@@ -70,14 +92,11 @@ zapstats conversa.txt --roast            # + resumo e roast
 zapstats conversa.txt --html retro.html  # retrô visual
 ```
 
-Instalação (uma vez, cada uma):
-```bash
-bash ~/Desktop/tools/professor/setup.sh
-bash ~/Desktop/tools/biografo/setup.sh
-bash ~/Desktop/tools/zapstats/setup.sh
-```
+---
 
-## [goodpen](./goodpen) — cofre de senhas em duas versões
+## Senhas
+
+### [goodpen](./goodpen) — cofre de senhas em duas versões
 
 Dentro de [`goodpen/`](./goodpen) tem **duas** ferramentas pra guardar senhas criptografadas com backup em pendrive. Fazem **a mesma coisa** — mudam só o "como". Escolha uma:
 
@@ -96,51 +115,47 @@ Dentro de [`goodpen/`](./goodpen) tem **duas** ferramentas pra guardar senhas cr
 
 **Regra rápida:** quer simplicidade, QR e rodar em qualquer sistema sem instalar nada → **standalone**. Quer o padrão consagrado e usar apps de celular/extensão de browser → **pass-store**. São independentes; teste os dois e fique com o que gostar.
 
-### [standalone](./goodpen/standalone) — a versão programinha (o `cofre`)
-
 ```bash
+# standalone — executável único, zero dependências, backup por QR code
 cofre          # menu no terminal
 cofre web      # interface no navegador
-```
 
-Um executável único chamado `cofre` (Windows/macOS/Linux), zero dependências, backup da chave por QR code (escaneia e guarda no Bitwarden). Detalhes em [goodpen/standalone/README.md](./goodpen/standalone/README.md).
-
-### [pass-store](./goodpen/pass-store) — a versão "ferramentas Unix"
-
-```bash
+# pass-store — pass + gpg + git com pendrive como cofre
 bash ~/Desktop/tools/goodpen/pass-store/setup.sh
 ```
 
-Configura `pass` (password-store) + GPG + git com um pendrive como cofre. Padrão da indústria, integra com apps de celular e browser. Guia completo em [goodpen/pass-store/README.md](./goodpen/pass-store/README.md).
+Detalhes em [goodpen/standalone/README.md](./goodpen/standalone/README.md) e [goodpen/pass-store/README.md](./goodpen/pass-store/README.md).
+
+---
 
 ## Estrutura
 
 ```
 tools/
-  cheats/
-    cheat            ← o CLI
-    setup.sh         ← adiciona ao PATH
-    sheets/          ← as colinhas (uma por arquivo)
-    compose/         ← docker compose files prontos
-  good/
-    good             ← o CLI (fetch de sistema com o logo)
-    setup.sh         ← adiciona ao PATH
-    logo.svg         ← o logo original
+  cheats/            ← cheatsheets de comandos
+    cheat              ← o CLI
+    setup.sh           ← adiciona ao PATH
+    sheets/            ← as colinhas (uma por arquivo)
+    compose/           ← docker compose files prontos
+  good/              ← fetch de sistema com logo
+    good               ← o CLI
+    setup.sh           ← adiciona ao PATH
+    logo.svg           ← o logo original
   professor/         ← estudo Feynman invertido (OpenRouter :free)
-    professor        ← o CLI
-    setup.sh         ← adiciona ao PATH
+    professor          ← o CLI
+    setup.sh           ← adiciona ao PATH
   biografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
-    biografo         ← o CLI
-    setup.sh         ← adiciona ao PATH
+    biografo           ← o CLI
+    setup.sh           ← adiciona ao PATH
   zapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
-    zapstats         ← o CLI
-    setup.sh         ← adiciona ao PATH
+    zapstats           ← o CLI
+    setup.sh           ← adiciona ao PATH
   goodpen/           ← cofre de senhas (duas versões)
-    standalone/      ← versão programinha (binário único `cofre`, Go)
-      *.go           ← o código
-      README.md      ← uso, build e modelo de segurança
-    pass-store/      ← versão pass + gpg + git
-      setup.sh       ← setup interativo
-      README.md      ← guia completo
-      cheatsheet     ← colinha do pass
+    standalone/        ← binário único `cofre` (Go), backup por QR
+      *.go               ← o código
+      README.md          ← uso, build e modelo de segurança
+    pass-store/        ← pass + gpg + git com pendrive
+      setup.sh           ← setup interativo
+      README.md          ← guia completo
+      cheatsheet         ← colinha do pass
 ```
