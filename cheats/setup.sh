@@ -5,7 +5,7 @@
 #   or:  . setup.sh
 #
 # Add this line to ~/.zshrc, ~/.bashrc, or ~/.bash_profile:
-#   [ -f "$HOME/Desktop/tools/setup.sh" ] && source "$HOME/Desktop/tools/setup.sh"
+#   [ -f "$HOME/Desktop/tools/cheats/setup.sh" ] && source "$HOME/Desktop/tools/cheats/setup.sh"
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 

@@ -1,50 +1,21 @@
-# tools/ — utilitários de terminal
+# tools
 
-Coleção de scripts e cheatsheets portáteis pra macOS, Linux e Windows (Git Bash).
+Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scripts leves, portáteis e sem dependências — funcionam em macOS, Linux e Windows (Git Bash).
 
-## Estrutura
+## Ferramentas
 
-```
-tools/
-  cheat       — visualizador de cheatsheets
-  setup.sh    — adiciona tools/ ao PATH
-  cheats/     — coleção de cheatsheets
-    tar
-    git
-    docker
-    network
-    compose-recipes
-```
-
-## Uso rápido
-
-### 1. Adicionar ao PATH (uma vez)
-
-No **~/.zshrc**, **~/.bashrc** ou **~/.bash_profile**:
+### [cheats](./cheats)
+Cheatsheets de comandos que eu sempre esqueço. Mais rápido que abir o Google.
 
 ```bash
-source ~/Desktop/tools/setup.sh
-```
-
-Depois recarregue: `source ~/.zshrc`
-
-### 2. Usar
-
-```bash
-cheat tar          # ver cheatsheet de tar
-cheat git          # ver cheatsheet de git
+cheat tar
+cheat git
 cheat -l           # listar todas
-cheat -e docker    # editar ou criar uma nova
+cheat -e docker    # editar ou criar nova
 ```
 
-## Adicionar novas cheatsheets
-
+Instalação:
 ```bash
-cheat -e meu-comando
+source ~/Desktop/tools/cheats/setup.sh
+# e coloca essa linha no ~/.zshrc
 ```
-
-Ou crie manualmente um arquivo em `tools/cheats/`.
-
-## Windows
-
-Funciona no **Git Bash** (incluso no Git for Windows). No PowerShell, use `wsl` ou o Git Bash.

@@ -2,7 +2,7 @@
 # tools/cheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SHEET_DIR="$SCRIPT_DIR/cheats"
+SHEET_DIR="$SCRIPT_DIR"
 
 show() {
   if [ -f "$SHEET_DIR/$1" ]; then
