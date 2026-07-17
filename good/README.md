@@ -47,7 +47,11 @@ Isso adiciona a linha de `source` no seu `~/.zshrc` (ou `~/.bashrc`). Depois abr
 ## Personalização
 
 ```bash
-GOOD_COLOR=ff5500 good   # logo em cor sólida (hex, com ou sem #)
+GOOD_COLOR=ff5500 good   # logo em cor sólida (6 dígitos hex, com ou sem #)
 ```
 
 O logo em ASCII foi gerado a partir de `logo.svg` (rasterizado e amostrado em half-blocks `▀▄█`). O SVG original fica em [`logo.svg`](./logo.svg).
+
+---
+
+↩ [Voltar pro índice de ferramentas](../README.md)

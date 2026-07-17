@@ -94,13 +94,13 @@ git push --set-upstream origin "$(git branch --show-current)"
 
 ```bash
 # Salvar senha
-pass insert github.com/DionathaGoulart
+pass insert github/rafael
 
 # Ver
-pass github.com/DionathaGoulart
+pass github/rafael
 
 # Copiar pro clipboard
-pass -c github.com/DionathaGoulart
+pass -c github/rafael
 
 # Gerar senha aleatória
 pass generate email/contato 20
@@ -123,7 +123,7 @@ pass git pull
 gpg --import backup-chave-gpg.asc
 
 # 2. Marca a chave como confiável
-gpg --edit-key dionatha.work@gmail.com
+gpg --edit-key seu@email.com
 # > trust > 5 > y > quit
 
 # 3. Clona do pendrive
@@ -136,8 +136,8 @@ pass
 ## Organização sugerida
 
 ```
-pass insert github.com/DionathaGoulart
-pass insert github.com/pessoal
+pass insert github/pessoal
+pass insert github/trabalho
 pass insert email/gmail
 pass insert email/trabalho
 pass insert server/vps-root
@@ -152,15 +152,15 @@ pass insert banco/nubank
 - **Perdeu a chave GPG?** Perdeu as senhas. **Faça backup da chave:**
 
 ```bash
-gpg --export-secret-keys --armor "dionatha.work@gmail.com" > backup-chave-gpg.asc
+gpg --export-secret-keys --armor "seu@email.com" > backup-chave-gpg.asc
 # Guarda esse arquivo em outro lugar seguro (NÃO no mesmo pendrive)
 ```
 
 ## Backup no GitHub (opcional)
 
 ```bash
-# GitHub como remote extra
-pass git remote add backup https://github.com/DionathaGoulart/pass-backup
+# GitHub como remote extra (crie um repo PRIVADO antes)
+pass git remote add backup https://github.com/SEU_USUARIO/pass-backup
 pass git push backup "$(git -C ~/.password-store branch --show-current)"
 ```
 
@@ -185,3 +185,9 @@ O repositório git é **bare** — não mexe nos seus outros arquivos. Funciona 
 | `pass grep "banco"` | buscar senha |
 | `pass git log --oneline` | histórico de alterações |
 | `PASSWORD_STORE_DIR=/Volumes/OUTRO/.password-store pass` | usar outro store |
+
+Colinha completa em [`cheatsheet`](./cheatsheet).
+
+---
+
+↩ [goodpen](../README.md) · [índice de ferramentas](../../README.md)

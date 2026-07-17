@@ -6,22 +6,23 @@ Versão "programinha" do cofre de senhas: **um executável só, zero dependênci
 
 ## Instalar
 
-Baixe (ou compile) o binário do seu sistema e coloque no PATH:
+Compile (requer [Go](https://go.dev/dl/)) e coloque o binário no PATH:
+
+```bash
+cd ~/Desktop/tools/goodpen/standalone
+go build -o cofre .        # só pro seu sistema
+bash build.sh              # ou todas as plataformas de uma vez → dist/
+```
+
+O `build.sh` gera em `dist/` (a pasta não é versionada — os binários são
+buildados localmente):
 
 | Sistema | Binário |
 |---------|---------|
 | Windows | `cofre-windows.exe` |
-| macOS (M1/M2/M3) | `cofre-mac-m1` |
+| macOS (Apple Silicon) | `cofre-mac-m1` |
 | macOS (Intel) | `cofre-mac-intel` |
 | Linux | `cofre-linux` |
-
-Compilar do código (requer Go):
-
-```bash
-cd cofre
-go build -o cofre .                      # pro seu sistema
-GOOS=windows GOARCH=amd64 go build .     # cross-compile
-```
 
 ## Usar
 
@@ -81,15 +82,13 @@ Detalhe legal: **salvar senha não pede passphrase** (criptografa com a chave p�
 
 > Diferente do GPG: se você esquecer a passphrase mas TIVER o backup da chave (QR/papel/Bitwarden), não perdeu nada — a chave do backup é a chave "crua", e o `restore` deixa você escolher uma passphrase nova.
 
-## cofre vs pendrive/ (pass + GPG)
+## cofre vs pass-store (pass + GPG)
 
-| | `cofre` | `pass` + GPG |
-|---|---|---|
-| Dependências | zero | pass, gpg, git |
-| Windows | binário nativo | WSL/Git Bash |
-| Backup de chave por QR | ✅ (~74 chars) | ❌ (RSA não cabe) |
-| Interface web local | ✅ | ❌ |
-| Histórico git completo | ❌ (espelho simples) | ✅ |
-| Ecossistema (apps celular, extensões) | ❌ | ✅ |
+Comparação completa das duas versões no [README do goodpen](../README.md).
+Resumo: o `cofre` ganha em simplicidade (zero dependências, Windows nativo,
+QR, interface web); o `pass` ganha em ecossistema (apps de celular, extensões
+de browser, histórico git). São independentes — use o que preferir.
 
-Os dois cofres são independentes — use o que preferir.
+---
+
+↩ [goodpen](../README.md) · [índice de ferramentas](../../README.md)

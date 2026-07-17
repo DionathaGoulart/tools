@@ -7,11 +7,13 @@ Cheatsheets organizadas por tópico. Bater o olho e lembrar.
 ```bash
 cheat tar          # ver colinha
 cheat -l           # listar todas (com descrição)
+cheat -s porta     # buscar um termo dentro de todas as colinhas
 cheat -e docker    # editar/criar
 cheat -h           # ajuda
 ```
 
-Se `bat` estiver instalado, usa ele pra exibir; senão, `cat`.
+Se `bat` estiver instalado, usa ele pra exibir; senão, `cat`. Errou o nome?
+Ele sugere os parecidos (`cheat dock` → "did you mean: docker").
 
 ## Instalação
 
@@ -46,3 +48,7 @@ cheat -l
 ```
 
 (a lista vem dos arquivos em `sheets/` — sempre atualizada)
+
+---
+
+↩ [Voltar pro índice de ferramentas](../README.md)

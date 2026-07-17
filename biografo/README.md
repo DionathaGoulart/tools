@@ -8,6 +8,7 @@ biografia escritos em texto corrido, na sua voz.
 ```bash
 biografo               # a pergunta de hoje (responde e salva)
 biografo -f            # pergunta personalizada, baseada nas suas últimas respostas
+biografo -x            # responder outra mesmo já tendo respondido hoje (combina com -f)
 biografo capitulo      # gera a biografia a partir de tudo que você já respondeu
 biografo -l            # lista as respostas e o status da fila
 biografo perguntas     # reabastece o banco de perguntas manualmente
@@ -82,3 +83,7 @@ export BIOGRAFO_LEMBRETE=1
 
 `~/.biografo` é só Markdown e JSON — rode `git init` lá dentro e você ganha
 backup e histórico de toda a sua biografia de graça.
+
+---
+
+↩ [Voltar pro índice de ferramentas](../README.md)

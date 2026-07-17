@@ -62,7 +62,19 @@ Os modelos `:free` da OpenRouter mudam com o tempo e às vezes caem. O script
 tenta uma lista em ordem; se todos falharem, rode `professor -m` pra ver os que
 estão no ar e ajuste `OPENROUTER_MODEL`.
 
+## Privacidade
+
+Tudo que você digita numa sessão vai pro modelo — é assim que ele te sabatina.
+A API `:free` da OpenRouter pode usar prompts pra treino, então trate a sessão
+como pública: ótimo pra estudar DNS, TCP, SOLID; péssimo pra colar trecho de
+código proprietário ou dado de cliente. As sessões salvas em `~/.professor/`
+ficam só na sua máquina.
+
 ## Dica
 
 `~/.professor` é uma pasta de Markdown — vira um `git init` e você tem backup e
 histórico de tudo que já estudou de graça.
+
+---
+
+↩ [Voltar pro índice de ferramentas](../README.md)

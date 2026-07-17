@@ -54,6 +54,7 @@ Cheatsheets de comandos que eu sempre esqueço. Mais rápido que abrir o Google.
 ```bash
 cheat tar          # ver colinha
 cheat -l           # listar todas
+cheat -s porta     # buscar termo dentro de todas
 cheat -e docker    # editar ou criar nova
 ```
 
@@ -104,33 +105,25 @@ zapstats conversa.txt --html retro.html  # retrô visual
 
 ### [goodpen](./goodpen) — cofre de senhas em duas versões
 
-Dentro de [`goodpen/`](./goodpen) tem **duas** ferramentas pra guardar senhas criptografadas com backup em pendrive. Fazem **a mesma coisa** — mudam só o "como". Escolha uma:
+**Duas** ferramentas pra guardar senhas criptografadas com backup em pendrive.
+Fazem a mesma coisa — mudam só o "como":
 
-| | [**standalone**](./goodpen/standalone) | [**pass-store**](./goodpen/pass-store) |
-|---|---|---|
-| O que é | Um programa próprio (binário único) | Guia + script que configuram ferramentas prontas |
-| Motor | age (embutido no binário) | `pass` + `gpg` + `git` (instala no sistema) |
-| Dependências | **Zero** — só baixar o executável | Precisa instalar 3 programas |
-| Windows | Roda nativo (`.exe`) | Só via WSL / Git Bash |
-| Interface | Menu no terminal **+ web no navegador** | Linha de comando pura |
-| Criptografia | X25519 (age) | RSA 4096 (GPG) — as duas são fortes |
-| Backup da chave | **QR code** (cabe no Bitwarden) | Arquivo de ~7KB (sem QR) |
-| Esqueceu a passphrase | Recupera com o QR da chave | Perdeu tudo |
-| Gera passphrase forte | Sim (`cofre frase`) | Não |
-| Apps de celular / browser | Não (formato próprio) | Sim (ecossistema `pass`) |
-
-**Regra rápida:** quer simplicidade, QR e rodar em qualquer sistema sem instalar nada → **standalone**. Quer o padrão consagrado e usar apps de celular/extensão de browser → **pass-store**. São independentes; teste os dois e fique com o que gostar.
+- [**standalone**](./goodpen/standalone) (`cofre`) — binário único, zero
+  dependências, roda nativo até no Windows. Criptografia age, interface web
+  local e backup da chave por **QR code**. Compile com
+  `bash goodpen/standalone/build.sh`.
+- [**pass-store**](./goodpen/pass-store) (`pass`) — o padrão consagrado do
+  Unix (`pass` + `gpg` + `git`), com pendrive como remote e acesso ao
+  ecossistema de apps de celular e extensões de browser. Configure com
+  `bash goodpen/pass-store/setup.sh`.
 
 ```bash
-# standalone — executável único, zero dependências, backup por QR code
+# standalone
 cofre          # menu no terminal
 cofre web      # interface no navegador
-
-# pass-store — pass + gpg + git com pendrive como cofre
-bash ~/Desktop/tools/goodpen/pass-store/setup.sh
 ```
 
-Detalhes em [goodpen/standalone/README.md](./goodpen/standalone/README.md) e [goodpen/pass-store/README.md](./goodpen/pass-store/README.md).
+Comparação completa e regra de escolha em [goodpen/README.md](./goodpen/README.md).
 
 ---
 
@@ -150,15 +143,20 @@ tools/
   professor/         ← estudo Feynman invertido (OpenRouter :free)
     professor          ← o CLI
     setup.sh           ← adiciona ao PATH
+    .env.example       ← modelo de config local
   biografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
     biografo           ← o CLI
-    setup.sh           ← adiciona ao PATH
+    setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
+    .env.example       ← modelo de config local
   zapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
     zapstats           ← o CLI
     setup.sh           ← adiciona ao PATH
+    .env.example       ← modelo de config local
   goodpen/           ← cofre de senhas (duas versões)
+    README.md          ← comparação e regra de escolha
     standalone/        ← binário único `cofre` (Go), backup por QR
       *.go               ← o código
+      build.sh           ← cross-compila pra todas as plataformas → dist/
       README.md          ← uso, build e modelo de segurança
     pass-store/        ← pass + gpg + git com pendrive
       setup.sh           ← setup interativo

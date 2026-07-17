@@ -20,7 +20,8 @@ zapstats -m                                 # lista modelos :free disponíveis
 
 No WhatsApp: abra a conversa → menu → **Exportar conversa** → **Sem mídia**.
 Você recebe um `.txt`. É esse arquivo que o `zapstats` lê. Funciona com export
-de iPhone e de Android (formatos diferentes, ambos suportados) e com conversas
+de iPhone e de Android (formatos diferentes, ambos suportados), com datas
+`dd/mm` ou `mm/dd` (detecta sozinho olhando o arquivo inteiro) e com conversas
 de duas pessoas ou de grupo.
 
 ## O que ele calcula (offline)
@@ -38,11 +39,15 @@ de duas pessoas ou de grupo.
 Adiciona um resumo narrativo da dinâmica, frases icônicas reais, apelidos
 detectados e um roast bem-humorado de cada um.
 
-**Privacidade:** por padrão os nomes são trocados por "Pessoa A/B" **antes** de
-sair da máquina, e recolocados no texto final localmente. Só uma amostra de
-mensagens (as mais longas) é enviada, nunca a conversa inteira. Ainda assim, a
-API `:free` da OpenRouter pode usar prompts pra treino — não rode `--roast` em
-conversa com dado sensível. `--reais` desliga a anonimização (mais divertido, menos privado).
+## Privacidade
+
+- **Sem `--roast`**: 100% offline. Nada sai da máquina, nunca.
+- **Com `--roast`**: por padrão os nomes são trocados por "Pessoa A/B" **antes**
+  de sair da máquina, e recolocados no texto final localmente. Só uma amostra
+  de mensagens (as mais longas) é enviada, nunca a conversa inteira.
+- Ainda assim, a API `:free` da OpenRouter pode usar prompts pra treino — não
+  rode `--roast` em conversa com dado sensível.
+- `--reais` desliga a anonimização (mais divertido, menos privado).
 
 ## Instalação
 
@@ -69,3 +74,7 @@ bash ~/Desktop/tools/zapstats/setup.sh
 |---|---|---|
 | `OPENROUTER_API_KEY` | sua chave (só necessária pra `--roast`) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
+
+---
+
+↩ [Voltar pro índice de ferramentas](../README.md)
