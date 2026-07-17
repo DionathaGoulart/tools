@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+professor — técnica Feynman invertida no terminal.
+
+Você explica um assunto com suas palavras; um professor socrático (LLM via
+OpenRouter, modelos :free) aponta buracos e faz perguntas até você travar ou
+provar que domina. Sessões ficam em ~/.professor/<tópico>/ e podem ser
+revisadas depois com `professor -r`.
+
+Requer: Python 3 e a variável de ambiente OPENROUTER_API_KEY.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import unicodedata
+import urllib.error
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+
+BASE_DIR = Path(os.environ.get("PROFESSOR_DIR", Path.home() / ".professor"))
+API_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+DEFAULT_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+]
+
+VEREDITO_MARK = "=== VEREDITO ==="
+
+SYSTEM_PROMPT = f"""Você é um professor socrático implacável avaliando se o aluno REALMENTE \
+entende um assunto (técnica Feynman).
+
+REGRAS ABSOLUTAS:
+1. NUNCA explique o assunto nem dê a resposta. Você só aponta problemas e faz perguntas.
+2. A cada rodada: em 1-2 frases, diga o que ficou vago, errado ou circular na resposta \
+do aluno. Depois faça 2 ou 3 perguntas cirúrgicas, numeradas.
+3. Pressione onde o aluno: usa termo que não definiu; responde vago ("é basicamente \
+tipo..."); cai em lógica circular (define a coisa usando a própria coisa); ou recita \
+decoreba (sabe O QUE, não sabe COMO/POR QUÊ).
+4. Cada rodada deve descer um nível de abstração. Não repita pergunta já bem respondida.
+5. Responda SEMPRE em português do Brasil. Direto, sem elogio vazio.
+6. Encerre SOMENTE quando o aluno demonstrar domínio consistente OU travar de vez \
+(duas rodadas sem avançar), e nunca antes da segunda rodada de perguntas. Ao encerrar, \
+use EXATAMENTE este formato e nada depois dele:
+
+{VEREDITO_MARK}
+✅ Domina: <o que o aluno realmente entende>
+⚠️ Enrolou: <onde foi vago, circular ou errado>
+📚 Estudar: <lista objetiva do que estudar, em ordem de prioridade>"""
+
+REVISAO_PROMPT_EXTRA = """
+
+MODO REVISÃO: o aluno já estudou este assunto antes. Comece VOCÊ com 2-3 perguntas \
+diretas sobre o assunto (sem esperar explicação inicial), priorizando os pontos fracos \
+da última avaliação, se fornecida."""
+
+
+# ---------------------------------------------------------------- openrouter
+
+def modelos_configurados():
+    env = os.environ.get("OPENROUTER_MODEL", "").strip()
+    if env:
+        return [m.strip() for m in env.split(",") if m.strip()]
+    return DEFAULT_MODELS
+
+
+def chamar_llm(messages, max_tokens=1500):
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        die(
+            "OPENROUTER_API_KEY não definida.\n"
+            "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
+            '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
+        )
+    erros = []
+    for model in modelos_configurados():
+        payload = json.dumps({
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.6,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            API_URL,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
+                "X-Title": "professor",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            msg = data["choices"][0]["message"]
+            content = (msg.get("content") or "").strip()
+            if content:
+                return content, model
+            erros.append(f"{model}: resposta vazia")
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                die("OPENROUTER_API_KEY inválida (HTTP 401).")
+            erros.append(f"{model}: HTTP {e.code}")
+        except Exception as e:  # rede, timeout, JSON…
+            erros.append(f"{model}: {type(e).__name__}: {e}")
+    die("Todos os modelos falharam:\n  " + "\n  ".join(erros)
+        + "\n\nDica: `professor -m` lista os modelos :free disponíveis agora; "
+        "defina OPENROUTER_MODEL pra trocar.")
+
+
+def listar_modelos_free():
+    try:
+        with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        die(f"Não consegui consultar {MODELS_URL}: {e}")
+    livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
+    print(f"{len(livres)} modelos :free disponíveis agora:\n")
+    for m in livres:
+        print(f"  {m}")
+    print("\nPra usar outros:  export OPENROUTER_MODEL=\"modelo1,modelo2\"")
+
+
+# ---------------------------------------------------------------- util
+
+def die(msg):
+    print(f"professor: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def slugify(texto):
+    s = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
+    return s or "topico"
+
+
+def ler_multilinha():
+    """Lê várias linhas do usuário. Termina com linha contendo só '.' ou Ctrl-D."""
+    linhas = []
+    try:
+        while True:
+            linhas.append(input())
+            if linhas[-1].strip() == ".":
+                linhas.pop()
+                break
+    except EOFError:
+        pass
+    return "\n".join(linhas).strip()
+
+
+def imprimir_professor(texto):
+    print("\n\033[1;36m🧑‍🏫 professor\033[0m")
+    print(texto)
+    print()
+
+
+# ---------------------------------------------------------------- sessões
+
+def salvar_sessao(caminho, topico, model, messages):
+    linhas = [f"# {topico}", "", f"- data: {datetime.now():%Y-%m-%d %H:%M}",
+              f"- modelo: {model}", ""]
+    for m in messages:
+        if m["role"] == "system":
+            continue
+        autor = "Aluno" if m["role"] == "user" else "Professor"
+        linhas += [f"## {autor}", "", m["content"], ""]
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text("\n".join(linhas), encoding="utf-8")
+
+
+def ultimo_veredito(slug):
+    pasta = BASE_DIR / slug
+    if not pasta.is_dir():
+        return None
+    sessoes = sorted(pasta.glob("*.md"))
+    for sessao in reversed(sessoes):
+        texto = sessao.read_text(encoding="utf-8")
+        if VEREDITO_MARK in texto:
+            return texto.split(VEREDITO_MARK, 1)[1].strip()
+    return None
+
+
+def topicos_estudados():
+    """[(slug, título, nº sessões, última data)] ordenado da mais antiga pra mais recente."""
+    if not BASE_DIR.is_dir():
+        return []
+    out = []
+    for pasta in sorted(BASE_DIR.iterdir()):
+        sessoes = sorted(pasta.glob("*.md"))
+        if not pasta.is_dir() or not sessoes:
+            continue
+        titulo = pasta.name
+        primeira = sessoes[0].read_text(encoding="utf-8").splitlines()
+        if primeira and primeira[0].startswith("# "):
+            titulo = primeira[0][2:].strip()
+        out.append((pasta.name, titulo, len(sessoes), sessoes[-1].stem[:10]))
+    out.sort(key=lambda t: t[3])
+    return out
+
+
+def rodar_sessao(topico, revisao=False):
+    slug = slugify(topico)
+    caminho = BASE_DIR / slug / f"{datetime.now():%Y-%m-%d-%H%M}.md"
+
+    system = SYSTEM_PROMPT + (REVISAO_PROMPT_EXTRA if revisao else "")
+    messages = [{"role": "system", "content": system}]
+
+    if revisao:
+        contexto = f"Assunto: {topico}\n\nMe sabatina. Pode começar."
+        veredito = ultimo_veredito(slug)
+        if veredito:
+            contexto += f"\n\nÚltima avaliação:\n{veredito}"
+        messages.append({"role": "user", "content": contexto})
+        print(f"\n📝 Revisão de \033[1m{topico}\033[0m — preparando perguntas…")
+    else:
+        print(f"\n📝 Sessão sobre \033[1m{topico}\033[0m")
+        print("Explica com tuas palavras, como se ensinasse alguém.")
+        print("(termina com uma linha contendo só \".\" ou Ctrl-D)\n")
+        explicacao = ler_multilinha()
+        if not explicacao:
+            die("explicação vazia — sessão cancelada.")
+        messages.append({"role": "user",
+                         "content": f"Assunto: {topico}\n\nMinha explicação:\n{explicacao}"})
+        print("\n⏳ analisando…")
+
+    model_usado = None
+    while True:
+        resposta, model_usado = chamar_llm(messages)
+        messages.append({"role": "assistant", "content": resposta})
+        salvar_sessao(caminho, topico, model_usado, messages)
+        imprimir_professor(resposta)
+
+        if VEREDITO_MARK in resposta:
+            break
+
+        print("(responde; \".\" numa linha só encerra a resposta; \"/fim\" pede o veredito)")
+        entrada = ler_multilinha()
+        if entrada.strip().lower() == "/fim":
+            messages.append({"role": "user",
+                             "content": "Encerra agora e dá o veredito final no formato combinado."})
+        elif not entrada:
+            print("Resposta vazia = \"não sei\". Mandando assim.")
+            messages.append({"role": "user", "content": "Não sei responder."})
+        else:
+            messages.append({"role": "user", "content": entrada})
+        print("\n⏳ …")
+
+    print(f"💾 sessão salva em {caminho}")
+    print(f"   (modelo: {model_usado})")
+
+
+def cmd_listar():
+    tops = topicos_estudados()
+    if not tops:
+        print("Nenhum tópico estudado ainda. Começa com:  professor \"<assunto>\"")
+        return
+    print(f"{'tópico':<30} {'sessões':>7}  última")
+    for slug, titulo, n, data in tops:
+        print(f"{titulo:<30} {n:>7}  {data}")
+
+
+def cmd_revisao(topico):
+    if topico:
+        rodar_sessao(topico, revisao=True)
+        return
+    tops = topicos_estudados()
+    if not tops:
+        die("nada pra revisar ainda.")
+    slug, titulo, _, data = tops[0]  # o mais esquecido
+    print(f"Tópico mais esquecido: \033[1m{titulo}\033[0m (última sessão: {data})")
+    rodar_sessao(titulo, revisao=True)
+
+
+# ---------------------------------------------------------------- main
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="professor",
+        description="Você explica, ele fura tua explicação até você travar ou provar que sabe.",
+        epilog='exemplos:  professor "DNS"   ·   professor -r   ·   professor -l',
+    )
+    ap.add_argument("topico", nargs="?", help="assunto da sessão (entre aspas)")
+    ap.add_argument("-l", "--listar", action="store_true", help="lista tópicos estudados")
+    ap.add_argument("-r", "--revisao", action="store_true",
+                    help="modo revisão: sabatina sobre tópico antigo (o mais esquecido, se não indicar)")
+    ap.add_argument("-m", "--modelos", action="store_true",
+                    help="lista modelos :free disponíveis agora na OpenRouter")
+    args = ap.parse_args()
+
+    if args.modelos:
+        listar_modelos_free()
+    elif args.listar:
+        cmd_listar()
+    elif args.revisao:
+        cmd_revisao(args.topico)
+    elif args.topico:
+        rodar_sessao(args.topico)
+    else:
+        ap.print_help()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\ninterrompido.")
+        sys.exit(130)

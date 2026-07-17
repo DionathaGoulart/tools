@@ -1,0 +1,568 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+zapstats — retrospectiva de uma conversa exportada do WhatsApp.
+
+Recebe o .txt do "Exportar conversa" (sem mídia) e monta um retrô estilo
+Spotify Wrapped: quem fala mais, horários, tempo de resposta, quem puxa
+assunto, emojis, maior vácuo, sequência de dias, etc. — tudo calculado
+LOCALMENTE, sem enviar nada.
+
+Opcionalmente (--roast) uma camada qualitativa via LLM (OpenRouter, modelos
+:free) escreve o resumo narrativo e o roast. Por padrão os nomes são trocados
+por "Pessoa A/B" antes de sair da máquina e recolocados no texto final.
+
+Uso:
+    zapstats conversa.txt
+    zapstats conversa.txt --roast
+    zapstats conversa.txt --roast --reais       # manda nomes reais (menos privado)
+    zapstats conversa.txt --html retro.html
+
+Requer: Python 3. A camada --roast também precisa de OPENROUTER_API_KEY.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import unicodedata
+import urllib.error
+import urllib.request
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
+from html import escape
+
+API_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODELS_URL = "https://openrouter.ai/api/v1/models"
+DEFAULT_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+]
+
+DIAS_SEMANA = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+
+# frases de sistema / mídia que não contam como texto
+MARCADORES_MIDIA = (
+    "<mídia oculta>", "<media omitted>", "imagem ocultada", "image omitted",
+    "vídeo omitido", "video omitted", "áudio ocultado", "audio omitted",
+    "figurinha omitida", "sticker omitted", "gif omitido", "documento omitido",
+    "document omitted", "contato omitido", "‎", "arquivo de mídia oculto",
+)
+LINHAS_SISTEMA = (
+    "as mensagens e as ligações são protegidas", "messages and calls are end-to-end",
+    "você criou o grupo", "criou o grupo", "created group", "adicionou você",
+    "mudou o assunto", "mudou a descrição", "changed the subject",
+    "código de segurança", "security code", "esta mensagem foi apagada",
+    "this message was deleted", "você apagou esta mensagem",
+)
+
+STOPWORDS = set("""a o e é de da do das dos que não nao pra para com uma um umas uns
+no na nos nas em por se te me eu voce você vc tu ele ela nós nos eles elas isso
+isto aqui ali mas ou como quando onde qual quais quem já ja tá ta to tô então
+entao só so bem tem ter foi ser sou está esta estou muito mais menos ao aos à às as os
+lá la cá ca coisa gente vai vou pode ser sim tao tão vc's the to of and you i is it
+in that this for on my me we he she they não sei tudo todo toda meu minha seu sua""".split())
+
+EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # símbolos & pictogramas, emoji suplementares
+    "\U00002600-\U000027BF"  # misc símbolos & dingbats
+    "\U0001F000-\U0001F0FF"
+    "\U00002190-\U000021FF"  # setas
+    "\U00002B00-\U00002BFF"
+    "\U0000FE00-\U0000FE0F"  # seletores de variação
+    "\U0001F1E6-\U0001F1FF"  # bandeiras
+    "]+",
+    flags=re.UNICODE,
+)
+
+# Prefixo de data/hora. Cobre iOS ( [16/07/26, 21:34:12] ) e Android ( 16/07/2026 21:34 - ).
+LINHA_RE = re.compile(
+    r"^\[?"
+    r"(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})"          # data
+    r"[,]?\s+"
+    r"(\d{1,2}):(\d{2})(?::(\d{2}))?"               # hora
+    r"\s*([AaPp][Mm])?"                             # am/pm opcional
+    r"\]?"
+    r"(?:\s+-\s+|\s+)"                              # separador android " - " ou espaço (iOS)
+    r"(.*)$"
+)
+
+
+# ---------------------------------------------------------------- parsing
+
+def parse_arquivo(caminho):
+    try:
+        texto = open(caminho, encoding="utf-8-sig").read()
+    except OSError as e:
+        die(f"não consegui ler {caminho}: {e}")
+    msgs = []            # (datetime, autor, texto)
+    atual = None
+    for linha in texto.splitlines():
+        m = LINHA_RE.match(linha)
+        if m:
+            dt = montar_data(m)
+            resto = m.group(8)
+            corpo = re.match(r"([^:]{1,60}?):\s(.*)$", resto, re.DOTALL)
+            if not corpo or dt is None:
+                atual = None            # linha de sistema (sem "Nome:") — ignora
+                continue
+            autor = corpo.group(1).strip()
+            conteudo = corpo.group(2)
+            if any(s in conteudo.lower() for s in LINHAS_SISTEMA):
+                atual = None
+                continue
+            atual = [dt, autor, conteudo]
+            msgs.append(atual)
+        elif atual is not None:
+            atual[2] += "\n" + linha     # continuação de mensagem multi-linha
+    return [(dt, a, t) for dt, a, t in msgs]
+
+
+def montar_data(m):
+    d, mth, y, hh, mm, ss, ap = (m.group(i) for i in range(1, 8))
+    d, mth, y, hh, mm = int(d), int(mth), int(y), int(hh), int(mm)
+    ss = int(ss) if ss else 0
+    if y < 100:
+        y += 2000
+    if ap:
+        ap = ap.lower()
+        if ap == "pm" and hh != 12:
+            hh += 12
+        elif ap == "am" and hh == 12:
+            hh = 0
+    # tenta dd/mm; se dia inválido, tenta mm/dd (export en-US)
+    for dia, mes in ((d, mth), (mth, d)):
+        try:
+            return datetime(y, mes, dia, hh, mm, ss)
+        except ValueError:
+            continue
+    return None
+
+
+def eh_midia(txt):
+    t = txt.strip().lower()
+    return any(mark in t for mark in MARCADORES_MIDIA) or t == ""
+
+
+# ---------------------------------------------------------------- estatísticas
+
+def calcular(msgs):
+    autores = [a for _, a, _ in msgs]
+    pessoas = list(dict.fromkeys(autores))   # ordem de aparição, sem repetir
+    st = {
+        "pessoas": pessoas,
+        "total": len(msgs),
+        "inicio": msgs[0][0],
+        "fim": msgs[-1][0],
+        "por_pessoa": {p: Counter() for p in pessoas},
+        "hora": Counter(),
+        "dia_semana": Counter(),
+        "mes": Counter(),
+        "emojis": Counter(),
+        "emojis_por_pessoa": {p: Counter() for p in pessoas},
+        "palavras": Counter(),
+        "iniciou": Counter(),
+        "resp_tempos": defaultdict(list),
+        "risadas": Counter(),
+        "perguntas": Counter(),
+        "madrugada": Counter(),
+        "dias_ativos": set(),
+    }
+    GAP_INICIO = timedelta(hours=6)
+    anterior = None
+    for dt, autor, txt in msgs:
+        pp = st["por_pessoa"][autor]
+        pp["msgs"] += 1
+        st["hora"][dt.hour] += 1
+        st["dia_semana"][dt.weekday()] += 1
+        st["mes"][f"{dt:%Y-%m}"] += 1
+        st["dias_ativos"].add(dt.date())
+        if dt.hour < 6:
+            st["madrugada"][autor] += 1
+
+        if eh_midia(txt):
+            pp["midia"] += 1
+        else:
+            palavras = re.findall(r"\w+", txt.lower(), re.UNICODE)
+            pp["palavras"] += len(palavras)
+            pp["chars"] += len(txt)
+            for w in palavras:
+                if len(w) >= 3 and w not in STOPWORDS and not w.isdigit():
+                    st["palavras"][w] += 1
+            if re.search(r"(k{3,}|(ha){2,}|(he){2,}|rs{2,}|kkk|😂|🤣)", txt.lower()):
+                st["risadas"][autor] += 1
+            if txt.rstrip().endswith("?"):
+                st["perguntas"][autor] += 1
+            for e in EMOJI_RE.findall(txt):
+                for ch in e:
+                    if ch != "️":
+                        st["emojis"][ch] += 1
+                        st["emojis_por_pessoa"][autor][ch] += 1
+
+        if anterior is not None:
+            pdt, pautor = anterior
+            gap = dt - pdt
+            if gap >= GAP_INICIO:
+                st["iniciou"][autor] += 1
+            elif pautor != autor and gap.total_seconds() > 0:
+                st["resp_tempos"][autor].append(gap.total_seconds())
+        else:
+            st["iniciou"][autor] += 1
+        anterior = (dt, autor)
+
+    st["vacuo"] = maior_vacuo(msgs)
+    st["streak"] = maior_sequencia(st["dias_ativos"])
+    return st
+
+
+def maior_vacuo(msgs):
+    maior = timedelta(0)
+    quando = None
+    for (d1, _, _), (d2, _, _) in zip(msgs, msgs[1:]):
+        if d2 - d1 > maior:
+            maior, quando = d2 - d1, (d1, d2)
+    return maior, quando
+
+
+def maior_sequencia(dias):
+    if not dias:
+        return 0, None
+    ds = sorted(dias)
+    melhor = atual = 1
+    ini = fim = ds[0]
+    a_ini = ds[0]
+    for i in range(1, len(ds)):
+        if ds[i] - ds[i - 1] == timedelta(days=1):
+            atual += 1
+            if atual > melhor:
+                melhor, ini, fim = atual, a_ini, ds[i]
+        else:
+            atual = 1
+            a_ini = ds[i]
+    return melhor, (ini, fim)
+
+
+def fmt_dur(td):
+    s = int(td.total_seconds())
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    mi = s // 60
+    partes = []
+    if d:
+        partes.append(f"{d}d")
+    if h:
+        partes.append(f"{h}h")
+    if mi and not d:
+        partes.append(f"{mi}min")
+    return " ".join(partes) or "menos de 1min"
+
+
+def barra(valor, maximo, largura=24):
+    n = round(largura * valor / maximo) if maximo else 0
+    return "█" * n + "·" * (largura - n)
+
+
+# ---------------------------------------------------------------- relatório terminal
+
+def relatorio(st):
+    L = []
+    add = L.append
+    span = (st["fim"] - st["inicio"]).days + 1
+    add("\n\033[1;32m📊 zapstats\033[0m")
+    add(f"período: {st['inicio']:%d/%m/%Y} → {st['fim']:%d/%m/%Y}  ({span} dias)")
+    add(f"total: {st['total']} mensagens · {len(st['pessoas'])} pessoas\n")
+
+    add("\033[1mquem mais fala\033[0m")
+    maxm = max(st["por_pessoa"][p]["msgs"] for p in st["pessoas"])
+    for p in sorted(st["pessoas"], key=lambda x: -st["por_pessoa"][x]["msgs"]):
+        c = st["por_pessoa"][p]
+        pct = 100 * c["msgs"] / st["total"]
+        add(f"  {p[:16]:<16} {barra(c['msgs'], maxm)} {c['msgs']:>5} ({pct:.0f}%)")
+    add("")
+
+    add("\033[1mhorário (quando vocês falam)\033[0m")
+    maxh = max(st["hora"].values())
+    for h in range(0, 24, 2):
+        v = st["hora"][h] + st["hora"][h + 1]
+        add(f"  {h:02d}h {barra(v, maxh * 2, 30)} {v}")
+    add("")
+
+    add("\033[1mdia da semana\033[0m")
+    maxd = max(st["dia_semana"].values())
+    for i, nome in enumerate(DIAS_SEMANA):
+        v = st["dia_semana"][i]
+        add(f"  {nome:<8} {barra(v, maxd)} {v}")
+    add("")
+
+    if st["emojis"]:
+        top = " ".join(f"{e} {n}" for e, n in st["emojis"].most_common(8))
+        add(f"\033[1memojis\033[0m\n  {top}\n")
+
+    if st["palavras"]:
+        top = ", ".join(f"{w} ({n})" for w, n in st["palavras"].most_common(12))
+        add(f"\033[1mpalavras mais usadas\033[0m\n  {top}\n")
+
+    add("\033[1mtempo médio de resposta\033[0m")
+    for p in st["pessoas"]:
+        tempos = st["resp_tempos"][p]
+        if tempos:
+            med = sorted(tempos)[len(tempos) // 2]
+            add(f"  {p[:16]:<16} {fmt_dur(timedelta(seconds=med))}  (mediana de {len(tempos)} respostas)")
+    add("")
+
+    add("\033[1mquem puxa assunto\033[0m")
+    tot_ini = sum(st["iniciou"].values()) or 1
+    for p, n in st["iniciou"].most_common():
+        add(f"  {p[:16]:<16} {n} vezes ({100*n/tot_ini:.0f}%)")
+    add("")
+
+    dur, quando = st["vacuo"]
+    if quando:
+        add(f"\033[1mmaior vácuo\033[0m\n  {fmt_dur(dur)} — de {quando[0]:%d/%m/%y %Hh} a {quando[1]:%d/%m/%y %Hh}\n")
+    seq, per = st["streak"]
+    if per:
+        add(f"\033[1mmaior sequência sem falhar\033[0m\n  {seq} dias seguidos ({per[0]:%d/%m/%y} → {per[1]:%d/%m/%y})\n")
+
+    if sum(st["madrugada"].values()):
+        mad = ", ".join(f"{p}: {n}" for p, n in st["madrugada"].most_common() if n)
+        add(f"\033[1mmensagens de madrugada (0-6h)\033[0m\n  {mad}\n")
+
+    curiosidades = []
+    for p in st["pessoas"]:
+        if st["risadas"][p]:
+            curiosidades.append(f"{p} riu (kkk/haha) {st['risadas'][p]}x")
+        if st["perguntas"][p]:
+            curiosidades.append(f"{p} fez {st['perguntas'][p]} perguntas")
+    if curiosidades:
+        add("\033[1mcuriosidades\033[0m")
+        for c in curiosidades:
+            add(f"  · {c}")
+        add("")
+    return "\n".join(L)
+
+
+# ---------------------------------------------------------------- camada LLM
+
+def anonimizar(st, msgs, usar_reais):
+    """Retorna (mapa placeholder->real, lista_amostra_anonimizada)."""
+    if usar_reais:
+        mapa = {p: p for p in st["pessoas"]}
+    else:
+        mapa = {p: f"Pessoa {chr(65+i)}" for i, p in enumerate(st["pessoas"])}
+    # amostra: mensagens de texto mais longas + espalhadas no tempo
+    textos = [(dt, a, t) for dt, a, t in msgs if not eh_midia(t) and len(t) > 15]
+    textos.sort(key=lambda x: -len(x[2]))
+    amostra = textos[:120]
+    amostra.sort(key=lambda x: x[0])
+    linhas = [f"{mapa[a]}: {t.strip()[:200]}" for _, a, t in amostra]
+    return mapa, linhas
+
+
+def resumo_stats_texto(st, mapa):
+    partes = [f"Período: {st['inicio']:%d/%m/%Y} a {st['fim']:%d/%m/%Y}, {st['total']} mensagens."]
+    for p in st["pessoas"]:
+        c = st["por_pessoa"][p]
+        partes.append(f"{mapa[p]}: {c['msgs']} msgs, {c['palavras']} palavras, "
+                      f"{st['risadas'][p]} risadas, puxou assunto {st['iniciou'][p]}x.")
+    if st["emojis"]:
+        partes.append("Top emojis: " + " ".join(e for e, _ in st["emojis"].most_common(6)))
+    if st["palavras"]:
+        partes.append("Palavras comuns: " + ", ".join(w for w, _ in st["palavras"].most_common(10)))
+    return "\n".join(partes)
+
+
+def camada_llm(st, msgs, usar_reais):
+    mapa, amostra = anonimizar(st, msgs, usar_reais)
+    system = (
+        "Você recebe estatísticas e uma amostra de mensagens de uma conversa de WhatsApp "
+        "entre amigos. Escreva em português do Brasil, em tom leve e divertido, uma "
+        "retrospectiva com estas seções, usando exatamente estes títulos em maiúsculas:\n"
+        "RESUMO: um parágrafo caracterizando a dinâmica da conversa.\n"
+        "FRASES ICÔNICAS: 3 a 5 frases reais marcantes da amostra, entre aspas, com quem disse.\n"
+        "APELIDOS: apelidos ou formas de tratamento que aparecem (se houver).\n"
+        "ROAST: um roast bem-humorado e afiado de cada pessoa, baseado nos dados (sem ofensa pesada).\n"
+        "Use os nomes exatamente como aparecem nos dados."
+    )
+    user = "ESTATÍSTICAS:\n" + resumo_stats_texto(st, mapa) + "\n\nAMOSTRA DE MENSAGENS:\n" + "\n".join(amostra)
+    texto, model = chamar_llm(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        max_tokens=1600, temperature=0.85,
+    )
+    # recoloca nomes reais se anonimizou
+    if not usar_reais:
+        for real, ph in mapa.items():
+            texto = texto.replace(ph, real)
+    return texto, model
+
+
+# ---------------------------------------------------------------- html
+
+def gerar_html(st, texto_llm, destino):
+    span = (st["fim"] - st["inicio"]).days + 1
+    linhas_pessoas = ""
+    maxm = max(st["por_pessoa"][p]["msgs"] for p in st["pessoas"])
+    for p in sorted(st["pessoas"], key=lambda x: -st["por_pessoa"][x]["msgs"]):
+        c = st["por_pessoa"][p]
+        pct = 100 * c["msgs"] / maxm
+        linhas_pessoas += (
+            f'<div class="row"><span class="nome">{escape(p)}</span>'
+            f'<span class="bar"><span style="width:{pct:.0f}%"></span></span>'
+            f'<span class="num">{c["msgs"]}</span></div>'
+        )
+    emojis = " ".join(f"{e}" for e, _ in st["emojis"].most_common(10)) if st["emojis"] else "—"
+    palavras = ", ".join(w for w, _ in st["palavras"].most_common(15)) if st["palavras"] else "—"
+    dur, _ = st["vacuo"]
+    seq, _ = st["streak"]
+    bloco_llm = ""
+    if texto_llm:
+        bloco_llm = f'<section class="card llm"><pre>{escape(texto_llm)}</pre></section>'
+    html = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zapstats — retrô</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+background:#0b0f14;color:#e6edf3;padding:24px;line-height:1.5}}
+.wrap{{max-width:640px;margin:0 auto}}
+h1{{font-size:28px;margin:0 0 4px}}.sub{{color:#8b98a5;margin:0 0 24px}}
+.card{{background:#141b23;border:1px solid #222c37;border-radius:16px;padding:20px;margin-bottom:16px}}
+.card h2{{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:#7ee787;margin:0 0 14px}}
+.row{{display:flex;align-items:center;gap:10px;margin:6px 0}}
+.nome{{width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.bar{{flex:1;background:#0b0f14;border-radius:6px;height:14px;overflow:hidden}}
+.bar>span{{display:block;height:100%;background:linear-gradient(90deg,#238636,#2ea043)}}
+.num{{width:56px;text-align:right;color:#8b98a5;font-variant-numeric:tabular-nums}}
+.grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+.stat{{background:#141b23;border:1px solid #222c37;border-radius:16px;padding:16px}}
+.stat .big{{font-size:24px;font-weight:700}}.stat .lbl{{color:#8b98a5;font-size:13px}}
+.emoji{{font-size:26px;letter-spacing:6px}}
+.llm pre{{white-space:pre-wrap;font-family:inherit;margin:0}}
+.foot{{color:#57606a;font-size:12px;text-align:center;margin-top:24px}}
+</style></head><body><div class="wrap">
+<h1>📊 retrô da conversa</h1>
+<p class="sub">{st['inicio']:%d/%m/%Y} → {st['fim']:%d/%m/%Y} · {span} dias · {st['total']} mensagens</p>
+<div class="grid">
+  <div class="stat"><div class="big">{st['total']}</div><div class="lbl">mensagens</div></div>
+  <div class="stat"><div class="big">{fmt_dur(dur)}</div><div class="lbl">maior vácuo</div></div>
+  <div class="stat"><div class="big">{seq} dias</div><div class="lbl">maior sequência</div></div>
+  <div class="stat"><div class="big">{len(st['pessoas'])}</div><div class="lbl">pessoas</div></div>
+</div>
+<section class="card"><h2>quem mais fala</h2>{linhas_pessoas}</section>
+<section class="card"><h2>emojis</h2><div class="emoji">{emojis}</div></section>
+<section class="card"><h2>palavras mais usadas</h2><p>{escape(palavras)}</p></section>
+{bloco_llm}
+<p class="foot">gerado por zapstats · dados processados localmente</p>
+</div></body></html>"""
+    open(destino, "w", encoding="utf-8").write(html)
+
+
+# ---------------------------------------------------------------- openrouter
+
+def modelos_configurados():
+    env = os.environ.get("OPENROUTER_MODEL", "").strip()
+    return [m.strip() for m in env.split(",") if m.strip()] if env else DEFAULT_MODELS
+
+
+def chamar_llm(messages, max_tokens=1600, temperature=0.85):
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        die("OPENROUTER_API_KEY não definida — necessária só pra --roast.\n"
+            "  Crie grátis em https://openrouter.ai/keys e:  export OPENROUTER_API_KEY=\"sk-or-...\"\n"
+            "  (sem --roast o zapstats roda 100% offline.)")
+    erros = []
+    for model in modelos_configurados():
+        payload = json.dumps({"model": model, "messages": messages,
+                              "max_tokens": max_tokens, "temperature": temperature}).encode()
+        req = urllib.request.Request(API_URL, data=payload, headers={
+            "Authorization": f"Bearer {key}", "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/DionathaGoulart/tools", "X-Title": "zapstats"})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode())
+            content = (data["choices"][0]["message"].get("content") or "").strip()
+            if content:
+                return content, model
+            erros.append(f"{model}: vazio")
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                die("OPENROUTER_API_KEY inválida (HTTP 401).")
+            erros.append(f"{model}: HTTP {e.code}")
+        except Exception as e:
+            erros.append(f"{model}: {type(e).__name__}")
+    die("todos os modelos falharam:\n  " + "\n  ".join(erros) + "\n  (`zapstats -m` lista os no ar)")
+
+
+def listar_modelos_free():
+    try:
+        with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        die(f"não consegui consultar {MODELS_URL}: {e}")
+    livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
+    print(f"{len(livres)} modelos :free agora:\n")
+    for m in livres:
+        print(f"  {m}")
+
+
+# ---------------------------------------------------------------- util / main
+
+def die(msg):
+    print(f"zapstats: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="zapstats",
+        description="Retrospectiva de uma conversa exportada do WhatsApp (.txt).",
+        epilog="exemplo:  zapstats conversa.txt --roast --html retro.html",
+    )
+    ap.add_argument("arquivo", nargs="?", help="o .txt exportado do WhatsApp")
+    ap.add_argument("--roast", action="store_true",
+                    help="camada com LLM: resumo, frases icônicas, apelidos e roast")
+    ap.add_argument("--reais", action="store_true",
+                    help="com --roast, envia nomes reais em vez de anonimizar (menos privado)")
+    ap.add_argument("--html", metavar="ARQ", help="também salva um retrô visual em HTML")
+    ap.add_argument("-m", "--modelos", action="store_true", help="lista modelos :free disponíveis")
+    args = ap.parse_args()
+
+    if args.modelos:
+        listar_modelos_free()
+        return
+    if not args.arquivo:
+        ap.print_help()
+        return
+    if not os.path.isfile(args.arquivo):
+        die(f"arquivo não encontrado: {args.arquivo}")
+
+    msgs = parse_arquivo(args.arquivo)
+    if len(msgs) < 2:
+        die("não achei mensagens reconhecíveis. Exporte pelo WhatsApp em "
+            "\"Exportar conversa\" (sem mídia) e passe o .txt.")
+    st = calcular(msgs)
+    print(relatorio(st))
+
+    texto_llm = None
+    if args.roast:
+        if not args.reais:
+            print("🔒 anonimizando nomes antes de enviar ao modelo (use --reais pra desligar).")
+        print("⏳ gerando resumo e roast…\n")
+        texto_llm, model = camada_llm(st, msgs, args.reais)
+        print("\033[1;35m🔥 retrô\033[0m")
+        print(texto_llm)
+        print(f"\n\033[2m(modelo: {model})\033[0m")
+
+    if args.html:
+        gerar_html(st, texto_llm, args.html)
+        print(f"\n💾 HTML salvo em {args.html}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\ninterrompido.")
+        sys.exit(130)

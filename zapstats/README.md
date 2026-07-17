@@ -1,0 +1,65 @@
+# zapstats
+
+Retrospectiva de uma conversa do WhatsApp — estilo Spotify Wrapped, no
+terminal. Passe o `.txt` do "Exportar conversa" e receba quem fala mais,
+horários, tempo de resposta, quem puxa assunto, emojis, palavras, maior vácuo,
+maior sequência de dias e mais.
+
+**Tudo é calculado localmente.** Nada sai da sua máquina — a menos que você peça
+a camada de roast com `--roast`.
+
+```bash
+zapstats conversa.txt                       # só as estatísticas (100% offline)
+zapstats conversa.txt --roast               # + resumo, frases icônicas e roast (LLM)
+zapstats conversa.txt --roast --reais       # roast com os nomes reais (menos privado)
+zapstats conversa.txt --html retro.html     # também gera um retrô visual em HTML
+zapstats -m                                 # lista modelos :free disponíveis
+```
+
+## Como exportar a conversa
+
+No WhatsApp: abra a conversa → menu → **Exportar conversa** → **Sem mídia**.
+Você recebe um `.txt`. É esse arquivo que o `zapstats` lê. Funciona com export
+de iPhone e de Android (formatos diferentes, ambos suportados) e com conversas
+de duas pessoas ou de grupo.
+
+## O que ele calcula (offline)
+
+- Ranking de quem mais manda mensagem
+- Distribuição por horário do dia e por dia da semana
+- Tempo mediano de resposta de cada pessoa
+- Quem puxa assunto (primeira mensagem depois de 6h+ de silêncio)
+- Emojis e palavras mais usadas
+- Maior vácuo (mais tempo sem falar) e maior sequência de dias seguidos
+- Mensagens de madrugada, risadas (kkk/haha), perguntas
+
+## A camada `--roast` (opcional, usa LLM)
+
+Adiciona um resumo narrativo da dinâmica, frases icônicas reais, apelidos
+detectados e um roast bem-humorado de cada um.
+
+**Privacidade:** por padrão os nomes são trocados por "Pessoa A/B" **antes** de
+sair da máquina, e recolocados no texto final localmente. Só uma amostra de
+mensagens (as mais longas) é enviada, nunca a conversa inteira. Ainda assim, a
+API `:free` da OpenRouter pode usar prompts pra treino — não rode `--roast` em
+conversa com dado sensível. `--reais` desliga a anonimização (mais divertido, menos privado).
+
+## Instalação
+
+Precisa de Python 3. A camada `--roast` também precisa de uma chave da
+[OpenRouter](https://openrouter.ai/keys) (grátis) — sem ela, tudo o mais roda.
+
+```bash
+# 1. (só pra --roast) chave da API no seu rc:
+export OPENROUTER_API_KEY="sk-or-..."
+
+# 2. coloca o comando no PATH (uma vez):
+bash ~/Desktop/tools/zapstats/setup.sh
+```
+
+## Configuração
+
+| Variável | Pra quê | Padrão |
+|---|---|---|
+| `OPENROUTER_API_KEY` | sua chave (só necessária pra `--roast`) | — |
+| `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |

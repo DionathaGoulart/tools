@@ -33,6 +33,50 @@ bash ~/Desktop/tools/good/setup.sh     # instala no ~/.zshrc (ou ~/.bashrc)
 
 > Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. Depois de instalar, abra um terminal novo ou rode `source ~/.zshrc`.
 
+## Ferramentas com IA
+
+Usam a [OpenRouter](https://openrouter.ai) com modelos `:free` (sufixo `:free`) — de graça, sem cartão. Só precisam de uma chave e da variável `OPENROUTER_API_KEY` no seu rc:
+
+```bash
+export OPENROUTER_API_KEY="sk-or-..."   # chave grátis em https://openrouter.ai/keys
+```
+
+> ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma destas ferramentas manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.
+
+### [professor](./professor)
+Estudo pela técnica Feynman invertida: você explica um assunto, ele fura sua explicação com perguntas socráticas até você travar ou provar que domina. Nunca entrega a resposta.
+
+```bash
+professor "DNS"    # nova sessão
+professor -r       # revisão do tópico mais esquecido
+professor -l       # lista o que já estudou
+```
+
+### [biografo](./biografo)
+Sua autobiografia, uma pergunta por dia. Responde offline; depois de algumas dezenas de respostas, `biografo capitulo` costura tudo em capítulos escritos na sua voz.
+
+```bash
+biografo           # a pergunta de hoje
+biografo capitulo  # gera a biografia
+biografo -l        # histórico
+```
+
+### [zapstats](./zapstats)
+Retrô estilo Spotify Wrapped de uma conversa exportada do WhatsApp: quem fala mais, horários, tempo de resposta, quem puxa assunto, maior vácuo. Stats 100% locais; `--roast` adiciona a camada divertida via LLM (anonimizada por padrão).
+
+```bash
+zapstats conversa.txt                    # só as estatísticas (offline)
+zapstats conversa.txt --roast            # + resumo e roast
+zapstats conversa.txt --html retro.html  # retrô visual
+```
+
+Instalação (uma vez, cada uma):
+```bash
+bash ~/Desktop/tools/professor/setup.sh
+bash ~/Desktop/tools/biografo/setup.sh
+bash ~/Desktop/tools/zapstats/setup.sh
+```
+
 ## [goodpen](./goodpen) — cofre de senhas em duas versões
 
 Dentro de [`goodpen/`](./goodpen) tem **duas** ferramentas pra guardar senhas criptografadas com backup em pendrive. Fazem **a mesma coisa** — mudam só o "como". Escolha uma:
@@ -82,6 +126,15 @@ tools/
     good             ← o CLI (fetch de sistema com o logo)
     setup.sh         ← adiciona ao PATH
     logo.svg         ← o logo original
+  professor/         ← estudo Feynman invertido (OpenRouter :free)
+    professor        ← o CLI
+    setup.sh         ← adiciona ao PATH
+  biografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
+    biografo         ← o CLI
+    setup.sh         ← adiciona ao PATH
+  zapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
+    zapstats         ← o CLI
+    setup.sh         ← adiciona ao PATH
   goodpen/           ← cofre de senhas (duas versões)
     standalone/      ← versão programinha (binário único `cofre`, Go)
       *.go           ← o código
