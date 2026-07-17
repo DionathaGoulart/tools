@@ -15,13 +15,11 @@ Se `bat` estiver instalado, usa ele pra exibir; senão, `cat`.
 
 ## Instalação
 
-Adicione ao `~/.zshrc`, `~/.bashrc` ou `~/.bash_profile` (Git Bash no Windows):
-
 ```bash
-[ -f "$HOME/Desktop/tools/cheats/setup.sh" ] && source "$HOME/Desktop/tools/cheats/setup.sh"
+bash ~/Desktop/tools/cheats/setup.sh
 ```
 
-O `setup.sh` detecta o próprio caminho — funciona de qualquer lugar que o repo esteja clonado.
+Isso adiciona a linha de `source` no seu `~/.zshrc` (ou `~/.bashrc`). Depois abra um terminal novo ou rode `source ~/.zshrc`. O `setup.sh` detecta o próprio caminho — funciona de qualquer lugar que o repo esteja clonado.
 
 ## Estrutura
 
