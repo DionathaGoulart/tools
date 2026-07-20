@@ -4,15 +4,16 @@
 #   bash setup.sh        ← lista tudo, você marca o que quer e confirma no botão
 #   bash setup.sh -u     ← desinstalar (lista só o que está instalado)
 #
-# Teclas: ↑↓ navega · espaço/Enter marca · 1-9 marca direto · a todos · n nenhum
-#         Enter (ou espaço) no botão [Instalar] confirma · q sai
+# Teclas: ↑↓ move · ←→ troca de página · espaço/Enter marca · 1-9 marca visível · a todos · n nenhum
+#         Enter (ou espaço) no botão [INSTALAR] confirma · q sai
+# Tema:   TOOLS_TEMA / RETRO_TEMA (ver .harness/styleguide-terminal.md)
 # "Instalada" = a linha `source .../setup.sh` existe em algum rc do shell
 # (exceção: goodivers-skill = symlink em ~/.claude/skills/goodivers).
 # Desinstalar remove do rc as linhas da ferramenta (backup: <rc>.tools-backup).
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-NOMES=(goodcheats pomo professor biografo vocab zapstats goodivers goodivers-skill dark dark-skill)
+NOMES=(goodcheats pomo professor biografo vocab zapstats goodivers goodivers-skill dark dark-skill images/pixelart)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -24,6 +25,7 @@ DESCS=(
   "skill /goodivers no Claude Code: gera com o Claude, sem chave"
   "copiloto do Instagram @darkning.art, horror art (OpenRouter)"
   "skill /dark no Claude Code: gera com o Claude, sem chave"
+  "imagem (png/jpg/svg/…) -> pixel art, paletas clássicas"
 )
 
 RCS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile")
@@ -41,7 +43,7 @@ instalada() {
 MODO=install
 case "${1:-}" in
   -u|--uninstall|uninstall|desinstalar) MODO=uninstall ;;
-  -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 # monta a lista visível (uninstall: só as instaladas)
@@ -63,40 +65,117 @@ for _ in "${ITENS[@]}"; do SEL+=(0); done
 AVISO=""
 CUR=0                 # linha do cursor (itens + botão no fim)
 BTN="${#ITENS[@]}"    # índice do botão
+PAGE=0                # página atual (0-based)
+PAGE_SIZE=5           # itens por página (reduz se o terminal for baixo)
+NPAGES=1              # total de páginas (recalculado em paginate)
 
-ROTULO="Instalar"
-[ "$MODO" = uninstall ] && ROTULO="Desinstalar"
+ROTULO="INSTALAR"
+[ "$MODO" = uninstall ] && ROTULO="DESINSTALAR"
+
+# tema retrô compartilhado (.harness/styleguide-terminal.md)
+TEMA="${TOOLS_TEMA:-${RETRO_TEMA:-vault-gold}}"
+. "$ROOT/lib/retro.sh"
+retro_init 92
+
+# corta uma string em N colunas visíveis
+cortar() { # $1 texto  $2 limite
+  local s=$1 lim=$2
+  [ "${#s}" -le "$lim" ] && { printf '%s' "$s"; return; }
+  printf '%s…' "${s:0:$((lim - 1))}"
+}
+
+LARG_NOME=16
 
 draw() {
-  printf '\033[H\033[2J'
-  if [ "$MODO" = uninstall ]; then
-    printf '\033[1m🗑  tools — desinstalar\033[0m  \033[2m(mostrando só as instaladas)\033[0m\n\n'
-  else
-    printf '\033[1m🧰 tools — instalar\033[0m\n\n'
-  fi
-  local n=1 i caixa tag seta
-  for k in "${!ITENS[@]}"; do
+  local titulo="root@tools: ~/install"
+  [ "$MODO" = uninstall ] && titulo="root@tools: ~/uninstall"
+
+  local total=${#ITENS[@]}
+  local pstart=$((PAGE * PAGE_SIZE))
+  local pend=$((pstart + PAGE_SIZE)); [ "$pend" -gt "$total" ] && pend=$total
+
+  local meta="$total ITENS"
+  [ "$NPAGES" -gt 1 ] && meta="PÁG $((PAGE + 1))/$NPAGES · $total ITENS"
+
+  retro_topo
+  retro_chrome "$titulo" "$meta"
+  retro_sep
+
+  local n i caixa nome desc tag marca conteudo larg k shown=0
+  for (( k = pstart; k < pend; k++ )); do
+    n=$((k + 1))
     i="${ITENS[$k]}"
-    caixa="[ ]"
-    [ "${SEL[$k]}" = 1 ] && caixa="\033[1;32m[x]\033[0m"
-    seta="  "
-    [ "$CUR" = "$k" ] && seta="\033[1;36m❯\033[0m "
+    nome="${NOMES[$i]}"
     tag=""
-    [ "$MODO" = install ] && instalada "${NOMES[$i]}" && tag="  \033[2m(já instalada)\033[0m"
-    printf " $seta$caixa %d. \033[1m%-15s\033[0m %s$tag\n" "$n" "${NOMES[$i]}" "${DESCS[$i]}"
-    n=$((n + 1))
+    [ "$MODO" = install ] && instalada "$nome" && tag="  [INSTALADA]"
+    desc="$(cortar "${DESCS[$i]}${tag}" $((CF - LARG_NOME - 10)))"
+    marca="  "
+    [ "$CUR" = "$k" ] && marca="► "
+    caixa="[ ]"
+    [ "${SEL[$k]}" = 1 ] && caixa="[x]"
+
+    larg=$(( 2 + 3 + 1 + 4 + LARG_NOME + 1 + ${#desc} ))
+    [ "$larg" -gt "$CF" ] && larg=$CF
+    if [ "$CUR" = "$k" ]; then
+      # linha ativa: inversão em accent ocupando toda a largura do campo
+      conteudo="$(printf '%s%s%s%s %2d. %-*s %s%s' \
+        "$INV" "$BOLD" "$marca" "$caixa" "$n" "$LARG_NOME" "$nome" \
+        "$desc$(retro_espacos $((CF - larg)))" "$RESET")"
+      larg=$CF
+    else
+      local cor_caixa="$ACC30"
+      [ "${SEL[$k]}" = 1 ] && cor_caixa="$OK"
+      conteudo="$(printf '%s%s%s%s%s%s %2d. %s%-*s%s %s%s%s' \
+        "$ACC" "$marca" "$RESET" "$cor_caixa" "$caixa" "$RESET" "$n" \
+        "$ACC" "$LARG_NOME" "$nome" "$RESET" "$FG40" "$desc" "$RESET")"
+    fi
+    retro_linha "$conteudo" "$larg"
+    shown=$((shown + 1))
   done
+  # completa a página com linhas vazias -> altura estável entre páginas
+  while [ "$shown" -lt "$PAGE_SIZE" ]; do retro_vazia; shown=$((shown + 1)); done
+
+  retro_vazia
   if [ "$CUR" = "$BTN" ]; then
-    printf '\n   \033[1;7m  %s  \033[0m\n' "$ROTULO"
+    retro_linha "$(printf '%s►%s %s%s  %s  %s' \
+      "$ACC" "$RESET" "$INV" "$BOLD" "$ROTULO" "$RESET")" \
+      $((2 + ${#ROTULO} + 4))
   else
-    printf '\n   \033[2m[  %s  ]\033[0m\n' "$ROTULO"
+    retro_linha "$(printf '  %s[  %s  ]%s' "$ACC30" "$ROTULO" "$RESET")" \
+      $((2 + ${#ROTULO} + 6))
   fi
-  printf '\n  \033[2m↑↓ navega · espaço/Enter marca · 1-9 marca direto · a todos · n nenhum · q sai\033[0m\n'
-  printf '  \033[2mEnter no botão [%s] confirma\033[0m\n' "$ROTULO"
+  retro_sep
+  retro_status "[↑↓] MOVE · [←→] PÁGINA · [SPC] MARCA · [A/N] TUDO/NADA" "[Q] SAI · ENTER = $ROTULO"
+  retro_base
+  retro_sombra
+
   if [ "$MODO" = install ]; then
-    printf '  \033[2mdesinstalar: bash setup.sh -u · goodpen tem setup próprio (goodpen/README.md)\033[0m\n'
+    printf '  %sdesinstalar: bash setup.sh -u · goodpen tem setup próprio (goodpen/README.md)%s%s\n' \
+      "$FG40" "$RESET" "$CLR"
   fi
-  [ -n "$AVISO" ] && printf '\n  \033[33m%s\033[0m\n' "$AVISO"
+  [ -n "$AVISO" ] && printf '\n  %s[ AVISO ]%s %s%s' "$ALERTA" "$RESET" "$AVISO" "$CLR"
+}
+
+# recalcula a paginação (itens por página + página atual).
+# roda no shell-pai, NÃO dentro de $(draw), pra que PAGE/PAGE_SIZE persistam.
+paginate() {
+  local rows total fits
+  rows=$( { tput lines; } 2>/dev/null || echo 24 )
+  case "$rows" in ''|*[!0-9]*) rows=24 ;; esac
+  total=${#ITENS[@]}
+  # linhas fixas: topo+chrome+sep(3) + vazia+botao+sep+status+base+sombra(6) [+dica]
+  local overhead=9; [ "$MODO" = install ] && overhead=$((overhead + 1))
+  fits=$((rows - overhead - 2))          # -2 reserva pro AVISO
+  PAGE_SIZE=5
+  [ "$PAGE_SIZE" -gt "$fits" ]  && PAGE_SIZE=$fits
+  [ "$PAGE_SIZE" -gt "$total" ] && PAGE_SIZE=$total
+  [ "$PAGE_SIZE" -lt 1 ] && PAGE_SIZE=1
+  NPAGES=$(( (total + PAGE_SIZE - 1) / PAGE_SIZE ))
+  [ "$NPAGES" -lt 1 ] && NPAGES=1
+  # quando o cursor está num item, a página segue o cursor
+  [ "$CUR" -lt "$total" ] && PAGE=$(( CUR / PAGE_SIZE ))
+  [ "$PAGE" -ge "$NPAGES" ] && PAGE=$((NPAGES - 1))
+  [ "$PAGE" -lt 0 ] && PAGE=0
 }
 
 alternar() {
@@ -115,27 +194,61 @@ confirmar() {
   return 0
 }
 
+# esconde o cursor e limpa a tela uma vez; o loop redesenha por cima (sem piscar)
+if [ "$DESENHA" -eq 1 ]; then
+  printf '\033[?25l\033[2J'
+  trap 'printf "\033[?25h"' EXIT INT TERM
+fi
+
 while :; do
-  draw
+  paginate
+  if [ "$DESENHA" -eq 1 ]; then
+    # bufferiza o frame; $(...) corta o \n final -> nada é escrito na última
+    # linha do terminal, então a tela nunca rola ao redesenhar. \033[J limpa
+    # o que sobrou de um frame anterior mais alto.
+    printf '\033[H%s\033[J' "$(draw)"
+  else
+    draw
+  fi
   IFS= read -rsn1 t || t=q
   AVISO=""
+  # limites da página atual (ps..pe-1 = itens; BTN = botão logo abaixo)
+  ps=$((PAGE * PAGE_SIZE)); pe=$((ps + PAGE_SIZE)); [ "$pe" -gt "$BTN" ] && pe=$BTN
   if [ "$t" = $'\x1b' ]; then
     seq=""
     IFS= read -rsn2 -t 1 seq 2>/dev/null
     case "$seq" in
-      '[A') CUR=$((CUR - 1)); [ "$CUR" -lt 0 ] && CUR=$BTN ;;          # ↑
-      '[B') CUR=$((CUR + 1)); [ "$CUR" -gt "$BTN" ] && CUR=0 ;;        # ↓
+      '[A')  # ↑ move dentro da página; sobe do topo pro botão
+        if [ "$CUR" = "$BTN" ]; then CUR=$((pe - 1))
+        elif [ "$CUR" -le "$ps" ]; then CUR=$BTN
+        else CUR=$((CUR - 1)); fi ;;
+      '[B')  # ↓ move dentro da página; desce do fim pro botão
+        if [ "$CUR" = "$BTN" ]; then CUR=$ps
+        elif [ "$CUR" -ge $((pe - 1)) ]; then CUR=$BTN
+        else CUR=$((CUR + 1)); fi ;;
+      '[C')  # → próxima página
+        [ "$NPAGES" -gt 1 ] && { PAGE=$(((PAGE + 1) % NPAGES)); CUR=$((PAGE * PAGE_SIZE)); } ;;
+      '[D')  # ← página anterior
+        [ "$NPAGES" -gt 1 ] && { PAGE=$(((PAGE - 1 + NPAGES) % NPAGES)); CUR=$((PAGE * PAGE_SIZE)); } ;;
       '[H') CUR=0 ;;                                                    # Home
       '[F') CUR=$BTN ;;                                                 # End
     esac
     continue
   fi
   case "$t" in
-    k|K) CUR=$((CUR - 1)); [ "$CUR" -lt 0 ] && CUR=$BTN ;;
-    j|J) CUR=$((CUR + 1)); [ "$CUR" -gt "$BTN" ] && CUR=0 ;;
+    k|K)
+      if [ "$CUR" = "$BTN" ]; then CUR=$((pe - 1))
+      elif [ "$CUR" -le "$ps" ]; then CUR=$BTN
+      else CUR=$((CUR - 1)); fi ;;
+    j|J)
+      if [ "$CUR" = "$BTN" ]; then CUR=$ps
+      elif [ "$CUR" -ge $((pe - 1)) ]; then CUR=$BTN
+      else CUR=$((CUR + 1)); fi ;;
+    h)  [ "$NPAGES" -gt 1 ] && { PAGE=$(((PAGE - 1 + NPAGES) % NPAGES)); CUR=$((PAGE * PAGE_SIZE)); } ;;
+    l)  [ "$NPAGES" -gt 1 ] && { PAGE=$(((PAGE + 1) % NPAGES)); CUR=$((PAGE * PAGE_SIZE)); } ;;
     [1-9])
-      k=$((t - 1))
-      if [ "$k" -lt "${#ITENS[@]}" ]; then
+      k=$((t - 1))                      # número = número absoluto do item mostrado
+      if [ "$k" -ge "$ps" ] && [ "$k" -lt "$pe" ]; then
         alternar "$k"
         CUR=$k
       fi ;;
@@ -147,22 +260,28 @@ while :; do
       else
         alternar "$CUR"
       fi ;;
-    q|Q) printf '\ncancelado.\n'; exit 0 ;;
+    q|Q) printf '\n'; retro_aviso "cancelado" "nada foi alterado."; exit 0 ;;
   esac
 done
 
+[ "$DESENHA" -eq 1 ] && printf '\033[?25h'   # cursor de volta antes da saída
 printf '\033[H\033[2J'
 if [ "$MODO" = install ]; then
+  retro_modulo "install_runner" "${#MARCADAS[@]} item(s)"
   for t in "${MARCADAS[@]}"; do
-    printf '\n\033[1m→ %s\033[0m\n' "$t"
+    printf '  %s>%s %s%s%s\n' "$ACC30" "$RESET" "$ACC$BOLD" "$(retro_upper "$t")" "$RESET"
     case "$t" in
       goodivers-skill) bash "$ROOT/goodivers/setup.sh" --skill ;;
       dark-skill)      bash "$ROOT/dark/setup.sh" --skill ;;
       *)               bash "$ROOT/$t/setup.sh" ;;
     esac
   done
-  printf '\n✅ %d instalada(s). Abra um terminal novo (ou:  source ~/.zshrc).\n' "${#MARCADAS[@]}"
+  echo
+  retro_ok "${#MARCADAS[@]} instalada(s)"
+  retro_proximo "source ~/.zshrc" "abra um terminal novo, ou rode:"
+  echo
 else
+  retro_modulo "uninstall_runner" "${#MARCADAS[@]} item(s)"
   # backup de cada rc existente, uma vez por execução
   for rc in "${RCS[@]}"; do
     [ -f "$rc" ] && cp "$rc" "$rc.tools-backup"
@@ -175,7 +294,7 @@ else
       if [ -L "$LINKS" ]; then
         case "$(readlink "$LINKS")" in
           "$ORIGEM"*) rm -f "$LINKS"
-                      printf '  − skill /%s removida de ~/.claude/skills\n' "$NOME_SKILL" ;;
+                      printf '  %s−%s skill /%s removida de ~/.claude/skills\n' "$ALERTA" "$RESET" "$NOME_SKILL" ;;
         esac
       fi
       continue
@@ -190,8 +309,10 @@ else
         index($0, T "_LEMBRETE=")     { next }
         { print }
       ' "$rc" > "$rc.tmp$$" && mv "$rc.tmp$$" "$rc"
-      printf '  − %s removida de %s\n' "$t" "${rc/#$HOME/~}"
+      printf '  %s−%s %s%s%s removida de %s%s%s\n' "$ALERTA" "$RESET" "$ACC" "$t" "$RESET" "$FG40" "${rc/#$HOME/~}" "$RESET"
     done
   done
-  printf '\n✅ pronto. Vale pros próximos terminais (backup em <rc>.tools-backup).\n'
+  echo
+  retro_ok "pronto"
+  printf '  %svale pros próximos terminais · backup em <rc>.tools-backup%s\n\n' "$FG40" "$RESET"
 fi

@@ -16,6 +16,8 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [zapstats](./zapstats) | `zapstats` | Retrô de uma conversa exportada do WhatsApp |
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
+| **Imagens** | | |
+| [images/pixelart](./images/pixelart) | `pixelart` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
@@ -39,6 +41,7 @@ bash ~/Desktop/tools/vocab/setup.sh
 bash ~/Desktop/tools/zapstats/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude Code
+bash ~/Desktop/tools/images/pixelart/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
@@ -56,6 +59,25 @@ cp ~/Desktop/tools/professor/.env.example ~/Desktop/tools/professor/.env
 ```
 
 > ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma ferramenta manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.
+
+## Visual
+
+Todas as ferramentas seguem o mesmo style guide de terminal retrô — bordas retas,
+sombra offset, rótulos em CAIXA ALTA, uma cor de acento só. A especificação está em
+[`.harness/styleguide-terminal.md`](./.harness/styleguide-terminal.md) e o código
+compartilhado em [`lib/retro.sh`](./lib/retro.sh) (bash) e [`lib/retro.py`](./lib/retro.py) (python).
+
+Nove paletas, as mesmas do portfólio. Troque global ou por ferramenta:
+
+```bash
+export RETRO_TEMA=cyber-teal     # vale pra todas
+export POMO_TEMA=noir-rose       # só o pomo (<FERRAMENTA>_TEMA tem prioridade)
+pomo temas                       # catálogo com swatches; qualquer ferramenta aceita `temas`
+```
+
+Paletas: `vault-gold` `noir-rose` `midnight-ember` `cyber-teal` `velvet-purple`
+`abyss-frost` `crimson-chalk` `forest-mist` `sand-dusk`.
+`NO_COLOR=1` ou saída redirecionada derruba tudo pra texto puro.
 
 ---
 
@@ -178,6 +200,12 @@ Comparação completa e regra de escolha em [goodpen/README.md](./goodpen/README
 ```
 tools/
   setup.sh           ← instalador interativo: marca e instala/desinstala qualquer ferramenta
+  .harness/
+    styleguide.md          ← style guide do portfólio (origem do visual)
+    styleguide-terminal.md ← como ele vira UI de terminal (spec que todas seguem)
+  lib/
+    retro.sh           ← tema compartilhado das ferramentas em bash
+    retro.py           ← tema compartilhado das ferramentas em python
   goodcheats/        ← kit de utilidades da família good
     setup.sh           ← adiciona ao PATH (instala todos os comandos)
     good               ← fetch de sistema com logo (+ dispatcher good <sub>)
