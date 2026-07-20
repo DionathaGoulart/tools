@@ -1,8 +1,28 @@
 # pomo
 
-Pomodoro no terminal. Barra de progresso ASCII, notificação nativa quando o
-tempo acaba (com som no macOS), estatísticas dos últimos dias. Zero
-dependências — bash puro.
+Pomodoro no terminal com visual de terminal retrô (neo-brutalista): janela em
+box-drawing, relógio em dígitos gigantes, barra de progresso viva, sombra
+offset e paletas trocáveis. Notificação nativa quando o tempo acaba (com som
+no macOS) e estatísticas dos últimos dias. Zero dependências — bash puro.
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ● ● ●  root@pomo: ~/focus              PID: 4821 ┃▒
+┠──────────────────────────────────────────────────┨▒
+┃ [ MODULE: FOCUS_TIMER ]              ESTUDAR GO  ┃▒
+┃                                                  ┃▒
+┃         ██████ ██████    ██████ ██████           ┃▒
+┃         ██  ██ ██  ██ ██     ██     ██           ┃▒
+┃         ██  ██ ██████    ██████ ██████           ┃▒
+┃         ██  ██ ██  ██ ██     ██ ██               ┃▒
+┃         ██████ ██████    ██████ ██████           ┃▒
+┃                                                  ┃▒
+┃ ███████████████████████████▓▒▒▒▒▒▒▒▒▒▒▒▒▒   65%  ┃▒
+┠──────────────────────────────────────────────────┨▒
+┃ [P] PAUSAR · [Q] SAIR              ◍ EM EXECUCAO ┃▒
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛▒
+ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+```
 
 ```bash
 pomo                   # foco de 25 min
@@ -11,7 +31,11 @@ pomo 25 estudar go     # foco com rótulo (vai pro log)
 pomo pausa             # pausa de 5 min
 pomo pausa 15          # pausa longa
 pomo -l                # estatísticas: hoje + últimos 14 dias
+pomo temas             # paletas disponíveis
 ```
+
+Em terminal estreito (< 49 colunas) ou fora de TTY ele cai automaticamente no
+modo compacto de uma linha.
 
 Durante a contagem:
 
@@ -28,12 +52,21 @@ Cada sessão vira uma linha num CSV simples (`~/.pomo/log.csv` — fácil de
 processar com qualquer coisa). `pomo -l` mostra:
 
 ```
-  🍅 hoje: 3 pomodoro(s) · 75 min de foco
+  [ MODULE: FOCUS_STATS ]        SRC: log.csv
 
-  2026-07-18  ████ 4 (100 min)
-  2026-07-19  ██ 2 (50 min)
-  2026-07-20  ███ 3 (75 min)
+  HOJE ··························· 4 POMODORO(S)
+  FOCO HOJE ···························· 125 MIN
+  SEQUENCIA ··························· 3 DIA(S)
+  TOTAL ACUMULADO ········ 16 POMODORO(S) · 7H5M
+
+  # ULTIMOS 14 DIAS
+  ────────────────────────────────────────────
+    2026-07-18  ███▒▒▒▒▒▒▒▒▒▒▒▒▒   3 (75 min)
+    2026-07-19  ███▒▒▒▒▒▒▒▒▒▒▒▒▒   3 (75 min)
+  ► 2026-07-20  ████▒▒▒▒▒▒▒▒▒▒▒▒   4 (125 min)
 ```
+
+`SEQUENCIA` é o streak de dias consecutivos com pelo menos um foco concluído.
 
 Só focos **concluídos** contam — abortar com `q` ou Ctrl-C registra a sessão
 como `abortado` e ela fica de fora.
@@ -60,7 +93,24 @@ Abra um terminal novo (ou `source ~/.zshrc`) e rode `pomo`.
 | `POMO_PAUSA` | minutos da pausa padrão | `5` |
 | `POMO_PAUSA_LONGA` | minutos da pausa longa (sugerida a cada 4 focos) | `15` |
 | `POMO_DIR` | onde fica o log | `~/.pomo` |
+| `POMO_TEMA` | paleta (veja `pomo temas`) | `vault-gold` |
+| `POMO_SEM_ANIM` | qualquer valor desliga a animação de entrada | — |
 | `NO_COLOR` | qualquer valor desliga as cores | — |
+
+## Temas
+
+Nove paletas vindas do style guide (`pomo temas` lista com swatch):
+
+| Escuras | Claras |
+|---|---|
+| `vault-gold` (padrão), `noir-rose`, `midnight-ember`, `cyber-teal`, `velvet-purple` | `abyss-frost`, `crimson-chalk`, `forest-mist`, `sand-dusk` |
+
+```bash
+export POMO_TEMA=cyber-teal
+```
+
+Cores true-color (24-bit) quando `COLORTERM=truecolor`; senão cai pro ANSI
+básico de 8 cores.
 
 ---
 

@@ -4,6 +4,7 @@
 # usage: pomo [minutos] [rótulo…]   inicia um foco (padrão 25 min)
 #        pomo pausa [minutos]       pausa (padrão 5 min; a cada 4 focos, 15)
 #        pomo -l | --log            estatísticas (hoje + últimos 14 dias)
+#        pomo temas                 lista as paletas disponíveis
 #        pomo -h | --help
 #
 # durante a contagem:  [p] pausa/retoma   [q] aborta
@@ -17,36 +18,33 @@ FOCO_PADRAO="${POMO_FOCO:-25}"
 PAUSA_PADRAO="${POMO_PAUSA:-5}"
 PAUSA_LONGA="${POMO_PAUSA_LONGA:-15}"
 
-# ---------- cores ----------
-USE_COLOR=1
-[ -n "${NO_COLOR:-}" ] && USE_COLOR=0
-[ -t 1 ] || USE_COLOR=0
+# ---------- lib compartilhada (tema / caixa / blocos) ----------
+_pomo_src="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_pomo_src" ]; do
+  _pomo_dir="$(cd -P "$(dirname "$_pomo_src")" 2>/dev/null && pwd)" || break
+  _pomo_src="$(readlink "$_pomo_src")"
+  case "$_pomo_src" in /*) ;; *) _pomo_src="$_pomo_dir/$_pomo_src" ;; esac
+done
+_pomo_dir="$(cd -P "$(dirname "$_pomo_src")" 2>/dev/null && pwd)"
+RETRO_LIB="$_pomo_dir/../lib/retro.sh"
+[ -f "$RETRO_LIB" ] || \
+  RETRO_LIB="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../lib" 2>/dev/null && pwd)/retro.sh"
+[ -f "$RETRO_LIB" ] || { echo "pomo: lib/retro.sh não encontrada" >&2; exit 2; }
+# shellcheck source=../lib/retro.sh
+. "$RETRO_LIB"
+unset _pomo_src _pomo_dir
 
-RESET="" BOLD="" DIM="" VERMELHO="" VERDE=""
-if [ "$USE_COLOR" -eq 1 ]; then
-  RESET=$'\033[0m'
-  BOLD=$'\033[1m'
-  DIM=$'\033[2m'
-  VERMELHO=$'\033[1;31m'
-  VERDE=$'\033[1;32m'
-fi
+TEMA="${POMO_TEMA:-${RETRO_TEMA:-vault-gold}}"
+retro_init 52
 
-DESENHA=0
-[ -t 1 ] && DESENHA=1
+ANIM=1
+[ "$DESENHA" -eq 1 ] || ANIM=0
+[ -n "${POMO_SEM_ANIM:-}" ] && ANIM=0
+if [ "$ANIM" -eq 1 ]; then sleep 0.01 2>/dev/null || ANIM=0; fi
 
 # ---------- helpers ----------
-uso() {
-  echo "usage: pomo [minutos] [rótulo…]   foco (padrão $FOCO_PADRAO min)"
-  echo "       pomo pausa [minutos]       pausa (padrão $PAUSA_PADRAO min; longa: $PAUSA_LONGA)"
-  echo "       pomo -l                    estatísticas"
-  echo
-  echo "durante a contagem:  [p] pausa/retoma · [q] aborta"
-  echo "config (env): POMO_FOCO, POMO_PAUSA, POMO_PAUSA_LONGA, POMO_DIR"
-}
-
 die() { echo "pomo: $*" >&2; exit 2; }
-
-eh_numero() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+eh_numero() { retro_eh_numero "$1"; }
 
 notificar() { # $1 = título, $2 = corpo
   if command -v osascript >/dev/null 2>&1; then
@@ -72,66 +70,213 @@ focos_hoje() {
   awk -F, -v d="$(date +%Y-%m-%d)" '$1==d && $3=="foco" && $5=="ok"' "$LOG_FILE" | wc -l | tr -d ' '
 }
 
-# sessão atual (pro trap de Ctrl-C conseguir registrar o aborto)
-TIPO="" MIN=0 ROTULO=""
+# ---------- dígitos gigantes ----------
+padrao() { # $1 = char → 5 tokens de 3 (ou 1) colunas
+  case "$1" in
+    0) echo "### #.# #.# #.# ###" ;;
+    1) echo "##. .#. .#. .#. ###" ;;
+    2) echo "### ..# ### #.. ###" ;;
+    3) echo "### ..# ### ..# ###" ;;
+    4) echo "#.# #.# ### ..# ..#" ;;
+    5) echo "### #.. ### ..# ###" ;;
+    6) echo "### #.. ### #.# ###" ;;
+    7) echo "### ..# ..# ..# ..#" ;;
+    8) echo "### #.# ### #.# ###" ;;
+    9) echo "### #.# ### ..# ###" ;;
+    :) echo ". # . # ." ;;
+    *) echo "... ... ... ... ..." ;;
+  esac
+}
 
-limpar() { [ "$DESENHA" -eq 1 ] && printf '\033[?25h'; }
+FIG0="" FIG1="" FIG2="" FIG3="" FIG4=""
+figuras() { # $1 = "MM:SS"
+  local s=$1 i c r P bloco
+  FIG0="" FIG1="" FIG2="" FIG3="" FIG4=""
+  i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:i:1}"
+    # shellcheck disable=SC2207
+    P=( $(padrao "$c") )
+    for r in 0 1 2 3 4; do
+      bloco="${P[$r]}"
+      bloco="${bloco//\#/██}"
+      bloco="${bloco//./  }"
+      case $r in
+        0) FIG0="$FIG0$bloco " ;;
+        1) FIG1="$FIG1$bloco " ;;
+        2) FIG2="$FIG2$bloco " ;;
+        3) FIG3="$FIG3$bloco " ;;
+        4) FIG4="$FIG4$bloco " ;;
+      esac
+    done
+    i=$((i + 1))
+  done
+}
+
+# ---------- estado da sessão ----------
+TIPO="" MIN=0 ROTULO=""
+ALTURA=0            # linhas já desenhadas da caixa (pra redesenhar por cima)
+CHROME_TITULO=""
+MODULO=""
+ETIQUETA=""
+TITULO_CURTO=""
+
+mostrar_cursor() { [ "$DESENHA" -eq 1 ] && printf '\033[?25h'; }
 
 ao_interromper() {
-  limpar
+  mostrar_cursor
   [ -n "$TIPO" ] && registrar "$TIPO" "$MIN" abortado "$ROTULO"
-  printf '\n\n  interrompido.\n'
+  printf '\n  %s✖ INTERROMPIDO%s\n\n' "$ALERTA" "$RESET"
   exit 130
 }
 trap ao_interromper INT
 
-# ---------- contagem ----------
-desenhar() { # $1 restante  $2 total  $3 cor  $4 título  $5 sufixo
-  [ "$DESENHA" -eq 1 ] || return 0
-  local rest=$1 total=$2 cor=$3 titulo=$4 sufixo=$5
-  local largura=25 feito barra="" i
-  feito=$(( (total - rest) * largura / total ))
+# ---------- render do cronômetro ----------
+render() { # $1 restante  $2 total  $3 estado(rodando|pausado|ok)  $4 tick
+  local rest=$1 total=$2 estado=$3 tick=$4
+  local mm ss pct feito lar=$((CF - 6)) barra="" i cabeca dot dstr
+  mm=$((rest / 60)); ss=$((rest % 60))
+  [ "$mm" -gt 99 ] && mm=99
+  pct=$(( (total - rest) * 100 / total ))
+  feito=$(( (total - rest) * lar / total ))
+
+  figuras "$(printf '%02d:%02d' "$mm" "$ss")"
+
+  # barra: preenchido em accent, resto em accent/18, cabeça pulsando
+  cabeca='█'
+  [ "$estado" = "rodando" ] && [ $((tick % 2)) -eq 1 ] && cabeca='▓'
   i=0
-  while [ "$i" -lt "$largura" ]; do
-    if [ "$i" -lt "$feito" ]; then barra="${barra}█"; else barra="${barra}░"; fi
+  while [ "$i" -lt "$lar" ]; do
+    if [ "$i" -lt $((feito - 1)) ]; then barra="${barra}█"
+    elif [ "$i" -lt "$feito" ]; then barra="${barra}${cabeca}"
+    else barra="${barra}▒"; fi
     i=$((i + 1))
   done
-  printf '\r  %s%s%s  %s%02d:%02d%s  %s%s%s  %s   ' \
-    "$cor" "$titulo" "$RESET" "$BOLD" $((rest / 60)) $((rest % 60)) "$RESET" \
-    "$cor" "$barra" "$RESET" "$sufixo"
+
+  case "$estado" in
+    pausado) dot='◌'; dstr='PAUSADO' ;;
+    ok)      dot='●'; dstr='CONCLUIDO' ;;
+    *)       dot='●'; dstr='EM EXECUCAO'
+             [ $((tick % 2)) -eq 1 ] && dot='◍' ;;
+  esac
+
+  local fig_pad=$(( (CF - ${#FIG0}) / 2 ))
+  [ "$fig_pad" -lt 0 ] && fig_pad=0
+  local esp; esp=$(retro_espacos "$fig_pad")
+  local cor_fig="$ACC"
+  [ "$estado" = "pausado" ] && cor_fig="$ACC30"
+  [ "$estado" = "ok" ] && cor_fig="$OK"
+
+  retro_topo
+  retro_chrome "$CHROME_TITULO" "PID: $$"
+  retro_sep
+  local etq="$ETIQUETA" gap
+  gap=$((CF - ${#MODULO} - ${#etq}))
+  while [ "$gap" -lt 1 ] && [ -n "$etq" ]; do
+    etq="${etq%?}"
+    gap=$((CF - ${#MODULO} - ${#etq}))
+  done
+  [ "$gap" -lt 0 ] && gap=0
+  retro_linha "$(printf '%s%s%s%s%s%s%s' "$ACC" "$MODULO" "$RESET" \
+            "$(retro_espacos "$gap")" "$FG40" "$etq" "$RESET")" \
+        $((${#MODULO} + gap + ${#etq}))
+  retro_vazia
+  retro_linha "$esp$cor_fig$FIG0$RESET" $((fig_pad + ${#FIG0}))
+  retro_linha "$esp$cor_fig$FIG1$RESET" $((fig_pad + ${#FIG1}))
+  retro_linha "$esp$cor_fig$FIG2$RESET" $((fig_pad + ${#FIG2}))
+  retro_linha "$esp$cor_fig$FIG3$RESET" $((fig_pad + ${#FIG3}))
+  retro_linha "$esp$cor_fig$FIG4$RESET" $((fig_pad + ${#FIG4}))
+  retro_vazia
+  retro_linha "$(printf '%s%s%s%s  %s%3d%%%s' "$ACC" "${barra:0:$feito}" "$ACC15" "${barra:$feito}" "$ACC" "$pct" "$RESET")" \
+        $((lar + 6))
+  retro_sep
+  retro_status "[P] PAUSAR · [Q] SAIR" "$dot $dstr"
+  retro_base
+  retro_sombra
+  ALTURA=16
 }
 
-contagem() { # $1 = segundos, $2 = cor, $3 = título; retorna 0 completo / 1 abortado
-  local total=$1 cor=$2 titulo=$3
-  local inicio=$SECONDS rest key pstart
-  local dica="${DIM}[p] pausar · [q] sair${RESET}"
+redesenhar() { # move o cursor de volta pro topo da caixa e repinta
+  [ "$ALTURA" -gt 0 ] && printf '\033[%dA\r' "$ALTURA"
+  render "$@"
+}
+
+# entrada suave: revela linha a linha (fade/slide do style guide — sem bounce)
+render_entrada() {
+  if [ "$ANIM" -eq 1 ]; then
+    local buf linha_i=0
+    buf=$(render "$@")
+    while IFS= read -r linha_i; do
+      printf '%s\n' "$linha_i"
+      sleep 0.012
+    done <<EOF
+$buf
+EOF
+    ALTURA=16
+  else
+    render "$@"
+  fi
+}
+
+# ---------- contagem ----------
+# modo compacto (terminal estreito ou sem tty)
+desenhar_compacto() { # $1 restante $2 total $3 titulo $4 sufixo
+  [ "$DESENHA" -eq 1 ] || return 0
+  local rest=$1 total=$2 titulo=$3 sufixo=$4
+  local lar=25 feito barra="" i
+  feito=$(( (total - rest) * lar / total ))
+  i=0
+  while [ "$i" -lt "$lar" ]; do
+    if [ "$i" -lt "$feito" ]; then barra="${barra}█"; else barra="${barra}▒"; fi
+    i=$((i + 1))
+  done
+  printf '\r  %s%s%s  %s%02d:%02d%s  %s%s%s  %s%s%s   ' \
+    "$ACC" "$titulo" "$RESET" "$BOLD" $((rest / 60)) $((rest % 60)) "$RESET" \
+    "$ACC" "$barra" "$RESET" "$FG40" "$sufixo" "$RESET"
+}
+
+contagem() { # $1 = segundos; retorna 0 completo / 1 abortado
+  local total=$1
+  local inicio=$SECONDS rest key pstart tick=0 estado=rodando primeiro=1
   [ "$DESENHA" -eq 1 ] && printf '\033[?25l'
   while :; do
     rest=$((total - (SECONDS - inicio)))
     [ "$rest" -le 0 ] && break
-    desenhar "$rest" "$total" "$cor" "$titulo" "$dica"
+    if [ "$CAIXA" -eq 1 ]; then
+      if [ "$primeiro" -eq 1 ]; then
+        render_entrada "$rest" "$total" "$estado" "$tick"; primeiro=0
+      else
+        redesenhar "$rest" "$total" "$estado" "$tick"
+      fi
+    else
+      desenhar_compacto "$rest" "$total" "$TITULO_CURTO" "[p] pausar · [q] sair"
+    fi
+    tick=$((tick + 1))
     if [ -t 0 ]; then
       key=""
       read -rs -t 1 -n 1 key 2>/dev/null || true
       case "$key" in
         p|P)
           pstart=$SECONDS
-          desenhar "$rest" "$total" "$cor" "$titulo" "${DIM}⏸ pausado · [p] retoma · [q] sai${RESET}"
+          estado=pausado
+          if [ "$CAIXA" -eq 1 ]; then redesenhar "$rest" "$total" pausado "$tick"
+          else desenhar_compacto "$rest" "$total" "$TITULO_CURTO" "⏸ pausado · [p] retoma · [q] sai"; fi
           while read -rs -n 1 key 2>/dev/null; do
             case "$key" in
-              p|P) inicio=$((inicio + SECONDS - pstart)); break ;;
-              q|Q) limpar; return 1 ;;
+              p|P) inicio=$((inicio + SECONDS - pstart)); estado=rodando; break ;;
+              q|Q) mostrar_cursor; return 1 ;;
             esac
           done
           ;;
-        q|Q) limpar; return 1 ;;
+        q|Q) mostrar_cursor; return 1 ;;
       esac
     else
       sleep 1
     fi
   done
-  desenhar 0 "$total" "$cor" "$titulo" " "
-  limpar
+  if [ "$CAIXA" -eq 1 ]; then redesenhar 0 "$total" ok "$tick"
+  else desenhar_compacto 0 "$total" "$TITULO_CURTO" " "; fi
+  mostrar_cursor
   return 0
 }
 
@@ -140,74 +285,149 @@ cmd_foco() { # $1 = minutos, resto = rótulo
   local min=$1; shift
   local rotulo="${*:-}"
   TIPO=foco MIN=$min ROTULO=$rotulo
+  CHROME_TITULO="root@pomo: ~/focus"
+  MODULO="[ MODULE: FOCUS_TIMER ]"
+  TITULO_CURTO="🍅 FOCO"
+  ETIQUETA=$(retro_upper "${rotulo:-sem rotulo}")
   echo
-  printf '  🍅 %sfoco%s: %d min%s\n\n' "$VERMELHO" "$RESET" "$min" "${rotulo:+ — $rotulo}"
-  if contagem $((min * 60)) "$VERMELHO" "🍅 foco"; then
+  if contagem $((min * 60)); then
     registrar foco "$min" ok "$rotulo"
     TIPO=""
     local n; n=$(focos_hoje)
-    printf '\n\n  %s✔ foco concluído!%s  %s pomodoro(s) hoje.\n' "$VERDE" "$RESET" "$n"
+    notificar "pomo" "Foco concluído! ${n} pomodoro(s) hoje."
+    echo
+    retro_ok "foco concluido"
+    echo
+    retro_kv "POMODOROS HOJE" "$n"
+    retro_kv "SESSAO" "$min MIN"
+    [ -n "$rotulo" ] && retro_kv "ROTULO" "$(retro_upper "$rotulo")"
+    echo
     if [ $((n % 4)) -eq 0 ]; then
-      notificar "pomo" "Foco concluído! 4º seguido — pausa longa de $PAUSA_LONGA min."
-      printf '  4º pomodoro — pausa longa:  %spomo pausa %s%s\n\n' "$BOLD" "$PAUSA_LONGA" "$RESET"
+      retro_proximo "pomo pausa $PAUSA_LONGA" "pausa longa recomendada:"
     else
-      notificar "pomo" "Foco concluído! Hora da pausa ($PAUSA_PADRAO min)."
-      printf '  agora a pausa:  %spomo pausa%s\n\n' "$BOLD" "$RESET"
+      retro_proximo "pomo pausa"
     fi
+    echo
   else
     registrar foco "$min" abortado "$rotulo"
     TIPO=""
-    printf '\n\n  ✖ foco abortado (não conta na estatística).\n\n'
+    echo
+    retro_aviso "abortado" "foco nao conta na estatistica."
+    echo
   fi
 }
 
 cmd_pausa() { # $1 = minutos
   local min=$1
   TIPO=pausa MIN=$min ROTULO=""
+  CHROME_TITULO="root@pomo: ~/break"
+  MODULO="[ MODULE: BREAK_TIMER ]"
+  TITULO_CURTO="☕ PAUSA"
+  ETIQUETA="LEVANTA · ALONGA · AGUA"
   echo
-  printf '  ☕ %spausa%s: %d min — levanta, alonga, água.\n\n' "$VERDE" "$RESET" "$min"
-  if contagem $((min * 60)) "$VERDE" "☕ pausa"; then
+  if contagem $((min * 60)); then
     registrar pausa "$min" ok ""
     TIPO=""
     notificar "pomo" "Pausa acabou — de volta ao foco."
-    printf '\n\n  %s✔ pausa concluída.%s  Próximo:  %spomo%s\n\n' "$VERDE" "$RESET" "$BOLD" "$RESET"
+    echo
+    retro_ok "pausa concluida"
+    echo
+    retro_proximo "pomo"
+    echo
   else
     registrar pausa "$min" abortado ""
     TIPO=""
-    printf '\n\n  pausa encerrada antes da hora. Próximo:  %spomo%s\n\n' "$BOLD" "$RESET"
+    echo
+    retro_aviso "encerrada" "pausa cortada antes da hora."
+    retro_proximo "pomo"
+    echo
   fi
 }
 
 cmd_log() {
   if [ ! -f "$LOG_FILE" ]; then
-    echo "nenhuma sessão ainda. Comece com:  pomo"
+    echo
+    retro_aviso "vazio" "nenhuma sessao ainda. Comece com:  ${ACC}${BOLD}pomo${RESET}"
+    echo
     return
   fi
-  local hoje; hoje=$(date +%Y-%m-%d)
+  local hoje n_hoje m_hoje total_p total_m sequencia
+  hoje=$(date +%Y-%m-%d)
+  read -r n_hoje m_hoje <<EOF
+$(awk -F, -v d="$hoje" '$1==d && $3=="foco" && $5=="ok" {n++; m+=$4} END {printf "%d %d", n, m}' "$LOG_FILE")
+EOF
+  read -r total_p total_m <<EOF
+$(awk -F, 'NR>1 && $3=="foco" && $5=="ok" {n++; m+=$4} END {printf "%d %d", n, m}' "$LOG_FILE")
+EOF
+  # sequência de dias consecutivos até hoje
+  sequencia=$(awk -F, 'NR>1 && $3=="foco" && $5=="ok" {d[$1]=1} END {for (k in d) print k}' "$LOG_FILE" \
+    | sort -r | awk -v hoje="$hoje" '
+        function jd(s,  a, y, m, d) {
+          split(s, a, "-"); y = a[1] + 0; m = a[2] + 0; d = a[3] + 0
+          if (m < 3) { y--; m += 12 }
+          return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d - 1524
+        }
+        NR == 1 { esperado = jd($0); if (jd(hoje) - esperado > 1) exit }
+        { if (jd($0) == esperado) { c++; esperado-- } else exit }
+        END { print c + 0 }')
+  retro_eh_numero "${sequencia:-}" || sequencia=0
+
+  retro_modulo "focus_stats" "src: log.csv"
+  retro_kv "HOJE" "$n_hoje POMODORO(S)"
+  retro_kv "FOCO HOJE" "$m_hoje MIN"
+  retro_kv "SEQUENCIA" "$sequencia DIA(S)"
+  retro_kv "TOTAL ACUMULADO" "$total_p POMODORO(S) · $((total_m / 60))H$((total_m % 60))M"
   echo
-  awk -F, -v d="$hoje" '
-    $1==d && $3=="foco" && $5=="ok" {n++; m+=$4}
-    END {printf "  🍅 hoje: %d pomodoro(s) · %d min de foco\n", n, m}' "$LOG_FILE"
-  echo
+  retro_secao "ultimos 14 dias"
+  printf '  %s%s%s\n' "$ACC15" "$(retro_repetir '─' 44)" "$RESET"
   awk -F, 'NR>1 && $3=="foco" && $5=="ok" {n[$1]++; m[$1]+=$4}
            END {for (d in n) printf "%s %d %d\n", d, n[d], m[d]}' "$LOG_FILE" \
     | sort | tail -14 | while read -r dia qtd mins; do
-        barra_n=$qtd
-        [ "$barra_n" -gt 25 ] && barra_n=25
-        barra=$(printf '%*s' "$barra_n" '' | tr ' ' '█')
-        printf '  %s  %s%s%s %d (%d min)\n' "$dia" "$VERMELHO" "$barra" "$RESET" "$qtd" "$mins"
+        local_n=$qtd
+        [ "$local_n" -gt 16 ] && local_n=16
+        cheio=$(retro_repetir '█' "$local_n")
+        vazio=$(retro_repetir '▒' $((16 - local_n)))
+        marca=" "
+        [ "$dia" = "$hoje" ] && marca="►"
+        printf '  %s%s%s %s%s%s%s%s%s  %s%2d%s %s(%d min)%s\n' \
+          "$ACC" "$marca" "$RESET" "$FG40" "$dia" "$RESET" \
+          "  $ACC$cheio" "$ACC15$vazio" "$RESET" \
+          "$ACC$BOLD" "$qtd" "$RESET" "$FG40" "$mins" "$RESET"
       done
   echo
-  echo "  log completo em: $LOG_FILE"
+  printf '  %sLOG: %s%s\n' "$ACC15" "$LOG_FILE" "$RESET"
+  echo
+}
+
+cmd_temas() { retro_catalogo_temas POMO_TEMA; }
+
+uso() {
+  retro_modulo "pomo_help"
+  retro_kv "pomo [min] [rotulo]" "FOCO ($FOCO_PADRAO MIN)"
+  retro_kv "pomo pausa [min]" "PAUSA ($PAUSA_PADRAO MIN)"
+  retro_kv "pomo -l" "ESTATISTICAS"
+  retro_kv "pomo temas" "PALETAS"
+  echo
+  retro_secao "durante a contagem"
+  retro_kv "[P]" "PAUSA / RETOMA"
+  retro_kv "[Q]" "ABORTA"
+  echo
+  retro_secao "env"
+  retro_kv "POMO_FOCO / POMO_PAUSA" "MINUTOS"
+  retro_kv "POMO_PAUSA_LONGA" "$PAUSA_LONGA MIN"
+  retro_kv "POMO_TEMA" "$(retro_upper "$TEMA")"
+  retro_kv "POMO_DIR / NO_COLOR" "PATH / OFF"
+  echo
 }
 
 # ---------- main ----------
 MODO=foco
 case "${1:-}" in
-  -h|--help) uso; exit 0 ;;
-  -l|--log)  cmd_log; exit 0 ;;
-  pausa|p)   MODO=pausa; shift ;;
-  -*)        die "opção desconhecida '$1' (veja pomo -h)" ;;
+  -h|--help)   uso; exit 0 ;;
+  -l|--log)    cmd_log; exit 0 ;;
+  temas|tema)  cmd_temas; exit 0 ;;
+  pausa|p)     MODO=pausa; shift ;;
+  -*)          die "opção desconhecida '$1' (veja pomo -h)" ;;
 esac
 
 MINUTOS=""
