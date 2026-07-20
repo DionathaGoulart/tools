@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# cheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
+# goodcheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SHEET_DIR="$SCRIPT_DIR/sheets"
 
 usage() {
-  echo "usage: cheat <topic>     — view sheet"
-  echo "       cheat -e <topic>  — edit/create sheet"
-  echo "       cheat -l          — list sheets"
-  echo "       cheat -s <term>   — search inside all sheets"
+  echo "usage: goodcheat <topic>     — view sheet"
+  echo "       goodcheat -e <topic>  — edit/create sheet"
+  echo "       goodcheat -l          — list sheets"
+  echo "       goodcheat -s <term>   — search inside all sheets"
 }
 
 valid_topic() {
@@ -29,7 +29,7 @@ pick_editor() {
 
 list() {
   if [ ! -d "$SHEET_DIR" ] || [ -z "$(ls -A "$SHEET_DIR" 2>/dev/null)" ]; then
-    echo "(no sheets yet — create one with: cheat -e <topic>)"
+    echo "(no sheets yet — create one with: goodcheat -e <topic>)"
     return
   fi
   for f in "$SHEET_DIR"/*; do
@@ -45,7 +45,7 @@ list() {
 
 search() {
   if [ -z "${1:-}" ]; then
-    echo "usage: cheat -s <term>"
+    echo "usage: goodcheat -s <term>"
     return 1
   fi
   matches="$(grep -RIni -- "$1" "$SHEET_DIR" 2>/dev/null)"
@@ -80,7 +80,7 @@ show() {
 
 edit() {
   if [ -z "${1:-}" ]; then
-    echo "usage: cheat -e <topic>"
+    echo "usage: goodcheat -e <topic>"
     return 1
   fi
   valid_topic "$1" || return 1

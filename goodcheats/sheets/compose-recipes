@@ -1,6 +1,6 @@
-# Docker compose files prontos (em cheats/compose/)
+# Docker compose files prontos (em goodcheats/compose/)
 
-COMPOSE=~/Desktop/tools/cheats/compose   # ajuste se clonou em outro lugar
+COMPOSE=~/Desktop/tools/goodcheats/compose   # ajuste se clonou em outro lugar
 
 ## Postgres + Redis (postgres:5432, redis:6379 — user/senha/db: dev)
 docker compose -f $COMPOSE/postgres-redis.yml up -d
