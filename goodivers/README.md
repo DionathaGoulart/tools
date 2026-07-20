@@ -1,0 +1,221 @@
+# goodivers
+
+Copiloto de conteúdo do canal [Goodivers](https://www.youtube.com/@Goodivers)
+(Helldivers 2). Helldivers 2 é jogo-serviço: Ordem Maior, patch e warbond
+mudam toda semana — e é dessa janela que nasce vídeo bom. O goodivers puxa o
+estado **ao vivo** do jogo e do nicho e usa isso pra gerar ideias, títulos,
+thumbnails e roteiro pensados pro algoritmo do YouTube em canal pequeno.
+
+**Nada roda sozinho**: zero monitoramento em background, zero cron. Toda
+coleta e toda chamada de modelo acontecem só quando você digita um comando.
+`radar` e `buscar` nem usam LLM (APIs públicas, sem chave); o modelo
+(OpenRouter `:free`) só entra em `ideias`, `inspirar`, `pacote` e `titulos`.
+
+```bash
+goodivers                       # radar: guerra, patches, reddit e canais do nicho
+goodivers ideias                # 10 ideias de vídeo rankeadas
+goodivers inspirar              # vídeos gringos performando → plano de adaptação PT-BR
+goodivers pacote 3              # pacote de produção completo da ideia 3
+goodivers titulos "farm de sc"  # 8 variações de título pra teste A/B
+goodivers buscar "hd2 leaks" -s # busca no YouTube (-s semana · --br como o público BR)
+goodivers canais                # gerencia os canais monitorados
+```
+
+---
+
+## Comandos
+
+### `goodivers` — o radar (padrão)
+
+Fotografia do momento, coletada em paralelo, **sem LLM e sem chave**:
+
+| Seção | O que mostra | Fonte |
+|---|---|---|
+| ⭐ Ordem Maior | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
+| 📢 Despachos | as notícias in-game da Super Terra (a "TV" do jogo) | api.helldivers2.dev |
+| 🔧 Oficial | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
+| 👽 r/Helldivers | posts em alta (best-effort: Reddit bloqueia alguns IPs; o radar segue sem) | Reddit |
+| 📺 Canais do nicho | últimos vídeos de cada canal monitorado, com views e idade | RSS público do YouTube |
+| 🎬 Seu canal | seus vídeos e views, sempre à vista | RSS público do YouTube |
+
+O **🔥 de outlier** é o sinal mais importante: vídeo com views/dia ≥ 2× a
+mediana do próprio canal = formato que o algoritmo está empurrando **agora**.
+
+Detalhes de comportamento:
+
+- O snapshot fica em cache por **6 horas** (`~/.goodivers/radar.json`) — os
+  outros comandos reaproveitam sem recoletar. `-f` força recoleta.
+- Fonte fora do ar? O radar reaproveita a última coleta boa daquela seção e
+  avisa a idade do dado no rodapé. Nenhuma fonte derruba as outras.
+- **Quando usar:** de manhã, todo dia. Ordem Maior nova ou patch = janela de
+  newsjacking aberta.
+
+### `goodivers ideias`
+
+Injeta o radar inteiro no modelo e devolve **10 ideias rankeadas da melhor
+pra pior**, misturando por design: 2–3 newsjacking da janela atual, 3–4
+busca evergreen (dicas, guias, farm), 2 adaptações de vídeo gringo que está
+performando (citando o original) e 1 short.
+
+Cada ideia traz:
+
+- **título pronto** (≤60 chars, keyword na frente)
+- **ângulo** — o que o vídeo entrega e por que clicariam
+- **por que agora** — amarrado aos dados ao vivo (patch, Ordem, outlier…)
+- **esforço** de produção e **potencial** (baixo/médio/alto, coloridos)
+- **🔎 termos de busca** — como o brasileiro pesquisaria isso
+
+As ideias ficam salvas: `goodivers pacote N` puxa a ideia N direto.
+
+### `goodivers inspirar`
+
+A estratégia do canal em um comando: o nicho gringo de Helldivers 2 é
+gigante e o PT-BR está quase vazio — então **o que performa lá fora é
+matéria-prima validada** pra versão brasileira.
+
+O que ele faz, na ordem:
+
+1. Varre os canais monitorados (outliers 🔥 do radar)
+2. Busca no YouTube gringo os vídeos da semana: `helldivers 2` e
+   `helldivers 2 leaks`
+3. Busca o que **já existe em PT-BR** na semana (pra não repetir o que o BR
+   já cobriu — e pra te mostrar o tamanho do buraco)
+4. O modelo escolhe os **6 melhores candidatos a adaptação** e devolve, pra
+   cada um: vídeo original + canal, por que performou, **título PT-BR
+   pronto**, o que mudar/cortar/adicionar pro público BR, e **o que checar
+   no jogo antes de gravar** (pra não publicar guia desatualizado).
+
+> Adaptar = re-roteirizar com a sua gameplay e o seu contexto. Nunca
+> tradução 1:1 — reused content mata canal.
+
+**Fluxo:** `inspirar` → escolheu um plano → `pacote "<título escolhido>"`.
+
+### `goodivers pacote <N | "ideia">`
+
+Pacote de produção completo de UM vídeo. Aceita o número de uma ideia salva
+(`pacote 3`) ou texto livre (`pacote "guia solo dificuldade 10"`). Devolve:
+
+- ✏️ **5 títulos** com ângulos diferentes (avisa em vermelho se passar de
+  60 chars) — pra escolher ou testar
+- 🖼 **3 conceitos de thumbnail** — texto de ≤4 palavras em maiúsculas,
+  composição descrita (fundo, ponto focal, cor, emoção) e **prompt de
+  imagem em inglês pronto** pra colar numa IA de imagem. São 3 porque o
+  YouTube testa até 3 thumbs no Test & Compare.
+- 📝 **Descrição pronta** — 2 primeiras linhas carregam as keywords (é o
+  que o YouTube lê primeiro)
+- 🏷 **12–18 tags** misto PT/EN
+- 🎣 **Hook dos primeiros 30s** — roteiro literal, em 1ª pessoa
+- 🎬 **Roteiro em beats** — minuto a minuto, cada beat com a razão de
+  retenção
+
+### `goodivers titulos "<tema>"`
+
+Atalho quando você já sabe o vídeo e só quer packaging: 8 títulos com
+ângulos variados (número, pergunta, contraste, urgência), todos ≤60 chars,
+cada um com o gatilho de clique explicado. Mais rápido e barato que `pacote`.
+
+### `goodivers buscar "<termo>" [-s] [--br]`
+
+Busca real no YouTube (scraping da página de resultados — **sem chave, sem
+LLM**). Mostra views, idade, duração, canal e título de até 15 resultados.
+
+| Flag | Efeito | Uso típico |
+|---|---|---|
+| `-s` / `--semana` | só vídeos desta semana | o que está quente agora |
+| `--br` | busca como o público BR vê (gl=BR, hl=pt) | medir concorrência PT-BR |
+| (sem flags) | busca gringa, sem filtro de data | validar demanda evergreen |
+
+Exemplos:
+
+```bash
+goodivers buscar "helldivers 2 leaks" -s      # novidades/vazamentos da semana
+goodivers buscar "helldivers 2 dicas" --br    # o que o BR encontra ao buscar isso
+goodivers buscar "helldivers 2 solo build"    # tem demanda? quem já cobriu?
+```
+
+### `goodivers canais [add <x> | rm <x>]`
+
+Gerencia os canais que o radar e o `inspirar` monitoram via RSS.
+
+```bash
+goodivers canais                 # lista
+goodivers canais add @canal      # aceita @handle, URL de canal ou ID UC…
+goodivers canais rm nome         # remove por nome (ou ID)
+```
+
+Seeds padrão (todos verificados, todos gringos de propósito — o que
+performa lá é matéria-prima pra versão PT-BR):
+
+| Canal | Perfil |
+|---|---|
+| Glitch Unlimited | news/leaks — o maior do nicho |
+| MichelleFreeHugs | updates e testes |
+| OhDough Plays | meta/loadouts |
+| ThiccFilA | news/opinião |
+| CommissarKai | gameplay/humor |
+
+### Flags globais
+
+| Flag | Faz |
+|---|---|
+| `-f` / `--fresh` | ignora o cache de 6h e recoleta o radar agora |
+| `-m` / `--modelos` | lista os modelos `:free` disponíveis na OpenRouter agora |
+
+## Instalação
+
+Precisa de Python 3. Chave da [OpenRouter](https://openrouter.ai/keys)
+(grátis) só pros comandos de geração — `radar` e `buscar` funcionam sem.
+
+```bash
+# 1. chave da API. Duas formas (escolha uma):
+#    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
+export OPENROUTER_API_KEY="sk-or-..."
+#    b) ou num .env dentro desta pasta:
+cp ~/Desktop/tools/goodivers/.env.example ~/Desktop/tools/goodivers/.env
+#    e edite o .env com sua chave (o .env não é versionado).
+
+# 2. coloca o comando no PATH (uma vez) — direto:
+bash ~/Desktop/tools/goodivers/setup.sh
+#    ou pelo instalador interativo do repo:
+bash ~/Desktop/tools/setup.sh
+```
+
+> A variável exportada no shell tem prioridade sobre o `.env`.
+
+### Lembrete diário (opcional)
+
+Adicione antes da linha de `source` no seu rc pra ser avisado uma vez por
+dia, ao abrir o terminal, se ainda não viu o radar:
+
+```bash
+export GOODIVERS_LEMBRETE=1
+```
+
+## Configuração
+
+| Variável | Pra quê | Padrão |
+|---|---|---|
+| `OPENROUTER_API_KEY` | sua chave (obrigatória só p/ gerar) | — |
+| `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
+| `GOODIVERS_CONTEXTO` | contexto extra do canal injetado em toda geração (equipamento, estilo de edição, tempo disponível…) | nenhum |
+| `GOODIVERS_DIR` | onde salvar cache e config | `~/.goodivers` |
+| `GOODIVERS_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
+
+## Privacidade
+
+Tudo que vai no prompt é público: estado da guerra, patch notes, posts do
+Reddit e títulos/views de vídeos do YouTube. Nada pessoal. Cache e config
+ficam em `~/.goodivers/`.
+
+## Fluxo recomendado
+
+```bash
+goodivers                # manhã: patch novo? Ordem nova? outlier no nicho?
+goodivers ideias         # janela aberta → ideias rankeadas
+goodivers inspirar       # ou: o que o gringo provou que funciona esta semana?
+goodivers pacote 2       # escolheu → pacote completo, só gravar
+```
+
+---
+
+↩ [Voltar pro índice de ferramentas](../README.md)
