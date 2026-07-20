@@ -61,9 +61,8 @@ MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "nousresearch/hermes-3-llama-3.1-405b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-31b-it:free",
 ]
 
 HD2_API = "https://api.helldivers2.dev/api/v1"
@@ -486,7 +485,13 @@ def modelos_configurados():
     return DEFAULT_MODELS
 
 
-def chamar_llm(messages, max_tokens=3000, temperature=0.9):
+def chamar_llm(messages, max_tokens=3000, temperature=0.9, json_tipo=None):
+    """Chama a OpenRouter tentando cada modelo em ordem.
+
+    Com json_tipo ("array"|"objeto"), valida o JSON antes de aceitar a resposta —
+    modelo que devolve JSON quebrado conta como falha e cai pro próximo.
+    Retorna (conteudo, modelo); conteudo já parseado quando json_tipo é dado.
+    """
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         die(
@@ -516,9 +521,15 @@ def chamar_llm(messages, max_tokens=3000, temperature=0.9):
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             content = (data["choices"][0]["message"].get("content") or "").strip()
-            if content:
+            if not content:
+                erros.append(f"{model}: resposta vazia")
+                continue
+            if json_tipo is None:
                 return content, model
-            erros.append(f"{model}: resposta vazia")
+            parsed = extrair_json(content, json_tipo)
+            if parsed is not None:
+                return parsed, model
+            erros.append(f"{model}: não devolveu JSON parseável")
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 die("OPENROUTER_API_KEY inválida (HTTP 401).")
@@ -544,15 +555,25 @@ def listar_modelos_free():
 
 
 def extrair_json(texto, tipo="array"):
-    """Extrai o JSON da resposta (tolera cerca de markdown e texto em volta)."""
-    abre, fecha = ("[", "]") if tipo == "array" else ("{", "}")
-    ini, fim = texto.find(abre), texto.rfind(fecha)
-    if ini == -1 or fim <= ini:
-        return None
-    try:
-        return json.loads(texto[ini:fim + 1])
-    except json.JSONDecodeError:
-        return None
+    """Extrai o JSON da resposta (tolera cerca de markdown, reasoning e texto em volta)."""
+    abre = "[" if tipo == "array" else "{"
+    texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
+    dec = json.JSONDecoder()
+    i = texto.find(abre)
+    while i != -1:
+        try:
+            valor, _ = dec.raw_decode(texto, i)
+            # comandos esperam array de objetos ou um objeto — evita pegar
+            # colchetes soltos do texto em volta (ex.: "lista[0]")
+            if tipo == "array":
+                if isinstance(valor, list) and valor and all(isinstance(x, dict) for x in valor):
+                    return valor
+            elif isinstance(valor, dict) and valor:
+                return valor
+        except json.JSONDecodeError:
+            pass
+        i = texto.find(abre, i + 1)
+    return None
 
 
 # ---------------------------------------------------------------- contexto do estrategista
@@ -659,12 +680,9 @@ def cmd_ideias(fresh):
         '"busca" (array com 2-3 termos que o BR pesquisaria).'
     )
     print("💡 gerando ideias com os dados ao vivo…", file=sys.stderr)
-    texto, model = chamar_llm(
+    ideias, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
-         {"role": "user", "content": prompt}], max_tokens=3500)
-    ideias = extrair_json(texto, "array")
-    if not ideias:
-        die(f"o modelo {model} não devolveu JSON parseável. Tente de novo (ou troque o modelo com -m).")
+         {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
     salvar_json(IDEIAS_FILE, {"quando": agora_utc().isoformat(), "ideias": ideias})
 
     print(f"\n\033[1m💡 10 ideias pro Goodivers\033[0m  \033[2m({model})\033[0m")
@@ -706,12 +724,9 @@ def cmd_pacote(texto_ideia, fresh):
         'segura retenção").'
     )
     print("📦 montando pacote…", file=sys.stderr)
-    texto, model = chamar_llm(
+    p, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
-         {"role": "user", "content": prompt}], max_tokens=3200)
-    p = extrair_json(texto, "objeto")
-    if not p:
-        die(f"o modelo {model} não devolveu JSON parseável. Tente de novo (ou troque o modelo com -m).")
+         {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="objeto")
 
     print(f"\n\033[1m📦 pacote:\033[0m {resumir(texto_ideia, 90)}  \033[2m({model})\033[0m")
     secao("✏️ ", "TÍTULOS (teste A/B)")
@@ -749,12 +764,9 @@ def cmd_titulos(tema, fresh):
         "zero clickbait mentiroso.\n"
         'Devolva SOMENTE um array JSON: [{"titulo": "...", "gatilho": "por que clica, 3-6 palavras"}]'
     )
-    texto, model = chamar_llm(
+    tt, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
-         {"role": "user", "content": prompt}], max_tokens=1500)
-    tt = extrair_json(texto, "array")
-    if not tt:
-        die(f"o modelo {model} não devolveu JSON parseável. Tente de novo.")
+         {"role": "user", "content": prompt}], max_tokens=2500, json_tipo="array")
     print(f"\n\033[1m✏️  títulos:\033[0m {tema}  \033[2m({model})\033[0m\n")
     for i, t in enumerate(tt, 1):
         print(f"  {i}. \033[1m{t.get('titulo', '?')}\033[0m  \033[2m({t.get('gatilho', '')})\033[0m")
@@ -839,12 +851,9 @@ def cmd_inspirar(fresh):
         '"adaptacao" (1-2 frases: o que mudar/cortar/adicionar pro público BR), '
         '"checar" (o que validar no jogo/patch antes de gravar, pra não sair desatualizado).'
     )
-    texto, model = chamar_llm(
+    planos, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
-         {"role": "user", "content": prompt}], max_tokens=3200)
-    planos = extrair_json(texto, "array")
-    if not planos:
-        die(f"o modelo {model} não devolveu JSON parseável. Tente de novo.")
+         {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
 
     print(f"\n\033[1m🌎 gringo → PT-BR: 6 adaptações\033[0m  \033[2m({model})\033[0m")
     for i, p in enumerate(planos, 1):
