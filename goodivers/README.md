@@ -11,6 +11,13 @@ coleta e toda chamada de modelo acontecem só quando você digita um comando.
 `radar` e `buscar` nem usam LLM (APIs públicas, sem chave); o modelo
 (OpenRouter `:free`) só entra em `ideias`, `inspirar`, `pacote` e `titulos`.
 
+Dois jeitos de usar a parte com IA — mesmos comandos nos dois:
+
+| Onde | Modelo | Precisa |
+|---|---|---|
+| Terminal: `goodivers ideias` | OpenRouter `:free` | `OPENROUTER_API_KEY` |
+| Claude Code: `/goodivers ideias` | Claude da sessão | nada (usa sua sessão) |
+
 ```bash
 goodivers                       # radar: guerra, patches, reddit e canais do nicho
 goodivers ideias                # 10 ideias de vídeo rankeadas
@@ -160,6 +167,38 @@ performa lá é matéria-prima pra versão PT-BR):
 |---|---|
 | `-f` / `--fresh` | ignora o cache de 6h e recoleta o radar agora |
 | `-m` / `--modelos` | lista os modelos `:free` disponíveis na OpenRouter agora |
+| `--json` | saída JSON crua de `radar`, `buscar` e `canais` — pra scripts e pro skill `/goodivers` |
+
+## Skill do Claude Code: `/goodivers`
+
+Os mesmos comandos dentro do Claude Code, com uma troca: quem gera é o
+**Claude da sessão**, não a OpenRouter. Sem chave, sem modelo `:free`, sem
+loteria de qual modelo está no ar — e a conversa continua de onde o comando
+parou ("agora encurta esses títulos", "troca a thumb 2").
+
+```
+/goodivers                      # radar renderizado em markdown
+/goodivers ideias               # 10 ideias rankeadas (geradas pelo Claude)
+/goodivers pacote 3             # pacote completo da ideia 3
+/goodivers inspirar             # gringo → plano de adaptação PT-BR
+/goodivers titulos "farm de sc" # 8 variações A/B
+```
+
+Como funciona por baixo: o skill chama o CLI com `--json` só pra **coletar**
+(radar, buscas) e o Claude assume a **geração** com a mesma persona e os
+mesmos formatos do CLI. As ideias vão pro mesmo `~/.goodivers/ideias.json` —
+`ideias` no terminal + `/goodivers pacote 2` no Claude Code (e vice-versa)
+funcionam juntos.
+
+CLI e skill instalam separado — um, outro ou os dois:
+
+```bash
+bash ~/Desktop/tools/goodivers/setup.sh          # só o CLI (PATH no rc)
+bash ~/Desktop/tools/goodivers/setup.sh --skill  # só o skill (symlink em ~/.claude/skills)
+bash ~/Desktop/tools/setup.sh                    # instalador do repo: marque goodivers e/ou goodivers-skill
+```
+
+O CLI precisa estar no PATH pro skill funcionar — é ele que coleta.
 
 ## Instalação
 
@@ -176,8 +215,11 @@ cp ~/Desktop/tools/goodivers/.env.example ~/Desktop/tools/goodivers/.env
 
 # 2. coloca o comando no PATH (uma vez) — direto:
 bash ~/Desktop/tools/goodivers/setup.sh
-#    ou pelo instalador interativo do repo:
+#    ou pelo instalador interativo do repo (goodivers e goodivers-skill separados):
 bash ~/Desktop/tools/setup.sh
+
+# 3. (opcional) skill /goodivers no Claude Code — gera com o Claude, sem chave:
+bash ~/Desktop/tools/goodivers/setup.sh --skill
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.

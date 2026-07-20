@@ -629,8 +629,16 @@ def badge(nivel):
     return f"\033[{cores.get(str(nivel).lower(), '0')}m{nivel}\033[0m"
 
 
-def cmd_radar(fresh):
-    render_radar(coletar_radar(force=fresh))
+def imprimir_json(obj):
+    print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def cmd_radar(fresh, como_json=False):
+    s = coletar_radar(force=fresh)
+    if como_json:
+        imprimir_json(s)
+    else:
+        render_radar(s)
 
 
 def cmd_ideias(fresh):
@@ -760,7 +768,7 @@ def render_busca(vids, limite=15):
               f"\033[1;36m{resumir(v['canal'], 20)}\033[0m — {resumir(v['titulo'], 62)}")
 
 
-def cmd_buscar(termo, semana, br):
+def cmd_buscar(termo, semana, br, como_json=False):
     if not termo:
         die('faltou o termo.  Ex.:  goodivers buscar "helldivers 2 leaks" --semana')
     onde = "BR·pt" if br else "US·en"
@@ -769,6 +777,9 @@ def cmd_buscar(termo, semana, br):
     vids = fetch_busca(termo, semana=semana, br=br)
     if not vids:
         die("nenhum resultado (YouTube pode ter mudado o HTML — me avise).")
+    if como_json:
+        imprimir_json(vids)
+        return
     print(f"\n\033[1m🔎 {termo}\033[0m  \033[2m({onde}{filtro})\033[0m\n")
     render_busca(vids)
     print("\n\033[2mplano de adaptação PT-BR dos melhores:  goodivers inspirar\033[0m")
@@ -874,9 +885,12 @@ def resolver_canal(entrada):
     return {"nome": info["nome"], "id": canal_id}
 
 
-def cmd_canais(resto):
+def cmd_canais(resto, como_json=False):
     cfg = carregar_config()
     acao = resto[0] if resto else "list"
+    if como_json and acao == "list":
+        imprimir_json(cfg["canais"])
+        return
     if acao == "add" and len(resto) >= 2:
         canal = resolver_canal(resto[1])
         if any(c["id"] == canal["id"] for c in cfg["canais"]):
@@ -931,12 +945,19 @@ def main():
                     help="(buscar) busca como o público BR (gl=BR, hl=pt)")
     ap.add_argument("-m", "--modelos", action="store_true",
                     help="lista modelos :free disponíveis")
+    ap.add_argument("--json", action="store_true", dest="como_json",
+                    help="saída JSON crua (radar, buscar, canais) — pra scripts "
+                         "e pro skill /goodivers do Claude Code")
     args = ap.parse_args()
+
+    if args.como_json and args.comando not in ("radar", "buscar", "canais"):
+        die("--json é só pra coleta (radar, buscar, canais). Geração com o Claude: "
+            "skill /goodivers no Claude Code.")
 
     if args.modelos:
         listar_modelos_free()
     elif args.comando == "radar":
-        cmd_radar(args.fresh)
+        cmd_radar(args.fresh, args.como_json)
     elif args.comando == "ideias":
         cmd_ideias(args.fresh)
     elif args.comando == "inspirar":
@@ -946,9 +967,9 @@ def main():
     elif args.comando == "titulos":
         cmd_titulos(" ".join(args.resto).strip(), args.fresh)
     elif args.comando == "buscar":
-        cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br)
+        cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br, args.como_json)
     elif args.comando == "canais":
-        cmd_canais(args.resto)
+        cmd_canais(args.resto, args.como_json)
 
 
 if __name__ == "__main__":

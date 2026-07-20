@@ -5,12 +5,13 @@
 #   bash setup.sh -u     ← desinstalar (lista só o que está instalado)
 #
 # Teclas: 1-9 marca/desmarca · a todos · n nenhum · Enter confirma · q sai
-# "Instalada" = a linha `source .../setup.sh` existe em algum rc do shell.
+# "Instalada" = a linha `source .../setup.sh` existe em algum rc do shell
+# (exceção: goodivers-skill = symlink em ~/.claude/skills/goodivers).
 # Desinstalar remove do rc as linhas da ferramenta (backup: <rc>.tools-backup).
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-NOMES=(goodcheats pomo professor biografo vocab zapstats goodivers)
+NOMES=(goodcheats pomo professor biografo vocab zapstats goodivers goodivers-skill)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -18,12 +19,19 @@ DESCS=(
   "sua autobiografia, uma pergunta por dia (IA)"
   "uma palavra de inglês por dia, revisão espaçada (IA)"
   "retrô de conversa exportada do WhatsApp (IA)"
-  "copiloto do canal de Helldivers 2: radar + ideias (IA)"
+  "copiloto do canal de Helldivers 2 no terminal (OpenRouter)"
+  "skill /goodivers no Claude Code: gera com o Claude, sem chave"
 )
 
 RCS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile")
+SKILL_GOODIVERS="$HOME/.claude/skills/goodivers"
 
-instalada() { grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null; }
+instalada() {
+  case "$1" in
+    goodivers-skill) [ -L "$SKILL_GOODIVERS" ] ;;
+    *) grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null ;;
+  esac
+}
 
 MODO=install
 case "${1:-}" in
@@ -63,7 +71,7 @@ draw() {
     [ "${SEL[$k]}" = 1 ] && caixa="\033[1;32m[x]\033[0m"
     tag=""
     [ "$MODO" = install ] && instalada "${NOMES[$i]}" && tag="  \033[2m(já instalada)\033[0m"
-    printf "  $caixa %d. \033[1m%-11s\033[0m %s$tag\n" "$n" "${NOMES[$i]}" "${DESCS[$i]}"
+    printf "  $caixa %d. \033[1m%-15s\033[0m %s$tag\n" "$n" "${NOMES[$i]}" "${DESCS[$i]}"
     n=$((n + 1))
   done
   printf '\n  \033[2m1-9 marca/desmarca · a todos · n nenhum · Enter confirma · q sai\033[0m\n'
@@ -103,7 +111,11 @@ printf '\033[H\033[2J'
 if [ "$MODO" = install ]; then
   for t in "${MARCADAS[@]}"; do
     printf '\n\033[1m→ %s\033[0m\n' "$t"
-    bash "$ROOT/$t/setup.sh"
+    if [ "$t" = goodivers-skill ]; then
+      bash "$ROOT/goodivers/setup.sh" --skill
+    else
+      bash "$ROOT/$t/setup.sh"
+    fi
   done
   printf '\n✅ %d instalada(s). Abra um terminal novo (ou:  source ~/.zshrc).\n' "${#MARCADAS[@]}"
 else
@@ -112,6 +124,16 @@ else
     [ -f "$rc" ] && cp "$rc" "$rc.tools-backup"
   done
   for t in "${MARCADAS[@]}"; do
+    if [ "$t" = goodivers-skill ]; then
+      # remove só se for symlink apontando pra este repo
+      if [ -L "$SKILL_GOODIVERS" ]; then
+        case "$(readlink "$SKILL_GOODIVERS")" in
+          "$ROOT/goodivers"*) rm -f "$SKILL_GOODIVERS"
+                              printf '  − skill /goodivers removida de ~/.claude/skills\n' ;;
+        esac
+      fi
+      continue
+    fi
     T_UP="$(printf %s "$t" | tr '[:lower:]' '[:upper:]')"
     for rc in "${RCS[@]}"; do
       [ -f "$rc" ] || continue

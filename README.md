@@ -37,6 +37,7 @@ bash ~/Desktop/tools/biografo/setup.sh
 bash ~/Desktop/tools/vocab/setup.sh
 bash ~/Desktop/tools/zapstats/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh
+bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude Code
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
@@ -131,7 +132,7 @@ zapstats conversa.txt --html retro.html  # retrô visual
 ```
 
 ### [goodivers](./goodivers)
-Copiloto de conteúdo do canal Goodivers (Helldivers 2). O radar puxa o estado ao vivo do jogo (Ordem Maior, patch notes, r/Helldivers) e dos canais gringos do nicho (RSS do YouTube com detecção de vídeo-outlier 🔥); `inspirar` cruza o que performa lá fora com o buraco de conteúdo PT-BR e devolve planos de adaptação. Tudo on-demand (zero cron); radar e busca sem chave, só a geração usa LLM.
+Copiloto de conteúdo do canal Goodivers (Helldivers 2). O radar puxa o estado ao vivo do jogo (Ordem Maior, patch notes, r/Helldivers) e dos canais gringos do nicho (RSS do YouTube com detecção de vídeo-outlier 🔥); `inspirar` cruza o que performa lá fora com o buraco de conteúdo PT-BR e devolve planos de adaptação. Tudo on-demand (zero cron); radar e busca sem chave, só a geração usa LLM — via OpenRouter no terminal **ou** via skill `/goodivers` no Claude Code (o Claude da sessão gera; sem chave).
 
 ```bash
 goodivers                # radar do jogo e do nicho
@@ -140,6 +141,7 @@ goodivers inspirar       # vídeos gringos performando → plano de adaptação 
 goodivers pacote 3       # títulos + thumbs + descrição + hook + roteiro
 goodivers buscar "x" -s  # busca no YouTube (semana; --br = como o público BR vê)
 goodivers canais add @x  # monitorar outro canal
+# no Claude Code: /goodivers ideias · /goodivers pacote 3 · … (mesmos comandos)
 ```
 
 ---
@@ -205,7 +207,8 @@ tools/
     .env.example       ← modelo de config local
   goodivers/         ← copiloto do canal de Helldivers 2 (OpenRouter :free)
     goodivers          ← o CLI
-    setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
+    skill/SKILL.md     ← skill /goodivers do Claude Code (gera com o Claude da sessão)
+    setup.sh           ← CLI no PATH (+ lembrete opcional) · --skill instala só o skill
     .env.example       ← modelo de config local
   goodpen/           ← cofre de senhas (duas versões)
     README.md          ← comparação e regra de escolha
