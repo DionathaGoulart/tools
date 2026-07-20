@@ -14,12 +14,20 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [biografo](./biografo) | `biografo` | Sua autobiografia, uma pergunta por dia |
 | [vocab](./vocab) | `vocab` | Uma palavra de inglês por dia, com revisão espaçada |
 | [zapstats](./zapstats) | `zapstats` | Retrô de uma conversa exportada do WhatsApp |
+| [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
 ## Instalação
 
-Cada ferramenta tem um `setup.sh` que a adiciona ao `PATH`. Rode uma vez a(s) que quiser:
+Jeito rápido — o instalador interativo da raiz lista tudo, você marca o que quer (`1-9` marca, `a` todos, `n` nenhum, `Enter` instala):
+
+```bash
+bash ~/Desktop/tools/setup.sh        # instalar (marque e dê Enter)
+bash ~/Desktop/tools/setup.sh -u     # desinstalar (lista só as instaladas)
+```
+
+Ou individualmente — cada ferramenta tem um `setup.sh` que a adiciona ao `PATH`:
 
 ```bash
 bash ~/Desktop/tools/goodcheats/setup.sh
@@ -28,9 +36,10 @@ bash ~/Desktop/tools/professor/setup.sh
 bash ~/Desktop/tools/biografo/setup.sh
 bash ~/Desktop/tools/vocab/setup.sh
 bash ~/Desktop/tools/zapstats/setup.sh
+bash ~/Desktop/tools/goodivers/setup.sh
 ```
 
-Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual.
+Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
 
 **Ferramentas de IA** também precisam de uma chave grátis da [OpenRouter](https://openrouter.ai/keys). No seu rc:
 
@@ -121,6 +130,18 @@ zapstats conversa.txt --roast            # + resumo e roast
 zapstats conversa.txt --html retro.html  # retrô visual
 ```
 
+### [goodivers](./goodivers)
+Copiloto de conteúdo do canal Goodivers (Helldivers 2). O radar puxa o estado ao vivo do jogo (Ordem Maior, patch notes, r/Helldivers) e dos canais gringos do nicho (RSS do YouTube com detecção de vídeo-outlier 🔥); `inspirar` cruza o que performa lá fora com o buraco de conteúdo PT-BR e devolve planos de adaptação. Tudo on-demand (zero cron); radar e busca sem chave, só a geração usa LLM.
+
+```bash
+goodivers                # radar do jogo e do nicho
+goodivers ideias         # 10 ideias rankeadas
+goodivers inspirar       # vídeos gringos performando → plano de adaptação PT-BR
+goodivers pacote 3       # títulos + thumbs + descrição + hook + roteiro
+goodivers buscar "x" -s  # busca no YouTube (semana; --br = como o público BR vê)
+goodivers canais add @x  # monitorar outro canal
+```
+
 ---
 
 ## Senhas
@@ -153,6 +174,7 @@ Comparação completa e regra de escolha em [goodpen/README.md](./goodpen/README
 
 ```
 tools/
+  setup.sh           ← instalador interativo: marca e instala/desinstala qualquer ferramenta
   goodcheats/        ← kit de utilidades da família good
     setup.sh           ← adiciona ao PATH (instala todos os comandos)
     good               ← fetch de sistema com logo (+ dispatcher good <sub>)
@@ -180,6 +202,10 @@ tools/
   zapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
     zapstats           ← o CLI
     setup.sh           ← adiciona ao PATH
+    .env.example       ← modelo de config local
+  goodivers/         ← copiloto do canal de Helldivers 2 (OpenRouter :free)
+    goodivers          ← o CLI
+    setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
     .env.example       ← modelo de config local
   goodpen/           ← cofre de senhas (duas versões)
     README.md          ← comparação e regra de escolha
