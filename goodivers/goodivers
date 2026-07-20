@@ -14,6 +14,11 @@ do YouTube em canal pequeno.
 Radar é 100% sem LLM (só APIs públicas). O modelo entra em `ideias`,
 `pacote` e `titulos`.
 
+args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
+       buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [-f]
+
+  temas — lista as paletas do tema retro (GOODIVERS_TEMA / RETRO_TEMA).
+
 Requer: Python 3 e OPENROUTER_API_KEY (só pros comandos com geração).
 """
 
@@ -23,12 +28,18 @@ import json
 import os
 import re
 import sys
+import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro  # noqa: E402
+
+ui = Retro(env_prefix="GOODIVERS")
 
 
 def carregar_dotenv():
@@ -91,14 +102,45 @@ SEED_CANAIS = [
 ]
 
 CACHE_RADAR_HORAS = 6
-OUTLIER_RATIO = 2.0  # views/dia ≥ 2x a mediana do próprio canal = 🔥
+OUTLIER_RATIO = 2.0  # views/dia ≥ 2x a mediana do próprio canal = [OUTLIER]
 
 
 # ---------------------------------------------------------------- util
 
 def die(msg):
-    print(f"goodivers: {msg}", file=sys.stderr)
+    linhas = str(msg).splitlines() or [""]
+    print(f"\n  {ui.ALERTA}[ ERRO ]{ui.RESET} {linhas[0]}", file=sys.stderr)
+    for linha in linhas[1:]:
+        print(f"  {ui.FG40}{linha}{ui.RESET}", file=sys.stderr)
+    print("", file=sys.stderr)
     sys.exit(1)
+
+
+def nota(texto):
+    """Linha de progresso (stderr): não polui `--json` no stdout."""
+    print(f"  {ui.ACC30}>{ui.RESET} {ui.FG40}{texto}{ui.RESET}", file=sys.stderr)
+
+
+def corpo(texto, recuo=2):
+    """Parágrafo em foreground, quebrado na largura do terminal."""
+    larg = max(40, min(ui.cols - recuo - 2, 92))
+    for linha in textwrap.wrap(texto, larg) or [""]:
+        print(f"{' ' * recuo}{ui.FG70}{linha}{ui.RESET}")
+
+
+def chips(itens, recuo=2):
+    """Fileira de chips com quebra de linha na largura do terminal."""
+    larg = max(40, min(ui.cols - recuo - 2, 92))
+    atual, tam = [], 0
+    for it in itens:
+        t = len(str(it)) + 3
+        if atual and tam + t > larg:
+            print(" " * recuo + " ".join(atual))
+            atual, tam = [], 0
+        atual.append(ui.chip(str(it)))
+        tam += t
+    if atual:
+        print(" " * recuo + " ".join(atual))
 
 
 def carregar_json(caminho, padrao):
@@ -379,7 +421,7 @@ def coletar_radar(force=False):
             return cache
 
     cfg = carregar_config()
-    print("🛰  coletando: guerra, patches, reddit e canais…", file=sys.stderr)
+    nota("coletando: guerra, patches, reddit e canais…")
 
     snapshot = {"ts": agora_utc().isoformat(), "falhas": []}
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -423,57 +465,91 @@ def coletar_radar(force=False):
     return snapshot
 
 
-def secao(emoji, titulo):
-    print(f"\n\033[1;35m{emoji} {titulo}\033[0m")
+def janela_guerra(s):
+    """Cabeçalho do radar: a Ordem Maior ativa dentro de uma janela de terminal."""
+    ordens = s.get("ordem") or []
+    linhas = []
+    if ordens:
+        o = ordens[0]
+        linhas.append(f"{ui.ACC}{ui.BOLD}"
+                      f"{resumir(str(o['titulo']).upper(), ui.cf)}{ui.RESET}")
+        detalhe = " · ".join(x for x in (
+            f"EXPIRA EM {str(o['restante']).upper()}" if o.get("restante") else "",
+            f"{o['medalhas']} MEDALHAS" if o.get("medalhas") else "") if x)
+        if detalhe:
+            linhas.append(f"{ui.ACC30}{detalhe}{ui.RESET}")
+        briefing = resumir(o.get("briefing") or "", 300)
+        if briefing:
+            linhas.append("")
+            for parte in textwrap.wrap(briefing, ui.cf):
+                linhas.append(f"{ui.FG70}{parte}{ui.RESET}")
+    else:
+        linhas.append(f"{ui.FG40}SEM ORDEM MAIOR ATIVA{ui.RESET}")
+
+    fontes = sum(1 for k in ("ordem", "despachos", "patches", "reddit", "canais")
+                 if s.get(k))
+    ui.janela(
+        "root@goodivers: ~/radar",
+        linhas,
+        meta=f"SRC: {fontes}/5",
+        rodape=f"● COLETA {idade_humana(s['ts']).upper()}",
+    )
 
 
 def render_radar(s):
-    print(f"\033[1m📡 radar helldivers 2\033[0m  (coletado {idade_humana(s['ts'])})")
+    ui.modulo("radar", "src: hd2 · steam · reddit · youtube")
+    janela_guerra(s)
 
-    if s.get("ordem"):
-        secao("⭐", "ORDEM MAIOR")
-        for o in s["ordem"]:
-            extra = " · ".join(x for x in (
-                f"expira em {o['restante']}" if o.get("restante") else "",
-                f"{o['medalhas']} medalhas" if o.get("medalhas") else "") if x)
-            print(f"  \033[1m{o['titulo']}\033[0m" + (f"  ({extra})" if extra else ""))
-            print(f"  {resumir(o['briefing'], 300)}")
+    for o in (s.get("ordem") or [])[1:]:
+        ui.secao(str(o["titulo"]))
+        corpo(resumir(o.get("briefing") or "", 300), recuo=2)
 
     if s.get("despachos"):
-        secao("📢", "DESPACHOS DA SUPER TERRA")
+        print()
+        ui.secao("despachos da super terra")
         for d in s["despachos"][:3]:
-            print(f"  \033[2m{idade_humana(d['quando'])}\033[0m  {resumir(d['texto'], 180)}")
+            ui.item(f"{idade_humana(d['quando']):>8}", resumir(d["texto"], 180))
 
     if s.get("patches"):
-        secao("🔧", "OFICIAL (Steam)")
+        print()
+        ui.secao("oficial · steam")
         for p in s["patches"]:
-            print(f"  \033[2m{idade_humana(p['quando'])}\033[0m  \033[1m{p['titulo']}\033[0m")
+            ui.item(f"{idade_humana(p['quando']):>8}", p["titulo"])
 
     if s.get("reddit"):
-        secao("👽", "QUENTE NO r/HELLDIVERS")
+        print()
+        ui.secao("quente no r/helldivers")
         for p in s["reddit"]:
-            flair = f" \033[2m[{p['flair']}]\033[0m" if p["flair"] else ""
-            print(f"  ↑{p['score']:>5}  {resumir(p['titulo'], 90)}{flair}")
+            texto = resumir(p["titulo"], 90)
+            if p["flair"]:
+                texto += " " + ui.chip(p["flair"]) + ui.FG70
+            ui.item(f"↑{p['score']:>5}", texto)
 
     if s.get("canais"):
-        secao("📺", "CANAIS DO NICHO")
+        print()
+        ui.secao("canais do nicho")
         for c in s["canais"]:
-            print(f"  \033[1;36m{c['nome']}\033[0m")
+            print(f"  {ui.forte(str(c['nome']).upper())}")
             for v in c["videos"][:3]:
-                fogo = " 🔥" if v.get("outlier") else ""
-                print(f"    {fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}"
-                      f"  {resumir(v['titulo'], 76)}{fogo}")
+                texto = resumir(v["titulo"], 72)
+                if v.get("outlier"):
+                    texto += " " + ui.chip("outlier") + ui.FG70
+                ui.item(f"{fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}",
+                        texto)
 
     if s.get("meu_canal") and s["meu_canal"]["videos"]:
-        secao("🎬", "SEU CANAL (Goodivers)")
+        print()
+        ui.secao("seu canal · goodivers")
         for v in s["meu_canal"]["videos"][:5]:
-            print(f"    {fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}"
-                  f"  {resumir(v['titulo'], 76)}")
+            ui.item(f"{fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}",
+                    resumir(v["titulo"], 72))
 
+    print()
     if s.get("falhas"):
-        print(f"\n\033[2m(fontes fora do ar: {', '.join(s['falhas'])})\033[0m")
-    print("\n\033[2m🔥 = performando bem acima da média do canal · "
-          "próximo passo:  goodivers ideias\033[0m")
+        ui.aviso("offline", ", ".join(s["falhas"]))
+    ui.aviso("legenda", "[OUTLIER] = VIEWS/DIA >= 2X A MEDIANA DO PROPRIO CANAL")
+    ui.proximo("goodivers ideias")
+    print()
 
 
 # ---------------------------------------------------------------- openrouter
@@ -548,10 +624,14 @@ def listar_modelos_free():
     except Exception as e:
         die(f"Não consegui consultar {MODELS_URL}: {e}")
     livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
-    print(f"{len(livres)} modelos :free disponíveis agora:\n")
+    ui.modulo("models", "src: openrouter")
+    ui.kv("MODELOS :FREE", str(len(livres)))
+    print()
     for m in livres:
-        print(f"  {m}")
-    print("\nPra usar outros:  export OPENROUTER_MODEL=\"modelo1,modelo2\"")
+        ui.item("·", m)
+    print()
+    ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra usar outros:")
+    print()
 
 
 def extrair_json(texto, tipo="array"):
@@ -646,8 +726,10 @@ def system_estrategista(s):
 # ---------------------------------------------------------------- comandos
 
 def badge(nivel):
-    cores = {"baixo": "32", "médio": "33", "medio": "33", "alto": "31"}
-    return f"\033[{cores.get(str(nivel).lower(), '0')}m{nivel}\033[0m"
+    """Nível (baixo/médio/alto) só em OK · accent · ALERTA — sem cor nova."""
+    cores = {"baixo": ui.OK, "médio": ui.ACC70, "medio": ui.ACC70, "alto": ui.ALERTA}
+    cor = cores.get(str(nivel).lower(), ui.FG40)
+    return f"{cor}{str(nivel).upper()}{ui.RESET}"
 
 
 def imprimir_json(obj):
@@ -679,23 +761,29 @@ def cmd_ideias(fresh):
         '"potencial" ("baixo"|"médio"|"alto"), '
         '"busca" (array com 2-3 termos que o BR pesquisaria).'
     )
-    print("💡 gerando ideias com os dados ao vivo…", file=sys.stderr)
+    nota("gerando ideias com os dados ao vivo…")
     ideias, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
     salvar_json(IDEIAS_FILE, {"quando": agora_utc().isoformat(), "ideias": ideias})
 
-    print(f"\n\033[1m💡 10 ideias pro Goodivers\033[0m  \033[2m({model})\033[0m")
+    ui.modulo("ideias", f"model: {model}")
+    ui.kv("IDEIAS GERADAS", str(len(ideias)))
     for i, d in enumerate(ideias, 1):
-        fmt = "🎬" if str(d.get("formato", "")).startswith("v") else "📱"
-        print(f"\n  \033[1;36m{i:>2}.\033[0m {fmt} \033[1m{d.get('titulo', '?')}\033[0m")
-        print(f"      {d.get('angulo', '')}")
-        print(f"      \033[2mpor que agora:\033[0m {d.get('por_que_agora', '')}")
-        busca = ", ".join(d.get("busca", []) or [])
-        print(f"      esforço {badge(d.get('esforco', '?'))} · potencial "
-              f"{badge(d.get('potencial', '?'))}" + (f" · 🔎 {busca}" if busca else ""))
-    print("\n\033[2mpacote completo de uma ideia:  goodivers pacote 3   "
-          "(ou:  goodivers pacote \"sua ideia\")\033[0m")
+        print()
+        formato = "short" if not str(d.get("formato", "")).startswith("v") else "video"
+        ui.item(f"{i:>2}.", str(d.get("titulo", "?")), ui.chip(formato))
+        corpo(str(d.get("angulo", "")), recuo=6)
+        if d.get("por_que_agora"):
+            print(f"      {ui.apagado('POR QUE AGORA: ' + str(d['por_que_agora']))}")
+        print(f"      {ui.FG40}ESFORCO{ui.RESET} {badge(d.get('esforco', '?'))}"
+              f"  {ui.FG40}·  POTENCIAL{ui.RESET} {badge(d.get('potencial', '?'))}")
+        if d.get("busca"):
+            chips(d["busca"], recuo=6)
+    print()
+    ui.proximo("goodivers pacote 3", "pacote completo:")
+    ui.proximo('goodivers pacote "sua ideia"', "ou texto livre: ")
+    print()
 
 
 def cmd_pacote(texto_ideia, fresh):
@@ -723,35 +811,50 @@ def cmd_pacote(texto_ideia, fresh):
         '  "roteiro" (array de 5-8 beats: cada item "minuto — o que acontece e por que '
         'segura retenção").'
     )
-    print("📦 montando pacote…", file=sys.stderr)
+    nota("montando pacote…")
     p, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="objeto")
 
-    print(f"\n\033[1m📦 pacote:\033[0m {resumir(texto_ideia, 90)}  \033[2m({model})\033[0m")
-    secao("✏️ ", "TÍTULOS (teste A/B)")
+    ui.modulo("pacote", f"model: {model}")
+    ui.kv("IDEIA", resumir(texto_ideia, 46).upper())
+
+    print()
+    ui.secao("titulos · teste a/b")
     for i, t in enumerate(p.get("titulos", []), 1):
-        aviso = "" if len(t) <= 60 else f"  \033[31m({len(t)} chars!)\033[0m"
-        print(f"  {i}. {t}{aviso}")
-    secao("🖼", "THUMBNAILS (YouTube testa até 3)")
+        alerta = "" if len(t) <= 60 else f"{ui.ALERTA}({len(t)} CHARS!)"
+        ui.item(f"{i}.", t, alerta)
+
+    print()
+    ui.secao("thumbnails · youtube testa ate 3")
     for i, t in enumerate(p.get("thumbnails", []), 1):
-        print(f"  {i}. \033[1m\"{t.get('texto', '')}\"\033[0m — {t.get('conceito', '')}")
+        ui.item(f"{i}.", f"{ui.forte(str(t.get('texto', '')).upper())}{ui.FG70}"
+                         f" — {t.get('conceito', '')}")
         if t.get("prompt_imagem"):
-            print(f"     \033[2mprompt: {t['prompt_imagem']}\033[0m")
-    secao("📝", "DESCRIÇÃO")
+            print(f"     {ui.apagado('PROMPT: ' + str(t['prompt_imagem']))}")
+
+    print()
+    ui.secao("descricao")
     for linha in str(p.get("descricao", "")).splitlines():
-        print(f"  {linha}")
+        print(f"  {ui.FG70}{linha}{ui.RESET}")
+
     if p.get("tags"):
-        secao("🏷", "TAGS")
-        print("  " + ", ".join(p["tags"]))
+        print()
+        ui.secao("tags")
+        chips(p["tags"])
+
     if p.get("hook"):
-        secao("🎣", "HOOK (primeiros 30s)")
+        print()
+        ui.secao("hook · primeiros 30s")
         for linha in str(p["hook"]).splitlines():
-            print(f"  {linha}")
+            print(f"  {ui.FG70}{linha}{ui.RESET}")
+
     if p.get("roteiro"):
-        secao("🎬", "ROTEIRO")
+        print()
+        ui.secao("roteiro")
         for beat in p["roteiro"]:
-            print(f"  • {beat}")
+            ui.item("·", str(beat))
+    print()
 
 
 def cmd_titulos(tema, fresh):
@@ -767,17 +870,26 @@ def cmd_titulos(tema, fresh):
     tt, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=2500, json_tipo="array")
-    print(f"\n\033[1m✏️  títulos:\033[0m {tema}  \033[2m({model})\033[0m\n")
+    ui.modulo("titulos", f"model: {model}")
+    ui.kv("TEMA", resumir(tema, 46).upper())
+    print()
     for i, t in enumerate(tt, 1):
-        print(f"  {i}. \033[1m{t.get('titulo', '?')}\033[0m  \033[2m({t.get('gatilho', '')})\033[0m")
+        titulo = str(t.get("titulo", "?"))
+        meta = str(t.get("gatilho", ""))
+        if len(titulo) > 60:
+            meta = f"{meta}  {ui.ALERTA}({len(titulo)} CHARS!)"
+        ui.item(f"{i}.", titulo, meta)
+    print()
+    ui.proximo('goodivers pacote "<titulo escolhido>"')
+    print()
 
 
 def render_busca(vids, limite=15):
     for v in vids[:limite]:
         views = fmt_views(v["views"]) if v["views"] else (v["views_txt"] or "?")
         dur = f" · {v['duracao']}" if v.get("duracao") else ""
-        print(f"  {views:>7} · {v['quando'] or '?':>14}{dur}  "
-              f"\033[1;36m{resumir(v['canal'], 20)}\033[0m — {resumir(v['titulo'], 62)}")
+        ui.item(f"{views:>7}", resumir(v["titulo"], 62),
+                f"{resumir(v['canal'], 20)} · {v['quando'] or '?'}{dur}")
 
 
 def cmd_buscar(termo, semana, br, como_json=False):
@@ -785,21 +897,26 @@ def cmd_buscar(termo, semana, br, como_json=False):
         die('faltou o termo.  Ex.:  goodivers buscar "helldivers 2 leaks" --semana')
     onde = "BR·pt" if br else "US·en"
     filtro = ", esta semana" if semana else ""
-    print(f"🔎 buscando no YouTube ({onde}{filtro})…", file=sys.stderr)
+    nota(f"buscando no YouTube ({onde}{filtro})…")
     vids = fetch_busca(termo, semana=semana, br=br)
     if not vids:
         die("nenhum resultado (YouTube pode ter mudado o HTML — me avise).")
     if como_json:
         imprimir_json(vids)
         return
-    print(f"\n\033[1m🔎 {termo}\033[0m  \033[2m({onde}{filtro})\033[0m\n")
+    ui.modulo("buscar", f"src: youtube · {onde}")
+    ui.kv("TERMO", resumir(termo, 46).upper())
+    ui.kv("FILTRO", "ESTA SEMANA" if semana else "SEM FILTRO DE DATA")
+    print()
     render_busca(vids)
-    print("\n\033[2mplano de adaptação PT-BR dos melhores:  goodivers inspirar\033[0m")
+    print()
+    ui.proximo("goodivers inspirar", "plano de adaptacao pt-br:")
+    print()
 
 
 def cmd_inspirar(fresh):
     s = coletar_radar(force=fresh)
-    print("🌎 varrendo o nicho gringo + o que já existe em PT-BR…", file=sys.stderr)
+    nota("varrendo o nicho gringo + o que já existe em PT-BR…")
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_semana = ex.submit(fetch_busca, "helldivers 2", True, False)
         f_leaks = ex.submit(fetch_busca, "helldivers 2 leaks", True, False)
@@ -855,18 +972,23 @@ def cmd_inspirar(fresh):
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
 
-    print(f"\n\033[1m🌎 gringo → PT-BR: 6 adaptações\033[0m  \033[2m({model})\033[0m")
+    ui.modulo("inspirar", f"model: {model}")
+    ui.kv("ADAPTACOES PT-BR", str(len(planos)))
     for i, p in enumerate(planos, 1):
-        print(f"\n  \033[1;36m{i}.\033[0m \033[2m\"{p.get('original', '?')}\" "
-              f"({p.get('canal', '?')})\033[0m")
-        print(f"     \033[2mpor que performa:\033[0m {p.get('por_que_performa', '')}")
-        print(f"     → \033[1m{p.get('titulo_ptbr', '?')}\033[0m")
-        print(f"     adaptação: {p.get('adaptacao', '')}")
+        print()
+        ui.item(f"{i:>2}.", str(p.get("titulo_ptbr", "?")), ui.chip("pt-br"))
+        print(f"      {ui.apagado('ORIGINAL: ' + str(p.get('original', '?')))}"
+              f" {ui.chip(resumir(str(p.get('canal', '?')), 20))}")
+        if p.get("por_que_performa"):
+            print(f"      {ui.apagado('POR QUE PERFORMA: ' + str(p['por_que_performa']))}")
+        corpo(f"ADAPTACAO: {p.get('adaptacao', '')}", recuo=6)
         if p.get("checar"):
-            print(f"     ⚠ checar antes: {p['checar']}")
+            print(f"      {ui.ALERTA}[ CHECAR ]{ui.RESET} {ui.FG70}{p['checar']}{ui.RESET}")
+    print()
     if falhas:
-        print(f"\n\033[2m(falhou: {'; '.join(falhas)})\033[0m")
-    print("\n\033[2mpacote de produção:  goodivers pacote \"<titulo_ptbr escolhido>\"\033[0m")
+        ui.aviso("offline", "; ".join(falhas))
+    ui.proximo('goodivers pacote "<titulo escolhido>"')
+    print()
 
 
 def resolver_canal(entrada):
@@ -907,7 +1029,11 @@ def cmd_canais(resto, como_json=False):
         cfg["canais"].append(canal)
         salvar_json(CONFIG_FILE, cfg)
         RADAR_FILE.unlink(missing_ok=True)
-        print(f"➕ monitorando \033[1m{canal['nome']}\033[0m ({canal['id']})")
+        ui.modulo("canais", "add")
+        ui.ok(f"monitorando {canal['nome']}")
+        ui.kv("CHANNEL_ID", canal["id"])
+        ui.kv("CANAIS NA LISTA", str(len(cfg["canais"])))
+        print()
     elif acao == "rm" and len(resto) >= 2:
         alvo = resto[1].lower()
         antes = len(cfg["canais"])
@@ -917,16 +1043,55 @@ def cmd_canais(resto, como_json=False):
             die(f"nenhum canal casa com \"{resto[1]}\".")
         salvar_json(CONFIG_FILE, cfg)
         RADAR_FILE.unlink(missing_ok=True)
-        print(f"➖ removido. {len(cfg['canais'])} canal(is) na lista.")
+        ui.modulo("canais", "rm")
+        ui.ok("canal removido")
+        ui.kv("CANAIS NA LISTA", str(len(cfg["canais"])))
+        print()
     else:
-        print(f"{len(cfg['canais'])} canal(is) monitorado(s):\n")
+        ui.modulo("canais", "src: config.json")
+        ui.kv("MONITORADOS", str(len(cfg["canais"])))
+        print()
         for c in cfg["canais"]:
-            print(f"  \033[1m{c['nome']}\033[0m  \033[2m{c['id']}\033[0m")
-        print("\nadicionar (handle, URL ou ID):  goodivers canais add @canal\n"
-              "remover:                        goodivers canais rm nome")
+            ui.item("·", str(c["nome"]), str(c["id"]))
+        print()
+        ui.proximo("goodivers canais add @canal", "adicionar (handle, url ou id):")
+        ui.proximo("goodivers canais rm nome", "remover:                      ")
+        print()
 
 
 # ---------------------------------------------------------------- main
+
+def uso():
+    ui.modulo("goodivers_help")
+    ui.secao("comandos")
+    ui.kv("goodivers", "RADAR: ESTADO DO JOGO E DO NICHO")
+    ui.kv("goodivers ideias", "10 IDEIAS RANKEADAS")
+    ui.kv("goodivers inspirar", "GRINGOS PERFORMANDO -> PLANO PT-BR")
+    ui.kv('goodivers pacote <N|"ideia">', "TITULOS+THUMB+DESCRICAO+ROTEIRO")
+    ui.kv('goodivers titulos "<tema>"', "VARIACOES A/B")
+    ui.kv('goodivers buscar "<termo>"', "BUSCA NO YOUTUBE")
+    ui.kv("goodivers canais", "CANAIS MONITORADOS")
+    ui.kv("goodivers canais add <canal>", "ADICIONA (HANDLE, URL OU ID)")
+    ui.kv("goodivers canais rm <nome>", "REMOVE CANAL")
+    ui.kv("goodivers temas", "PALETAS")
+    print()
+    ui.secao("flags")
+    ui.kv("-f, --fresh", "IGNORA O CACHE E RECOLETA AGORA")
+    ui.kv("-s, --semana", "(BUSCAR) SO VIDEOS DESTA SEMANA")
+    ui.kv("--br", "(BUSCAR) PUBLICO BR (GL=BR, HL=PT)")
+    ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
+    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, CANAIS)")
+    ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
+    print()
+    ui.secao("env")
+    ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
+    ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("GOODIVERS_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
+    ui.kv("GOODIVERS_DIR", str(BASE_DIR))
+    ui.kv("GOODIVERS_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "DESLIGA AS CORES")
+    print()
+
 
 def main():
     ap = argparse.ArgumentParser(
@@ -935,16 +1100,18 @@ def main():
                     "radar ao vivo do jogo + ideias, títulos, thumbnails e roteiro.",
         epilog='exemplos:  goodivers   ·   goodivers ideias   ·   goodivers inspirar   ·   '
                'goodivers pacote 3   ·   goodivers buscar "helldivers 2 leaks" -s   ·   '
-               'goodivers canais add @canal',
+               'goodivers canais add @canal   ·   goodivers temas',
+        add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="radar",
                     choices=["radar", "ideias", "inspirar", "pacote", "titulos",
-                             "buscar", "canais"],
+                             "buscar", "canais", "temas"],
                     help="radar (padrão): estado do jogo e do nicho · ideias: 10 ideias "
                          "rankeadas · inspirar: vídeos gringos performando → plano de "
                          "adaptação PT-BR · pacote: títulos+thumb+descrição+roteiro · "
                          "titulos: variações A/B · buscar: busca no YouTube · canais: "
-                         "gerencia canais monitorados")
+                         "gerencia canais monitorados · temas: paletas do tema retro "
+                         "(GOODIVERS_TEMA / RETRO_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
     ap.add_argument("-f", "--fresh", action="store_true",
                     help="ignora o cache e recoleta o radar agora")
@@ -957,7 +1124,12 @@ def main():
     ap.add_argument("--json", action="store_true", dest="como_json",
                     help="saída JSON crua (radar, buscar, canais) — pra scripts "
                          "e pro skill /goodivers do Claude Code")
+    ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
+
+    if args.help:
+        uso()
+        return
 
     if args.como_json and args.comando not in ("radar", "buscar", "canais"):
         die("--json é só pra coleta (radar, buscar, canais). Geração com o Claude: "
@@ -979,11 +1151,15 @@ def main():
         cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br, args.como_json)
     elif args.comando == "canais":
         cmd_canais(args.resto, args.como_json)
+    elif args.comando == "temas":
+        ui.catalogo_temas()
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\ninterrompido.")
+        print()
+        ui.aviso("interrompido")
+        print()
         sys.exit(130)

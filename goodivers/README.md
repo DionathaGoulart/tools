@@ -26,6 +26,7 @@ goodivers pacote 3              # pacote de produção completo da ideia 3
 goodivers titulos "farm de sc"  # 8 variações de título pra teste A/B
 goodivers buscar "hd2 leaks" -s # busca no YouTube (-s semana · --br como o público BR)
 goodivers canais                # gerencia os canais monitorados
+goodivers temas                 # paletas do tema retro do terminal
 ```
 
 ---
@@ -38,14 +39,14 @@ Fotografia do momento, coletada em paralelo, **sem LLM e sem chave**:
 
 | Seção | O que mostra | Fonte |
 |---|---|---|
-| ⭐ Ordem Maior | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
-| 📢 Despachos | as notícias in-game da Super Terra (a "TV" do jogo) | api.helldivers2.dev |
-| 🔧 Oficial | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
-| 👽 r/Helldivers | posts em alta (best-effort: Reddit bloqueia alguns IPs; o radar segue sem) | Reddit |
-| 📺 Canais do nicho | últimos vídeos de cada canal monitorado, com views e idade | RSS público do YouTube |
-| 🎬 Seu canal | seus vídeos e views, sempre à vista | RSS público do YouTube |
+| Ordem Maior (janela do topo) | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
+| Despachos da Super Terra | as notícias in-game (a "TV" do jogo) | api.helldivers2.dev |
+| Oficial · Steam | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
+| Quente no r/Helldivers | posts em alta (best-effort: Reddit bloqueia alguns IPs; o radar segue sem) | Reddit |
+| Canais do nicho | últimos vídeos de cada canal monitorado, com views e idade | RSS público do YouTube |
+| Seu canal · Goodivers | seus vídeos e views, sempre à vista | RSS público do YouTube |
 
-O **🔥 de outlier** é o sinal mais importante: vídeo com views/dia ≥ 2× a
+O chip **`[OUTLIER]`** é o sinal mais importante: vídeo com views/dia ≥ 2× a
 mediana do próprio canal = formato que o algoritmo está empurrando **agora**.
 
 Detalhes de comportamento:
@@ -69,8 +70,8 @@ Cada ideia traz:
 - **título pronto** (≤60 chars, keyword na frente)
 - **ângulo** — o que o vídeo entrega e por que clicariam
 - **por que agora** — amarrado aos dados ao vivo (patch, Ordem, outlier…)
-- **esforço** de produção e **potencial** (baixo/médio/alto, coloridos)
-- **🔎 termos de busca** — como o brasileiro pesquisaria isso
+- **esforço** de produção e **potencial** (baixo/médio/alto)
+- **termos de busca** (em chips) — como o brasileiro pesquisaria isso
 
 As ideias ficam salvas: `goodivers pacote N` puxa a ideia N direto.
 
@@ -82,7 +83,7 @@ matéria-prima validada** pra versão brasileira.
 
 O que ele faz, na ordem:
 
-1. Varre os canais monitorados (outliers 🔥 do radar)
+1. Varre os canais monitorados (os `[OUTLIER]` do radar)
 2. Busca no YouTube gringo os vídeos da semana: `helldivers 2` e
    `helldivers 2 leaks`
 3. Busca o que **já existe em PT-BR** na semana (pra não repetir o que o BR
@@ -102,17 +103,17 @@ O que ele faz, na ordem:
 Pacote de produção completo de UM vídeo. Aceita o número de uma ideia salva
 (`pacote 3`) ou texto livre (`pacote "guia solo dificuldade 10"`). Devolve:
 
-- ✏️ **5 títulos** com ângulos diferentes (avisa em vermelho se passar de
+- **5 títulos** com ângulos diferentes (avisa em vermelho se passar de
   60 chars) — pra escolher ou testar
-- 🖼 **3 conceitos de thumbnail** — texto de ≤4 palavras em maiúsculas,
+- **3 conceitos de thumbnail** — texto de ≤4 palavras em maiúsculas,
   composição descrita (fundo, ponto focal, cor, emoção) e **prompt de
   imagem em inglês pronto** pra colar numa IA de imagem. São 3 porque o
   YouTube testa até 3 thumbs no Test & Compare.
-- 📝 **Descrição pronta** — 2 primeiras linhas carregam as keywords (é o
+- **Descrição pronta** — 2 primeiras linhas carregam as keywords (é o
   que o YouTube lê primeiro)
-- 🏷 **12–18 tags** misto PT/EN
-- 🎣 **Hook dos primeiros 30s** — roteiro literal, em 1ª pessoa
-- 🎬 **Roteiro em beats** — minuto a minuto, cada beat com a razão de
+- **12–18 tags** misto PT/EN
+- **Hook dos primeiros 30s** — roteiro literal, em 1ª pessoa
+- **Roteiro em beats** — minuto a minuto, cada beat com a razão de
   retenção
 
 ### `goodivers titulos "<tema>"`
@@ -160,6 +161,25 @@ performa lá é matéria-prima pra versão PT-BR):
 | OhDough Plays | meta/loadouts |
 | ThiccFilA | news/opinião |
 | CommissarKai | gameplay/humor |
+
+### `goodivers temas`
+
+Lista as paletas do tema retro do terminal — o mesmo visual do resto das
+ferramentas deste repo (`.harness/styleguide-terminal.md`). Mostra o swatch
+de cada tema e marca com `►` o que está ativo.
+
+```bash
+goodivers temas                      # catálogo de paletas
+export GOODIVERS_TEMA=midnight-ember # tema só do goodivers
+export RETRO_TEMA=cyber-teal         # tema de todas as ferramentas
+```
+
+Temas disponíveis: `vault-gold` (padrão), `noir-rose`, `midnight-ember`,
+`cyber-teal`, `velvet-purple`, `abyss-frost`, `crimson-chalk`,
+`forest-mist`, `sand-dusk`.
+
+`GOODIVERS_TEMA` tem prioridade sobre `RETRO_TEMA`. Com `NO_COLOR=1` ou
+saída redirecionada (pipe, arquivo), a cor some e o layout continua legível.
 
 ### Flags globais
 
@@ -242,6 +262,9 @@ export GOODIVERS_LEMBRETE=1
 | `GOODIVERS_CONTEXTO` | contexto extra do canal injetado em toda geração (equipamento, estilo de edição, tempo disponível…) | nenhum |
 | `GOODIVERS_DIR` | onde salvar cache e config | `~/.goodivers` |
 | `GOODIVERS_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
+| `GOODIVERS_TEMA` | paleta do terminal só pro goodivers (`goodivers temas` lista) | `vault-gold` |
+| `RETRO_TEMA` | paleta padrão de todas as ferramentas do repo (fallback) | `vault-gold` |
+| `NO_COLOR` | qualquer valor desliga a cor (layout segue legível) | desligado |
 
 ## Privacidade
 
