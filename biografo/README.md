@@ -13,6 +13,7 @@ biografo capitulo      # gera a biografia a partir de tudo que você já respond
 biografo -l            # lista as respostas e o status da fila
 biografo perguntas     # reabastece o banco de perguntas manualmente
 biografo -m            # lista modelos :free disponíveis agora
+biografo temas         # paletas disponíveis
 ```
 
 ## A ideia
@@ -78,6 +79,26 @@ export BIOGRAFO_LEMBRETE=1
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
 | `BIOGRAFO_DIR` | onde salvar tudo | `~/.biografo` |
 | `BIOGRAFO_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
+| `BIOGRAFO_TEMA` | paleta (veja `biografo temas`) | `vault-gold` |
+| `RETRO_TEMA` | paleta pra todas as ferramentas do repo (fallback) | `vault-gold` |
+| `NO_COLOR` | qualquer valor desliga as cores | — |
+
+## Temas
+
+Nove paletas vindas do style guide (`biografo temas` lista com swatch):
+
+| Escuras | Claras |
+|---|---|
+| `vault-gold` (padrão), `noir-rose`, `midnight-ember`, `cyber-teal`, `velvet-purple` | `abyss-frost`, `crimson-chalk`, `forest-mist`, `sand-dusk` |
+
+```bash
+export BIOGRAFO_TEMA=cyber-teal   # só o biografo
+export RETRO_TEMA=cyber-teal      # todas as ferramentas
+```
+
+`BIOGRAFO_TEMA` tem prioridade sobre `RETRO_TEMA`. Cores true-color (24-bit)
+quando `COLORTERM=truecolor`; senão cai pro ANSI básico de 8 cores. Fora de TTY
+ou com `NO_COLOR`, a saída vira texto puro.
 
 ## Dica
 
