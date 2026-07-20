@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+vocab — uma palavra de inglês por dia, com revisão espaçada.
+
+Todo dia ele te ensina UMA palavra nova (significado, pronúncia, frase de
+exemplo) e te sabatina nas palavras anteriores que estão "vencendo" — repetição
+espaçada estilo Leitner: acertou, a palavra volta mais longe; errou, volta
+amanhã.
+
+Privacidade: seu progresso fica todo na máquina. O modelo só é chamado pra
+gerar lotes de palavras novas (1 request a cada ~20 dias), e o que vai no
+prompt é apenas a lista de palavras que você já viu (pra não repetir).
+
+Requer: Python 3 e a variável de ambiente OPENROUTER_API_KEY (só pra gerar
+palavras novas — revisar é 100% offline).
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from datetime import date, timedelta
+from pathlib import Path
+
+def carregar_dotenv():
+    """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
+    está exportado no shell (env real tem prioridade)."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        linhas = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+
+
+carregar_dotenv()
+
+BASE_DIR = Path(os.environ.get("VOCAB_DIR", Path.home() / ".vocab"))
+PALAVRAS_FILE = BASE_DIR / "palavras.json"   # palavras aprendidas + estado da revisão
+FILA_FILE = BASE_DIR / "fila.json"           # palavras ainda não apresentadas
+
+API_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+DEFAULT_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+]
+
+LOTE = 20  # palavras geradas por request
+
+# Caixas de Leitner: dias até a próxima revisão, por caixa.
+# Acertou: sobe uma caixa. Errou: volta pra caixa 0 (revisa amanhã).
+INTERVALOS = [1, 2, 4, 7, 15, 30]
+
+
+def system_palavras():
+    nivel = os.environ.get("VOCAB_NIVEL", "intermediário").strip()
+    tema = os.environ.get("VOCAB_TEMA", "").strip()
+    linha_tema = f"Dê preferência a estes temas: {tema}.\n" if tema else ""
+    return (
+        "Você monta um baralho de vocabulário de INGLÊS para um falante de português "
+        f"do Brasil, nível {nivel}. Gere palavras e expressões úteis e frequentes no "
+        "inglês real (conversa, trabalho, filmes, internet) — nada de palavra obscura "
+        "de dicionário. Misture verbos, substantivos, adjetivos e phrasal verbs.\n"
+        + linha_tema +
+        "Devolva SOMENTE um array JSON (sem markdown, sem comentário) onde cada item "
+        "é um objeto com as chaves:\n"
+        '  "palavra" (inglês, minúsculas), "ipa" (pronúncia), '
+        '"significado" (português do Brasil, curto e direto), '
+        '"exemplo" (UMA frase natural em inglês contendo exatamente a palavra), '
+        '"traducao" (a frase em português do Brasil).\n'
+        'Exemplo: [{"palavra": "endeavor", "ipa": "/ɪnˈdevər/", '
+        '"significado": "esforço, empreitada", '
+        '"exemplo": "Starting a company is a risky endeavor.", '
+        '"traducao": "Abrir uma empresa é uma empreitada arriscada."}]'
+    )
+
+
+# ---------------------------------------------------------------- openrouter
+
+def modelos_configurados():
+    env = os.environ.get("OPENROUTER_MODEL", "").strip()
+    if env:
+        return [m.strip() for m in env.split(",") if m.strip()]
+    return DEFAULT_MODELS
+
+
+def chamar_llm(messages, max_tokens=3000, temperature=0.8):
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        die(
+            "OPENROUTER_API_KEY não definida (necessária só pra gerar palavras novas).\n"
+            "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
+            '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
+        )
+    erros = []
+    for model in modelos_configurados():
+        payload = json.dumps({
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            API_URL,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
+                "X-Title": "vocab",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            content = (data["choices"][0]["message"].get("content") or "").strip()
+            if content:
+                return content, model
+            erros.append(f"{model}: resposta vazia")
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                die("OPENROUTER_API_KEY inválida (HTTP 401).")
+            erros.append(f"{model}: HTTP {e.code}")
+        except Exception as e:
+            erros.append(f"{model}: {type(e).__name__}: {e}")
+    die("Todos os modelos falharam:\n  " + "\n  ".join(erros)
+        + "\n\nDica: `vocab -m` lista os modelos :free no ar; "
+        "defina OPENROUTER_MODEL pra trocar.")
+
+
+def listar_modelos_free():
+    try:
+        with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        die(f"Não consegui consultar {MODELS_URL}: {e}")
+    livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
+    print(f"{len(livres)} modelos :free disponíveis agora:\n")
+    for m in livres:
+        print(f"  {m}")
+    print("\nPra usar outros:  export OPENROUTER_MODEL=\"modelo1,modelo2\"")
+
+
+# ---------------------------------------------------------------- util
+
+def die(msg):
+    print(f"vocab: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def carregar_json(caminho, padrao):
+    if caminho.exists():
+        try:
+            return json.loads(caminho.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return padrao
+
+
+def salvar_json(caminho, obj):
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def hoje():
+    return date.today().isoformat()
+
+
+def em_dias(n):
+    return (date.today() + timedelta(days=n)).isoformat()
+
+
+def marcar_sessao():
+    """Stamp usado pelo lembrete opcional do setup.sh."""
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
+    (BASE_DIR / ".ultima_sessao").write_text(hoje(), encoding="utf-8")
+
+
+def normalizar(s):
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
+def lacunar(exemplo, palavra):
+    """Troca a palavra por ____ na frase de exemplo. Tenta a forma exata e, se a
+    frase usa uma flexão (plural, -ed, -ing), cai pra raiz. Vazio se não achou."""
+    lacuna = "_" * max(4, len(palavra))
+    novo, n = re.subn(r"\b" + re.escape(palavra) + r"\b", lacuna, exemplo, flags=re.I)
+    if n:
+        return novo
+    raiz = palavra[: max(3, len(palavra) - 2)]
+    novo, n = re.subn(r"\b" + re.escape(raiz) + r"\w*", lacuna, exemplo, flags=re.I)
+    return novo if n else ""
+
+
+# ---------------------------------------------------------------- fila de palavras
+
+def parse_lote(texto):
+    """Extrai o array JSON de objetos da resposta do LLM (tolera cerca de markdown)."""
+    ini, fim = texto.find("["), texto.rfind("]")
+    if ini == -1 or fim <= ini:
+        return []
+    try:
+        arr = json.loads(texto[ini:fim + 1])
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for item in arr:
+        if not isinstance(item, dict):
+            continue
+        p = str(item.get("palavra", "")).strip().lower()
+        if not p:
+            continue
+        out.append({
+            "palavra": p,
+            "ipa": str(item.get("ipa", "")).strip(),
+            "significado": str(item.get("significado", "")).strip(),
+            "exemplo": str(item.get("exemplo", "")).strip(),
+            "traducao": str(item.get("traducao", "")).strip(),
+        })
+    return out
+
+
+def gerar_lote(conhecidas):
+    prompt = f"Gere {LOTE} itens novos."
+    if conhecidas:
+        amostra = sorted(conhecidas)[-200:]
+        prompt += " NÃO repita estas palavras já vistas:\n" + ", ".join(amostra)
+    texto, model = chamar_llm(
+        [{"role": "system", "content": system_palavras()},
+         {"role": "user", "content": prompt}],
+        max_tokens=3000, temperature=0.9,
+    )
+    itens = parse_lote(texto)
+    if not itens:
+        die(f"o modelo {model} não devolveu palavras parseáveis. Tente de novo.")
+    return itens
+
+
+def proxima_da_fila(palavras):
+    """Tira a próxima palavra inédita da fila; reabastece via LLM se acabar."""
+    conhecidas = {p["palavra"] for p in palavras}
+    fila = [w for w in carregar_json(FILA_FILE, []) if w["palavra"] not in conhecidas]
+    if not fila:
+        print("🧠 fila vazia — gerando palavras novas (1 request)…")
+        novas = gerar_lote(conhecidas)
+        fila = [w for w in novas if w["palavra"] not in conhecidas]
+        if not fila:
+            die("o lote só trouxe palavras repetidas. Tente de novo.")
+    nova = fila.pop(0)
+    salvar_json(FILA_FILE, fila)
+    return nova
+
+
+# ---------------------------------------------------------------- revisão
+
+def revisar(p, i, n):
+    """Uma rodada de quiz: significado + frase lacunada → você digita a palavra."""
+    print(f"\n\033[1;36m{i}/{n}\033[0m  {p['significado']}")
+    frase = lacunar(p["exemplo"], p["palavra"])
+    if frase:
+        print(f"     {frase}")
+    try:
+        resp = input("     palavra: ")
+    except EOFError:
+        resp = ""
+    acertou = normalizar(resp) == normalizar(p["palavra"])
+    if acertou:
+        p["caixa"] = min(p.get("caixa", 0) + 1, len(INTERVALOS) - 1)
+        p["acertos"] = p.get("acertos", 0) + 1
+        print(f"     ✅ \033[1m{p['palavra']}\033[0m {p['ipa']}")
+    else:
+        p["caixa"] = 0
+        p["erros"] = p.get("erros", 0) + 1
+        print(f"     ❌ era: \033[1m{p['palavra']}\033[0m {p['ipa']}")
+    print(f"     {p['exemplo']}")
+    if p.get("traducao"):
+        print(f"     ({p['traducao']})")
+    p["proxima"] = em_dias(INTERVALOS[p["caixa"]])
+    return acertou
+
+
+def rodar_quiz(palavras):
+    """Revisa tudo que venceu. Retorna quantas palavras foram revisadas."""
+    due = [p for p in palavras if p.get("proxima", hoje()) <= hoje()]
+    if not due:
+        return 0
+    print(f"🔁 revisão: {len(due)} palavra(s) pra hoje")
+    acertos = 0
+    for i, p in enumerate(due, 1):
+        if revisar(p, i, len(due)):
+            acertos += 1
+    salvar_json(PALAVRAS_FILE, palavras)
+    print(f"\n   revisão: {acertos}/{len(due)} acerto(s)")
+    return len(due)
+
+
+# ---------------------------------------------------------------- comandos
+
+def cmd_dia(extra=False, so_quiz=False):
+    palavras = carregar_json(PALAVRAS_FILE, [])
+    revisadas = rodar_quiz(palavras)
+    if so_quiz:
+        if not revisadas:
+            print("✅ nada pra revisar hoje.")
+        marcar_sessao()
+        return
+
+    ja_hoje = [p for p in palavras if p.get("aprendida_em") == hoje()]
+    if ja_hoje and not extra:
+        print(f"\n✅ palavra de hoje já aprendida: \033[1m{ja_hoje[0]['palavra']}\033[0m")
+        print("   Pra aprender outra mesmo assim:  vocab -x")
+        print("   Pra ver o baralho:  vocab -l")
+        marcar_sessao()
+        return
+
+    nova = proxima_da_fila(palavras)
+    titulo = "palavra extra" if ja_hoje else "palavra de hoje"
+    print(f"\n\033[1;35m📚 {titulo}\033[0m ({hoje()})\n")
+    print(f"  \033[1m{nova['palavra']}\033[0m  {nova['ipa']}")
+    print(f"  significado: {nova['significado']}")
+    print(f"  exemplo: {nova['exemplo']}")
+    if nova.get("traducao"):
+        print(f"           ({nova['traducao']})")
+
+    nova.update({
+        "aprendida_em": hoje(),
+        "caixa": 0,
+        "proxima": em_dias(INTERVALOS[0]),
+        "acertos": 0,
+        "erros": 0,
+    })
+    palavras.append(nova)
+    salvar_json(PALAVRAS_FILE, palavras)
+    marcar_sessao()
+    print(f"\n💾 {len(palavras)} palavra(s) no baralho. Primeira revisão amanhã. 🌱")
+
+
+def cmd_listar():
+    palavras = carregar_json(PALAVRAS_FILE, [])
+    if not palavras:
+        print("Nenhuma palavra ainda. Comece com:  vocab")
+        return
+    due = [p for p in palavras if p.get("proxima", hoje()) <= hoje()]
+    fila = carregar_json(FILA_FILE, [])
+    dominadas = sum(1 for p in palavras if p.get("caixa", 0) >= len(INTERVALOS) - 1)
+    print(f"{len(palavras)} palavra(s) · {len(due)} pra revisar hoje · "
+          f"{dominadas} dominada(s) · {len(fila)} na fila\n")
+    for p in sorted(palavras, key=lambda x: (x.get("proxima", ""), x["palavra"])):
+        caixa = p.get("caixa", 0)
+        barra = "▰" * (caixa + 1) + "▱" * (len(INTERVALOS) - 1 - caixa)
+        print(f"  {p.get('proxima', '?')}  {barra}  {p['palavra']} — {p['significado']}")
+    print("\n(a data é a próxima revisão; a barra é a caixa de Leitner)")
+
+
+def cmd_palavras():
+    """Reabastece a fila manualmente (1 request)."""
+    palavras = carregar_json(PALAVRAS_FILE, [])
+    conhecidas = {p["palavra"] for p in palavras}
+    fila = carregar_json(FILA_FILE, [])
+    na_fila = {w["palavra"] for w in fila}
+    novas = gerar_lote(conhecidas | na_fila)
+    add = [w for w in novas if w["palavra"] not in conhecidas | na_fila]
+    fila += add
+    salvar_json(FILA_FILE, fila)
+    print(f"➕ {len(add)} palavra(s) nova(s) na fila (total: {len(fila)}).")
+
+
+# ---------------------------------------------------------------- main
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="vocab",
+        description="Uma palavra de inglês por dia, com revisão espaçada.",
+        epilog="exemplos:  vocab   ·   vocab -q   ·   vocab -l   ·   vocab palavras",
+    )
+    ap.add_argument("comando", nargs="?", default="dia",
+                    choices=["dia", "palavras"],
+                    help="dia (padrão): revisão + palavra nova · palavras: reabastece a fila")
+    ap.add_argument("-q", "--quiz", action="store_true",
+                    help="só a revisão do dia, sem palavra nova")
+    ap.add_argument("-x", "--extra", action="store_true",
+                    help="aprender outra palavra mesmo já tendo aprendido hoje")
+    ap.add_argument("-l", "--listar", action="store_true",
+                    help="lista o baralho e o status da revisão")
+    ap.add_argument("-m", "--modelos", action="store_true",
+                    help="lista modelos :free disponíveis")
+    args = ap.parse_args()
+
+    if args.modelos:
+        listar_modelos_free()
+    elif args.listar:
+        cmd_listar()
+    elif args.comando == "palavras":
+        cmd_palavras()
+    else:
+        cmd_dia(extra=args.extra, so_quiz=args.quiz)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\ninterrompido.")
+        sys.exit(130)
