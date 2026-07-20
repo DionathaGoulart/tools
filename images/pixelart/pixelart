@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""pixelart — turn any image into crisp, honest pixel art.
+
+Decodes the source with whatever backend is available (Pillow first, then the
+ImageMagick ``magick`` CLI), but does every pixel-art step itself so the output
+is identical no matter which backend decoded the file:
+
+    decode -> box-average downscale (in linear light) -> palette quantize
+    (median cut, or a preset like gameboy/pico8) -> optional dithering ->
+    nearest-neighbour upscale -> lossless PNG.
+
+Pure Python for the transform and the PNG writer, so the only thing that can be
+missing is the *decoder*. No pip install for the tool itself.
+
+    pixelart photo.jpg
+    pixelart logo.svg -w 64 -c 8
+    pixelart *.png --palette gameboy -o /dev/null   # batch, presets
+    pixelart --temas
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import struct
+import subprocess
+import sys
+import zlib
+from pathlib import Path
+
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "lib")
+)
+from retro import Retro  # noqa: E402
+
+RASTER = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ppm"}
+VECTOR = {".svg", ".pdf", ".eps", ".ai"}
+
+# classic pixel-art palettes (name -> list of RGB tuples)
+PRESETS: dict[str, list[tuple[int, int, int]]] = {
+    "mono": [(0, 0, 0), (255, 255, 255)],
+    "gameboy": [(15, 56, 15), (48, 98, 48), (139, 172, 15), (155, 188, 15)],
+    "cga": [(0, 0, 0), (85, 255, 255), (255, 85, 255), (255, 255, 255)],
+    "pico8": [
+        (0, 0, 0), (29, 43, 83), (126, 37, 83), (0, 135, 81),
+        (171, 82, 54), (95, 87, 79), (194, 195, 199), (255, 241, 232),
+        (255, 0, 77), (255, 163, 0), (255, 236, 39), (0, 228, 54),
+        (41, 173, 255), (131, 118, 156), (255, 119, 168), (255, 204, 170),
+    ],
+}
+
+# sRGB <-> linear light lookup, so averaging colours is physically correct
+_S2L = [((c / 255) ** 2.2) for c in range(256)]
+
+
+def _l2s(v: float) -> int:
+    return min(255, max(0, round((v ** (1 / 2.2)) * 255)))
+
+
+# ---------------------------------------------------------------- decoding
+def _which(name: str) -> str | None:
+    from shutil import which
+
+    return which(name)
+
+
+def _decode_pillow(path: Path, maxdim: int):
+    from PIL import Image  # type: ignore
+
+    im = Image.open(path)
+    if im.mode != "RGB":
+        im = im.convert("RGB")
+    if max(im.size) > maxdim:
+        im.thumbnail((maxdim, maxdim), Image.LANCZOS)
+    return im.width, im.height, im.tobytes()
+
+
+def _decode_magick(path: Path, maxdim: int, vector: bool):
+    magick = _which("magick") or _which("convert")
+    if not magick:
+        return None
+    cmd = [magick]
+    if vector:
+        # render vectors big, then let the resize step shrink cleanly
+        cmd += ["-background", "none", "-density", "384"]
+    cmd += [str(path), "-resize", f"{maxdim}x{maxdim}>", "-depth", "8", "ppm:-"]
+    out = subprocess.run(cmd, capture_output=True)
+    if out.returncode != 0 or not out.stdout:
+        return None
+    return _parse_ppm(out.stdout)
+
+
+def _parse_ppm(data: bytes):
+    """Minimal P6 binary PPM reader (magic, w, h, maxval, then RGB bytes)."""
+    if data[:2] != b"P6":
+        raise ValueError("saída do decoder não é PPM P6")
+    tokens: list[bytes] = []
+    i = 2
+    n = len(data)
+    while len(tokens) < 3 and i < n:
+        while i < n and data[i] in b" \t\n\r":
+            i += 1
+        if i < n and data[i:i + 1] == b"#":  # comment line
+            while i < n and data[i] not in b"\n\r":
+                i += 1
+            continue
+        start = i
+        while i < n and data[i] not in b" \t\n\r":
+            i += 1
+        tokens.append(data[start:i])
+    w, h, maxv = (int(t) for t in tokens)
+    i += 1  # single whitespace after maxval
+    pixels = data[i:i + w * h * 3]
+    if maxv != 255:  # rescale 16-bit-ish sources down to 8-bit
+        pixels = bytes(v * 255 // maxv for v in pixels)
+    return w, h, pixels
+
+
+def decode(path: Path, maxdim: int):
+    ext = path.suffix.lower()
+    vector = ext in VECTOR
+    if not vector:
+        try:
+            return _decode_pillow(path, maxdim)
+        except ImportError:
+            pass
+        except Exception:
+            pass  # Pillow choked on the format — fall through to magick
+    res = _decode_magick(path, maxdim, vector)
+    if res is None:
+        raise RuntimeError(
+            "não consegui decodificar. Instale Pillow (pip install Pillow) "
+            "ou ImageMagick (brew install imagemagick)."
+        )
+    return res
+
+
+# ------------------------------------------------------------- transform
+def downscale(w: int, h: int, buf: bytes, gw: int, gh: int):
+    """Box-average the source into a gw x gh grid, averaging in linear light."""
+    s2l = _S2L
+    out: list[tuple[int, int, int]] = []
+    for gy in range(gh):
+        y0 = gy * h // gh
+        y1 = max(y0 + 1, (gy + 1) * h // gh)
+        for gx in range(gw):
+            x0 = gx * w // gw
+            x1 = max(x0 + 1, (gx + 1) * w // gw)
+            rl = gl = bl = 0.0
+            cnt = 0
+            for y in range(y0, y1):
+                row = (y * w) * 3
+                base = row + x0 * 3
+                for _ in range(x0, x1):
+                    rl += s2l[buf[base]]
+                    gl += s2l[buf[base + 1]]
+                    bl += s2l[buf[base + 2]]
+                    base += 3
+                    cnt += 1
+            out.append((_l2s(rl / cnt), _l2s(gl / cnt), _l2s(bl / cnt)))
+    return out
+
+
+def _median_cut(cells, ncolors):
+    """Classic median-cut palette from the grid's colours."""
+    boxes = [list({c for c in cells})]
+    if not boxes[0]:
+        return [(0, 0, 0)]
+    while len(boxes) < ncolors:
+        # pick the box with the largest channel spread
+        target = None
+        best = -1
+        for b in boxes:
+            if len(b) < 2:
+                continue
+            spread = max(
+                max(c[ch] for c in b) - min(c[ch] for c in b) for ch in range(3)
+            )
+            if spread > best:
+                best, target = spread, b
+        if target is None:
+            break
+        ch = max(
+            range(3),
+            key=lambda ch: max(c[ch] for c in target) - min(c[ch] for c in target),
+        )
+        target.sort(key=lambda c: c[ch])
+        mid = len(target) // 2
+        boxes.remove(target)
+        boxes += [target[:mid], target[mid:]]
+    palette = []
+    for b in boxes:
+        n = len(b)
+        palette.append(tuple(sum(c[ch] for c in b) // n for ch in range(3)))
+    return palette
+
+
+def _nearest(color, palette):
+    r, g, b = color
+    best_i = 0
+    best_d = 1 << 30
+    for i, (pr, pg, pb) in enumerate(palette):
+        d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+        if d < best_d:
+            best_d, best_i = d, i
+    return best_i
+
+
+def quantize(cells, gw, gh, palette, dither):
+    """Map every cell to a palette index, optionally Floyd-Steinberg dithered."""
+    if not dither:
+        return [_nearest(c, palette) for c in cells]
+    work = [list(c) for c in cells]  # mutable, allows error spill
+    idx = [0] * len(work)
+    for y in range(gh):
+        for x in range(gw):
+            i = y * gw + x
+            old = work[i]
+            pi = _nearest((round(old[0]), round(old[1]), round(old[2])), palette)
+            idx[i] = pi
+            pr, pg, pb = palette[pi]
+            err = (old[0] - pr, old[1] - pg, old[2] - pb)
+            for dx, dy, f in ((1, 0, 7), (-1, 1, 3), (0, 1, 5), (1, 1, 1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < gw and 0 <= ny < gh:
+                    j = ny * gw + nx
+                    work[j][0] += err[0] * f / 16
+                    work[j][1] += err[1] * f / 16
+                    work[j][2] += err[2] * f / 16
+    return idx
+
+
+# ------------------------------------------------------------- PNG output
+def _chunk(tag: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + tag
+        + data
+        + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    )
+
+
+def write_png(path: Path, gw: int, gh: int, scale: int, colors, idx):
+    """Truecolour 8-bit PNG, each grid cell blown up to a scale x scale block."""
+    ow = gw * scale
+    row_stub = bytearray()
+    raw = bytearray()
+    for gy in range(gh):
+        row_stub.clear()
+        row_stub.append(0)  # filter type 0 (none)
+        for gx in range(gw):
+            r, g, b = colors[idx[gy * gw + gx]]
+            row_stub += bytes((r, g, b)) * scale
+        for _ in range(scale):
+            raw += row_stub
+    ihdr = struct.pack(">IIBBBBB", ow, gh * scale, 8, 2, 0, 0, 0)
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+        + _chunk(b"IEND", b"")
+    )
+    path.write_bytes(png)
+
+
+# ------------------------------------------------------------- terminal preview
+def preview(ui: Retro, gw: int, gh: int, colors, idx, maxw: int = 44):
+    if not ui.truecolor:
+        return
+    step = max(1, gw // maxw)
+    pw = gw // step
+    ph = gh // step
+    if pw < 2 or ph < 2:
+        return
+    print()
+    for py in range(0, ph - 1, 2):
+        line = "  "
+        for px in range(pw):
+            sx = px * step
+            top = colors[idx[(py * step) * gw + min(sx, gw - 1)]]
+            by = min((py + 1) * step, gh - 1)
+            bot = colors[idx[by * gw + min(sx, gw - 1)]]
+            line += (
+                f"\033[38;2;{top[0]};{top[1]};{top[2]}m"
+                f"\033[48;2;{bot[0]};{bot[1]};{bot[2]}m▀"
+            )
+        print(line + ui.RESET)
+    print()
+
+
+# ------------------------------------------------------------- palette swatch
+def swatches(ui: Retro, colors):
+    if not ui.truecolor:
+        ui.kv("PALETA", f"{len(colors)} COR(ES)")
+        return
+    row = "  "
+    for r, g, b in colors[:16]:
+        row += f"\033[48;2;{r};{g};{b}m  {ui.RESET}"
+    print(f"  {ui.FG40}PALETA{ui.RESET}  {row}  {ui.ACC}{ui.BOLD}{len(colors)}{ui.RESET}")
+
+
+# ------------------------------------------------------------- one file
+def convert(ui: Retro, src: Path, args, out_override: Path | None):
+    maxdim = max(1024, args.width * 8)
+    w, h, buf = decode(src, maxdim)
+
+    gw = args.width
+    gh = args.height or max(1, round(gw * h / w))
+    cells = downscale(w, h, buf, gw, gh)
+
+    if args.palette:
+        palette = PRESETS[args.palette]
+    elif args.colors <= 0:
+        palette = None
+    else:
+        palette = _median_cut(cells, args.colors)
+
+    if palette is None:  # keep the true colour of each averaged cell
+        colors = cells
+        idx = list(range(len(cells)))
+    else:
+        idx = quantize(cells, gw, gh, palette, args.dither)
+        colors = palette
+
+    if args.true:
+        scale = 1
+    elif args.scale:
+        scale = args.scale
+    else:
+        scale = max(1, round(max(w, h) / max(gw, gh)))
+
+    if out_override is not None:
+        dst = out_override
+    else:
+        dst = src.with_name(f"{src.stem}.pixel.png")
+
+    write_png(dst, gw, gh, scale, colors, idx)
+    size = dst.stat().st_size
+
+    ui.modulo("pixelart", f"src: {src.name}")
+    swatches(ui, colors)
+    ui.kv("ENTRADA", f"{w}x{h}")
+    ui.kv("GRADE", f"{gw}x{gh} PX")
+    ui.kv("SAIDA", f"{gw * scale}x{gh * scale}  (x{scale})")
+    ui.kv("ARQUIVO", dst.name)
+    ui.kv("PESO", f"{size / 1024:.1f} KB")
+    if args.dither:
+        ui.kv("DITHER", "FLOYD-STEINBERG")
+    preview(ui, gw, gh, colors, idx)
+    ui.ok("convertido")
+    ui.proximo(str(dst), "abrir:")
+    return dst
+
+
+# ------------------------------------------------------------- cli
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="pixelart",
+        description="transforma imagens (png/jpg/svg/webp/…) em pixel art.",
+        add_help=False,
+    )
+    p.add_argument("files", nargs="*", metavar="IMAGEM")
+    p.add_argument("-w", "--width", type=int, default=128,
+                   help="largura da grade em pixels (padrão 128)")
+    p.add_argument("--height", type=int, default=0,
+                   help="altura da grade (padrão: mantém proporção)")
+    p.add_argument("-c", "--colors", type=int, default=16,
+                   help="tamanho da paleta (padrão 16; 0 = sem quantizar)")
+    p.add_argument("-s", "--scale", type=int, default=0,
+                   help="tamanho do bloco de cada pixel (padrão: ~tamanho original)")
+    p.add_argument("--true", action="store_true",
+                   help="salva no tamanho real da grade (bloco 1x1)")
+    p.add_argument("-d", "--dither", action="store_true",
+                   help="dithering Floyd-Steinberg (padrão: cores chapadas)")
+    p.add_argument("--palette", choices=sorted(PRESETS),
+                   help="paleta clássica: " + ", ".join(sorted(PRESETS)))
+    p.add_argument("-o", "--out", metavar="ARQUIVO",
+                   help="arquivo de saída (só com uma imagem)")
+    p.add_argument("--no-preview", action="store_true")
+    p.add_argument("--temas", action="store_true", help="lista os temas e sai")
+    p.add_argument("-h", "--help", action="store_true")
+    return p
+
+
+HELP = """
+{titulo}
+
+  {u}pixelart{r} [imagens...] [opções]
+
+  {a}-w, --width N{r}    largura da grade em px          {d}(padrão 128){r}
+  {a}    --height N{r}   altura da grade                 {d}(padrão: proporção){r}
+  {a}-c, --colors N{r}   tamanho da paleta               {d}(padrão 16; 0=sem){r}
+  {a}    --palette P{r}  paleta clássica                 {d}(mono/gameboy/cga/pico8){r}
+  {a}-d, --dither{r}     dithering Floyd-Steinberg       {d}(padrão: chapado){r}
+  {a}-s, --scale N{r}    bloco de cada pixel             {d}(padrão: ~original){r}
+  {a}    --true{r}       salva no tamanho real da grade  {d}(bloco 1x1){r}
+  {a}-o, --out FILE{r}   arquivo de saída                {d}(só com 1 imagem){r}
+  {a}    --temas{r}      catálogo de temas retrô
+
+  {d}decoder: Pillow se houver, senão ImageMagick (svg/pdf via magick){r}
+
+  {d}exemplos{r}
+    pixelart foto.jpg
+    pixelart logo.svg -w 64 -c 8
+    pixelart *.png --palette gameboy
+"""
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    ui = Retro(env_prefix="PIXELART")
+
+    if args.temas:
+        ui.catalogo_temas()
+        return 0
+
+    if args.help or not args.files:
+        print(HELP.format(
+            titulo=ui.forte("[ MODULE: PIXELART ]"),
+            u=ui.ACC + ui.BOLD, a=ui.ACC, d=ui.FG40, r=ui.RESET,
+        ))
+        return 0 if args.help else 1
+
+    if args.no_preview:
+        globals()["preview"] = lambda *a, **k: None
+
+    out_override = Path(args.out) if args.out else None
+    if out_override is not None and len(args.files) > 1:
+        ui.erro("-o/--out só funciona com uma imagem por vez.")
+        return 1
+
+    rc = 0
+    for f in args.files:
+        src = Path(f)
+        if not src.is_file():
+            ui.erro(f"não encontrei: {f}")
+            rc = 1
+            continue
+        try:
+            convert(ui, src, args, out_override)
+        except KeyboardInterrupt:
+            print()
+            ui.aviso("abortado")
+            return 130
+        except Exception as e:  # noqa: BLE001
+            ui.erro(f"{src.name}: {e}")
+            rc = 1
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
