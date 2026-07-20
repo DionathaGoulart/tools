@@ -12,15 +12,6 @@ import (
 	"golang.org/x/term"
 )
 
-const (
-	cReset = "\033[0m"
-	cBold  = "\033[1m"
-	cCyan  = "\033[36m"
-	cGreen = "\033[32m"
-	cRed   = "\033[31m"
-	cGray  = "\033[90m"
-)
-
 var stdin = bufio.NewReader(os.Stdin)
 
 func main() {
@@ -62,11 +53,7 @@ func main() {
 	case "pull", "puxar":
 		withVault(func(v *Vault) { cmdSync(v, argOr(args, 1, ""), false) })
 	case "frase", "passphrase":
-		fmt.Println("Sugestões de passphrase (escolha uma e decore — nada é salvo):")
-		for i := 0; i < 3; i++ {
-			fmt.Println("  " + GeneratePassphrase(5))
-		}
-		fmt.Printf("%s(~%d bits de entropia cada)%s\n", cGray, PassphraseEntropyBits(5), cReset)
+		cmdPassphrase()
 	case "qr", "chave":
 		withVault(func(v *Vault) { cmdExportKey(v) })
 	case "web", "janela":
@@ -75,6 +62,8 @@ func main() {
 				die(err.Error())
 			}
 		})
+	case "temas", "themes":
+		ui.CatalogoTemas()
 	case "help", "-h", "--help", "ajuda":
 		printHelp()
 	default:
@@ -84,24 +73,81 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Print(cBold + "cofre" + cReset + " — gerenciador de senhas em um único arquivo (age + pendrive)\n\n" +
-		"  cofre                menu interativo\n" +
-		"  cofre web            abre a interface no navegador\n" +
-		"  cofre init           cria um cofre novo\n" +
-		"  cofre restore        restaura de um backup de chave (QR/arquivo)\n\n" +
-		"  cofre ls             lista as senhas\n" +
-		"  cofre add <nome>     salva uma senha (digitada)\n" +
-		"  cofre gen <nome> [n] gera senha aleatória de n caracteres (padrão 20)\n" +
-		"  cofre get <nome>     mostra uma senha\n" +
-		"  cofre cp <nome>      copia pro clipboard (limpa em 45s)\n" +
-		"  cofre rm <nome>      apaga uma senha\n\n" +
-		"  cofre push [dir]     envia backup pro pendrive\n" +
-		"  cofre pull [dir]     puxa do pendrive\n" +
-		"  cofre qr             exporta a chave secreta (QR / arquivo)\n" +
-		"  cofre frase          sugere passphrases fortes (diceware PT-BR)\n")
+	ui.Modulo("cofre", "gerenciador de senhas · age + pendrive")
+	ui.Secao("sessao")
+	ui.Item("$", pad("cofre", 20), "menu interativo")
+	ui.Item("$", pad("cofre web", 20), "abre a interface no navegador")
+	ui.Item("$", pad("cofre init", 20), "cria um cofre novo")
+	ui.Item("$", pad("cofre restore", 20), "restaura de um backup de chave (QR/arquivo)")
+	fmt.Println()
+	ui.Secao("senhas")
+	ui.Item("$", pad("cofre ls", 20), "lista as senhas")
+	ui.Item("$", pad("cofre add <nome>", 20), "salva uma senha (digitada)")
+	ui.Item("$", pad("cofre gen <nome> [n]", 20), "gera senha aleatoria de n chars (padrao 20)")
+	ui.Item("$", pad("cofre get <nome>", 20), "mostra uma senha")
+	ui.Item("$", pad("cofre cp <nome>", 20), "copia pro clipboard (limpa em 45s)")
+	ui.Item("$", pad("cofre rm <nome>", 20), "apaga uma senha")
+	fmt.Println()
+	ui.Secao("backup e ambiente")
+	ui.Item("$", pad("cofre push [dir]", 20), "envia backup pro pendrive")
+	ui.Item("$", pad("cofre pull [dir]", 20), "puxa do pendrive")
+	ui.Item("$", pad("cofre qr", 20), "exporta a chave secreta (QR / arquivo)")
+	ui.Item("$", pad("cofre frase", 20), "sugere passphrases fortes (diceware PT-BR)")
+	ui.Item("$", pad("cofre temas", 20), "lista as paletas disponiveis")
+	fmt.Println()
+	ui.KV("TEMA ATIVO", strings.ToUpper(ui.Tema))
+	ui.KV("VARIAVEIS", "COFRE_TEMA · RETRO_TEMA")
+	fmt.Println()
 }
 
+func pad(s string, n int) string { return fmt.Sprintf("%-*s", n, s) }
+
 // ── interactive menu ───────────────────────────────────────────────────
+
+var menuOpcoes = [][4]string{
+	{"1", "LISTAR", "2", "VER"},
+	{"3", "COPIAR", "4", "NOVA SENHA"},
+	{"5", "GERAR", "6", "APAGAR"},
+	{"7", "ENVIAR PENDRIVE", "8", "PUXAR PENDRIVE"},
+	{"9", "EXPORTAR CHAVE", "W", "NAVEGADOR"},
+}
+
+func menuLinhas() []string {
+	linhas := make([]string, 0, len(menuOpcoes))
+	for _, o := range menuOpcoes {
+		esq := ui.SItem("["+o[0]+"]", o[1], "")
+		linhas = append(linhas, ui.Preenche(esq, 24)+ui.SItem("["+o[2]+"]", o[3], ""))
+	}
+	return linhas
+}
+
+func drawMenu(n int) {
+	meta := fmt.Sprintf("%d SENHA(S)", n)
+	linhas := menuLinhas()
+	rodape := "[0] SAIR · [1-9] ACAO"
+	if !ui.Caixa {
+		ui.Modulo("vault_menu", meta)
+		for _, l := range linhas {
+			fmt.Println("  " + l)
+		}
+		fmt.Println()
+		ui.Item("[0]", "SAIR", "")
+		return
+	}
+	fmt.Println()
+	ui.Topo()
+	ui.Chrome("root@cofre: ~/vault", meta)
+	ui.Sep()
+	ui.Linha(ui.ACC + ui.BOLD + "[ MODULE: VAULT_MENU ]" + ui.RESET)
+	ui.Linha("")
+	for _, l := range linhas {
+		ui.Linha(l)
+	}
+	ui.Sep()
+	ui.Status(rodape, "● PRONTO")
+	ui.Base()
+	ui.Sombra()
+}
 
 func runMenu() {
 	if !VaultExists() {
@@ -114,13 +160,8 @@ func runMenu() {
 	}
 	for {
 		names, _ := v.List()
-		fmt.Printf("\n%s🔐 cofre%s %s— %d senha(s)%s\n\n", cBold, cReset, cGray, len(names), cReset)
-		fmt.Println("  1) listar      2) ver         3) copiar     4) nova senha")
-		fmt.Println("  5) gerar       6) apagar")
-		fmt.Println("  7) enviar pro pendrive        8) puxar do pendrive")
-		fmt.Println("  9) exportar chave (backup)    w) abrir no navegador")
-		fmt.Println("  0) sair")
-		switch strings.ToLower(readLine("\n> ")) {
+		drawMenu(len(names))
+		switch strings.ToLower(readLine("\n" + ui.ACC30 + ">" + ui.RESET + " ")) {
 		case "1":
 			cmdList(v)
 		case "2":
@@ -150,11 +191,11 @@ func runMenu() {
 }
 
 func firstRun() {
-	fmt.Printf("\n%s🔐 cofre%s — nenhum cofre encontrado nesta máquina.\n\n", cBold, cReset)
-	fmt.Println("  1) criar um cofre NOVO")
-	fmt.Println("  2) restaurar de um backup (tenho minha chave AGE-SECRET-KEY)")
-	fmt.Println("  0) sair")
-	switch readLine("\n> ") {
+	ui.Modulo("cofre", "nenhum cofre encontrado nesta maquina")
+	ui.Item("[1]", "CRIAR UM COFRE NOVO", "")
+	ui.Item("[2]", "RESTAURAR DE UM BACKUP", "tenho minha AGE-SECRET-KEY")
+	ui.Item("[0]", "SAIR", "")
+	switch readLine("\n" + ui.ACC30 + ">" + ui.RESET + " ") {
 	case "1":
 		cmdInit()
 	case "2":
@@ -164,31 +205,49 @@ func firstRun() {
 
 // ── commands ───────────────────────────────────────────────────────────
 
+func cmdPassphrase() {
+	ui.Modulo("passphrase_suggest", "diceware pt-br · nada e salvo")
+	for i := 0; i < 3; i++ {
+		ui.Item("►", GeneratePassphrase(5), "")
+	}
+	fmt.Println()
+	ui.KV("ENTROPIA", fmt.Sprintf("~%d BITS CADA", PassphraseEntropyBits(5)))
+	fmt.Println()
+}
+
 func cmdInit() {
-	fmt.Println("\nSua " + cBold + "passphrase" + cReset + " é a única senha que você decora.")
-	fmt.Println("Dica: 4 palavras aleatórias (ex: cavalo-bateria-grampo-correto)")
+	ui.Modulo("vault_init", "")
+	ui.Item("·", "sua PASSPHRASE e a unica senha que voce decora", "")
+	ui.Item("·", "dica: 4 palavras aleatorias (cavalo-bateria-grampo-correto)", "")
+	fmt.Println()
 	pass := readSecretConfirm()
 	v, err := InitVault(pass)
 	if err != nil {
 		die(err.Error())
 	}
-	ok("Cofre criado em " + v.Dir)
-	fmt.Println("\n" + cBold + "⚠ FAÇA O BACKUP DA CHAVE AGORA." + cReset)
-	fmt.Println("Sem ele, perder este computador = perder todas as senhas.")
+	ui.Ok("cofre criado")
+	ui.KV("DIRETORIO", v.Dir)
+	fmt.Println()
+	ui.Aviso("atencao", ui.Forte("FACA O BACKUP DA CHAVE AGORA."))
+	ui.Item("·", "sem ele, perder este computador = perder todas as senhas", "")
 	cmdExportKey(v)
 }
 
 func cmdRestore() {
-	fmt.Println("\nCole sua chave secreta (a linha AGE-SECRET-KEY-1... do QR/arquivo):")
-	key := readLine("> ")
-	fmt.Println("\nAgora crie a passphrase pra proteger a chave NESTA máquina:")
+	ui.Modulo("vault_restore", "")
+	ui.Item("·", "cole sua chave secreta (a linha AGE-SECRET-KEY-1... do QR/arquivo)", "")
+	key := readLine("\n" + ui.ACC30 + ">" + ui.RESET + " ")
+	fmt.Println()
+	ui.Item("·", "agora crie a passphrase pra proteger a chave NESTA maquina", "")
+	fmt.Println()
 	pass := readSecretConfirm()
 	v, err := RestoreVault(key, pass)
 	if err != nil {
 		die(err.Error())
 	}
-	ok("Chave restaurada. Cofre pronto em " + v.Dir)
-	fmt.Println("Agora puxe suas senhas do pendrive:  " + cCyan + "cofre pull" + cReset)
+	ui.Ok("chave restaurada")
+	ui.KV("DIRETORIO", v.Dir)
+	ui.Proximo("cofre pull", "puxe suas senhas do pendrive:")
 }
 
 func cmdList(v *Vault) {
@@ -197,13 +256,19 @@ func cmdList(v *Vault) {
 		fail(err.Error())
 		return
 	}
+	ui.Modulo("vault_list", "src: "+v.storePath())
 	if len(names) == 0 {
-		fmt.Println(cGray + "(cofre vazio — salve com: cofre add <nome>)" + cReset)
+		ui.Aviso("vazio", "")
+		ui.Proximo("cofre add <nome>", "salve a primeira:")
+		fmt.Println()
 		return
 	}
 	for _, n := range names {
-		fmt.Println("  " + n)
+		ui.Item("►", n, "")
 	}
+	fmt.Println()
+	ui.KV("TOTAL", fmt.Sprintf("%d SENHA(S)", len(names)))
+	fmt.Println()
 }
 
 func cmdAdd(v *Vault, name string) {
@@ -220,7 +285,8 @@ func cmdAdd(v *Vault, name string) {
 		fail(err.Error())
 		return
 	}
-	ok("salvo: " + name)
+	ui.Ok("salvo")
+	ui.KV("ENTRADA", name)
 }
 
 func cmdGen(v *Vault, name string, length int) {
@@ -233,7 +299,9 @@ func cmdGen(v *Vault, name string, length int) {
 		fail(err.Error())
 		return
 	}
-	ok(fmt.Sprintf("gerada e salva: %s (%d caracteres)", name, length))
+	ui.Ok("gerada e salva")
+	ui.KV("ENTRADA", name)
+	ui.KV("TAMANHO", fmt.Sprintf("%d CARACTERES", length))
 	copyToClipboard(pw)
 }
 
@@ -264,14 +332,15 @@ func cmdDelete(v *Vault, name string) {
 		return
 	}
 	if strings.ToLower(readLine("apagar '"+name+"'? [s/N]: ")) != "s" {
-		fmt.Println("cancelado")
+		ui.Aviso("cancelado", "")
 		return
 	}
 	if err := v.Delete(name); err != nil {
 		fail(err.Error())
 		return
 	}
-	ok("apagada: " + name)
+	ui.Ok("apagada")
+	ui.KV("ENTRADA", name)
 }
 
 func cmdSync(v *Vault, path string, push bool) {
@@ -284,12 +353,12 @@ func cmdSync(v *Vault, path string, push bool) {
 				path = hint
 			}
 		} else {
-			fmt.Println(cGray + "exemplos: /Volumes/PENDRIVE (mac)  /media/user/PENDRIVE (linux)  E:\\ (windows)" + cReset)
+			ui.Aviso("exemplos", "/Volumes/PENDRIVE (mac) · /media/user/PENDRIVE (linux) · E:\\ (windows)")
 			path = readLine("caminho do pendrive: ")
 		}
 	}
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
-		fail("caminho inválido: " + path)
+		fail("caminho invalido: " + path)
 		return
 	}
 	var res syncResult
@@ -305,13 +374,17 @@ func cmdSync(v *Vault, path string, push bool) {
 	}
 	cfg.Pendrive = path
 	v.SaveConfig(cfg)
-	dir := "→ pendrive"
+	sentido := "LOCAL → PENDRIVE"
 	if !push {
-		dir = "← pendrive"
+		sentido = "PENDRIVE → LOCAL"
 	}
-	ok(fmt.Sprintf("sincronizado %s: %d copiada(s), %d já em dia", dir, res.Copied, res.Skipped))
+	ui.Ok("sincronizado")
+	ui.KV("SENTIDO", sentido)
+	ui.KV("PENDRIVE", path)
+	ui.KV("COPIADAS", fmt.Sprintf("%d ARQUIVO(S)", res.Copied))
+	ui.KV("JA EM DIA", fmt.Sprintf("%d ARQUIVO(S)", res.Skipped))
 	if push {
-		fmt.Println(cGray + "pode ejetar o pendrive com segurança" + cReset)
+		ui.Aviso("seguro", "pode ejetar o pendrive")
 	}
 }
 
@@ -325,28 +398,30 @@ func cmdExportKey(v *Vault) {
 		fail(err.Error())
 		return
 	}
-	fmt.Println("\nComo você quer o backup da chave?")
-	fmt.Println("  1) QR code no terminal (escaneia com o celular → cola no Bitwarden)")
-	fmt.Println("  2) QR code em PNG (cofre-chave-qr.png)")
-	fmt.Println("  3) mostrar a chave em texto (anotar no papel / colar em nota segura)")
-	fmt.Println("  0) agora não")
-	switch readLine("\n> ") {
+	ui.Modulo("key_backup", "como voce quer o backup da chave?")
+	ui.Item("[1]", "QR CODE NO TERMINAL", "escaneia no celular → Bitwarden")
+	ui.Item("[2]", "QR CODE EM PNG", "cofre-chave-qr.png")
+	ui.Item("[3]", "CHAVE EM TEXTO", "papel / nota segura")
+	ui.Item("[0]", "AGORA NAO", "")
+	switch readLine("\n" + ui.ACC30 + ">" + ui.RESET + " ") {
 	case "1":
 		fmt.Println()
 		showQRTerminal(secret)
-		fmt.Println(cBold + "⚠ Este QR É a sua chave secreta." + cReset + " Escaneie e guarde SÓ em local")
-		fmt.Println("criptografado (nota segura do Bitwarden/1Password) ou papel guardado.")
+		ui.Aviso("atencao", ui.Forte("ESTE QR E A SUA CHAVE SECRETA."))
+		ui.Item("·", "guarde SO em local criptografado (Bitwarden/1Password) ou papel", "")
 	case "2":
 		path := "cofre-chave-qr.png"
 		if err := saveQRPNG(secret, path); err != nil {
 			fail(err.Error())
 			return
 		}
-		ok("salvo: " + path)
-		fmt.Println(cBold+"⚠ Apague este arquivo"+cReset, "depois de guardar o backup — ele é a chave em claro.")
+		ui.Ok("salvo")
+		ui.KV("ARQUIVO", path)
+		ui.Aviso("atencao", "apague este arquivo depois do backup — e a chave em claro")
 	case "3":
 		fmt.Println("\n" + secret)
-		fmt.Println(cGray + "\n(a linha acima é a chave inteira — papel, Bitwarden, ou segundo pendrive)" + cReset)
+		fmt.Println()
+		ui.Aviso("chave", "a linha acima e a chave inteira — papel, Bitwarden ou 2o pendrive")
 	}
 }
 
@@ -366,7 +441,7 @@ func unlockInteractive(v *Vault) error {
 			return fmt.Errorf("3 tentativas erradas")
 		}
 		if err := v.Unlock(readSecret("passphrase: ")); err != nil {
-			fmt.Println(cRed + "✗ " + err.Error() + cReset)
+			ui.Erro(err.Error())
 		}
 	}
 	return nil
@@ -374,10 +449,12 @@ func unlockInteractive(v *Vault) error {
 
 func copyToClipboard(s string) {
 	if err := clipboard.WriteAll(s); err != nil {
-		fail("clipboard indisponível (" + err.Error() + ") — use 'cofre get' pra ver na tela")
+		fail("clipboard indisponivel (" + err.Error() + ")")
+		ui.Proximo("cofre get <nome>", "veja na tela com:")
 		return
 	}
-	ok("copiado pro clipboard — limpa em 45s (se o cofre continuar aberto)")
+	ui.Ok("copiado pro clipboard")
+	ui.KV("EXPIRA EM", "45S")
 	go func() {
 		time.Sleep(45 * time.Second)
 		if cur, err := clipboard.ReadAll(); err == nil && cur == s {
@@ -417,21 +494,21 @@ func readSecret(prompt string) string {
 }
 
 func readSecretConfirm() string {
-	fmt.Println("  1) gerar uma passphrase forte pra mim (recomendado)")
-	fmt.Println("  2) digitar a minha própria")
-	if readLine("> ") == "1" {
+	ui.Item("[1]", "GERAR UMA PASSPHRASE FORTE PRA MIM", "recomendado")
+	ui.Item("[2]", "DIGITAR A MINHA PROPRIA", "")
+	if readLine("\n"+ui.ACC30+">"+ui.RESET+" ") == "1" {
 		return generatePassphraseInteractive()
 	}
 	for {
 		a := readSecret("passphrase: ")
 		if len(a) < 8 {
-			fmt.Println(cRed + "✗ muito curta (mínimo 8 caracteres)" + cReset)
+			ui.Erro("muito curta (minimo 8 caracteres)")
 			continue
 		}
 		if a == readSecret("repita:     ") {
 			return a
 		}
-		fmt.Println(cRed + "✗ não bateu, tenta de novo" + cReset)
+		ui.Erro("nao bateu, tenta de novo")
 	}
 }
 
@@ -439,19 +516,21 @@ func generatePassphraseInteractive() string {
 	const words = 5
 	for {
 		phrase := GeneratePassphrase(words)
-		fmt.Printf("\n  %s%s%s\n", cBold+cCyan, phrase, cReset)
-		fmt.Printf("  %s(%d palavras, ~%d bits de entropia — séculos contra força bruta)%s\n",
-			cGray, words, PassphraseEntropyBits(words), cReset)
+		ui.Modulo("passphrase_suggest", "diceware pt-br")
+		ui.Item("►", phrase, "")
+		fmt.Println()
+		ui.KV("PALAVRAS", fmt.Sprintf("%d", words))
+		ui.KV("ENTROPIA", fmt.Sprintf("~%d BITS", PassphraseEntropyBits(words)))
 		switch strings.ToLower(readLine("\nusar essa? [S = sim / r = sortear outra]: ")) {
 		case "", "s", "sim":
-			fmt.Println("\nDecore AGORA. Digite ela de volta pra fixar:")
+			ui.Item("·", "decore AGORA. digite ela de volta pra fixar", "")
 			for tries := 0; tries < 3; tries++ {
 				if readSecret("> ") == phrase {
 					return phrase
 				}
-				fmt.Println(cRed + "✗ não bateu — olha de novo:  " + cReset + phrase)
+				ui.Erro("nao bateu — olha de novo: " + ui.Forte(phrase))
 			}
-			fmt.Println(cGray + "vamos sortear outra mais fácil de lembrar..." + cReset)
+			ui.Aviso("nova tentativa", "vamos sortear outra mais facil de lembrar")
 		case "r":
 			continue
 		}
@@ -471,8 +550,7 @@ func argOr(args []string, i int, def string) string {
 	return def
 }
 
-func ok(msg string)   { fmt.Println(cGreen + "✓ " + cReset + msg) }
-func fail(msg string) { fmt.Println(cRed + "✗ " + cReset + msg) }
+func fail(msg string) { ui.Erro(msg) }
 func die(msg string) {
 	fail(msg)
 	os.Exit(1)

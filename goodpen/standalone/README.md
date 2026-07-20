@@ -50,7 +50,25 @@ cofre push             # backup → pendrive (lembra o caminho)
 cofre pull             # pendrive → máquina
 cofre qr               # backup da chave: QR no terminal, PNG ou texto
 cofre frase            # sugere passphrases fortes (diceware PT-BR, crypto/rand)
+cofre temas            # lista as paletas disponíveis
 ```
+
+### Aparência
+
+A interface do terminal segue o [style guide retro](../../.harness/styleguide-terminal.md):
+caixa de borda pesada, cantos retos, rótulos em maiúsculas e uma cor de destaque só.
+
+```bash
+cofre temas                    # catálogo das 9 paletas (► marca a ativa)
+export COFRE_TEMA=cyber-teal   # tema só do cofre
+export RETRO_TEMA=noir-rose    # tema de todas as ferramentas (fallback)
+```
+
+Temas: `vault-gold` (padrão) · `noir-rose` · `midnight-ember` · `cyber-teal` ·
+`velvet-purple` · `abyss-frost` · `crimson-chalk` · `forest-mist` · `sand-dusk`.
+
+`COFRE_TEMA` tem prioridade sobre `RETRO_TEMA`. As cores somem sozinhas com
+`NO_COLOR` ou quando a saída não é um terminal (pipe, arquivo, script).
 
 Detalhe legal: **salvar senha não pede passphrase** (criptografa com a chave pública). Só **ler** exige destrancar.
 

@@ -40,8 +40,9 @@ func runWeb(v *Vault) error {
 	mux.HandleFunc(base+"/api/gen", srv.gen)
 
 	url := fmt.Sprintf("http://127.0.0.1:%d%s/", ln.Addr().(*net.TCPAddr).Port, base)
-	fmt.Println("🔐 cofre web:", url)
-	fmt.Println("   (feche com Ctrl+C — o cofre só é acessível nesta máquina)")
+	ui.Modulo("cofre_web", "127.0.0.1 · sessao local")
+	ui.KV("URL", url)
+	ui.Aviso("ctrl+c", "encerra o servidor — o cofre so e acessivel nesta maquina")
 	openBrowser(url)
 	return http.Serve(ln, mux)
 }

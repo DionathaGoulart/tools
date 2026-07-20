@@ -30,10 +30,15 @@ São independentes; teste os dois e fique com o que gostar.
 # standalone — executável único (compile com build.sh ou pegue em dist/)
 cofre          # menu no terminal
 cofre web      # interface no navegador
+cofre temas    # paletas do terminal (COFRE_TEMA, fallback RETRO_TEMA)
 
 # pass-store — pass + gpg + git com pendrive como cofre
 bash ~/Desktop/tools/goodpen/pass-store/setup.sh
 ```
+
+O terminal do `cofre` segue o [style guide retro](../.harness/styleguide-terminal.md).
+Troque a paleta com `COFRE_TEMA=<nome>` (ou `RETRO_TEMA=<nome>`, que vale pra
+todas as ferramentas); veja as opções com `cofre temas`.
 
 Detalhes em [standalone/README.md](./standalone/README.md) e
 [pass-store/README.md](./pass-store/README.md).
