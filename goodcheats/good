@@ -3,6 +3,7 @@
 #
 # usage: good            show logo + system info
 #        good --refresh  rebuild the hardware cache (model, GPU, resolution)
+#        good <sub> …    run a family command (good cheat → goodcheat, good harness → goodharness)
 #        good -h | --help
 
 set -u
@@ -10,14 +11,46 @@ set -u
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/good"
 CACHE_FILE="$CACHE_DIR/hardware"
 
-case "${1:-}" in
-  -h|--help)
-    echo "usage: good [--refresh]"
-    echo "  --refresh   rebuild the hardware cache (model, GPU, resolution)"
-    exit 0
-    ;;
-  --refresh) rm -f "$CACHE_FILE" ;;
-esac
+# family dispatcher: `good <sub> …` roda o irmão `good<sub>` se ele existir
+# ex: `good harness list` → goodharness list · `good cheat tar` → goodcheat tar
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -*) ;;
+    *)
+      SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+      if [ -x "$SELF_DIR/good$1" ]; then
+        SUB="$SELF_DIR/good$1"
+        shift
+        exec "$SUB" "$@"
+      fi
+      ;;
+  esac
+fi
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      echo "usage: good [--refresh] [-c HEX[,HEX]]"
+      echo "       good <sub> …   family command (ex: good cheat tar, good harness list)"
+      echo "  --refresh          rebuild the hardware cache (model, GPU, resolution)"
+      echo "  -c, --color HEX    logo color (6-digit hex); HEX,HEX for a gradient"
+      echo "                     also via env: GOOD_COLOR=fbee23"
+      exit 0
+      ;;
+    --refresh) rm -f "$CACHE_FILE" ;;
+    -c|--color)
+      [ "$#" -ge 2 ] || { echo "good: $1 requer um valor hex (ex: -c fbee23)" >&2; exit 2; }
+      GOOD_COLOR="$2"
+      shift
+      ;;
+    --color=*) GOOD_COLOR="${1#*=}" ;;
+    *)
+      echo "good: opção desconhecida '$1' (veja good -h)" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 # ---------- colors ----------
 USE_COLOR=1
@@ -32,27 +65,46 @@ if [ "$USE_COLOR" -eq 1 ]; then
   BOLD=$'\033[1m'
 fi
 
-# gradient endpoints: violet -> cyan (override with GOOD_COLOR=rrggbb)
-R1=139 G1=92  B1=246
-R2=34  G2=211 B2=238
-if [ -n "${GOOD_COLOR:-}" ]; then
-  hex="${GOOD_COLOR#\#}"
-  case "$hex" in
+# default color: good yellow (#fbee23)
+# override with GOOD_COLOR=rrggbb (solid) or rrggbb,rrggbb (gradient), or -c/--color
+R1=251 G1=238 B1=35
+R2=251 G2=238 B2=35
+
+parse_hex() { # rrggbb -> PR PG PB; returns 1 if invalid
+  case "$1" in
     [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])
-      R1=$((16#${hex:0:2})); G1=$((16#${hex:2:2})); B1=$((16#${hex:4:2}))
-      R2=$R1; G2=$G1; B2=$B1
-      ;;
-    *)
-      echo "good: GOOD_COLOR inválido ('$GOOD_COLOR') — use 6 dígitos hex, ex: GOOD_COLOR=ff5500" >&2
+      PR=$((16#${1:0:2})); PG=$((16#${1:2:2})); PB=$((16#${1:4:2}))
+      return 0
       ;;
   esac
+  return 1
+}
+
+rgb256() { # r g b -> nearest xterm-256 color-cube index
+  echo $((16 + 36 * (($1 * 5 + 127) / 255) + 6 * (($2 * 5 + 127) / 255) + (($3 * 5 + 127) / 255)))
+}
+
+if [ -n "${GOOD_COLOR:-}" ]; then
+  c1="${GOOD_COLOR%%,*}"; c1="${c1#\#}"
+  c2="${GOOD_COLOR#*,}";  c2="${c2#\#}"
+  if parse_hex "$c1"; then
+    R1=$PR; G1=$PG; B1=$PB
+    if [ "$c2" != "$c1" ] && parse_hex "$c2"; then
+      R2=$PR; G2=$PG; B2=$PB
+    else
+      [ "$c2" != "$c1" ] && echo "good: segunda cor inválida ('$c2') — usando cor sólida" >&2
+      R2=$R1; G2=$G1; B2=$B1
+    fi
+  else
+    echo "good: cor inválida ('$GOOD_COLOR') — use 6 dígitos hex, ex: fbee23 ou fbee23,ff5500" >&2
+  fi
 fi
 
 if [ "$USE_COLOR" -eq 1 ]; then
   if [ "$USE_TRUECOLOR" -eq 1 ]; then
     ACCENT=$(printf '\033[1;38;2;%d;%d;%dm' "$R1" "$G1" "$B1")
   else
-    ACCENT=$'\033[1;38;5;141m'
+    ACCENT=$(printf '\033[1;38;5;%dm' "$(rgb256 "$R1" "$G1" "$B1")")
   fi
 fi
 
@@ -79,8 +131,14 @@ GAP='   '
 
 # ---------- helpers ----------
 INFO=()
+INFO_PLAIN=() # same lines without ANSI codes, used to measure width
+push() { # push "colored line" "plain line"
+  INFO+=("$1")
+  INFO_PLAIN+=("$2")
+}
 add() { # add "Label" "value"
-  INFO+=("$(printf '%s%-8s%s %s' "$ACCENT" "$1:" "$RESET" "$2")")
+  push "$(printf '%s%-8s%s %s' "$ACCENT" "$1:" "$RESET" "$2")" \
+       "$(printf '%-8s %s' "$1:" "$2")"
 }
 
 fmt_uptime() { # $1 = seconds
@@ -106,8 +164,9 @@ USER_NAME="${USER:-$(whoami)}"
 HOST_NAME="$(hostname -s 2>/dev/null || hostname)"
 TITLE_PLAIN="${USER_NAME}@${HOST_NAME}"
 
-INFO+=("${ACCENT}${USER_NAME}${RESET}@${ACCENT}${HOST_NAME}${RESET}")
-INFO+=("$(printf '%*s' "${#TITLE_PLAIN}" '' | tr ' ' '-')")
+TITLE_RULE="$(printf '%*s' "${#TITLE_PLAIN}" '' | tr ' ' '-')"
+push "${ACCENT}${USER_NAME}${RESET}@${ACCENT}${HOST_NAME}${RESET}" "$TITLE_PLAIN"
+push "$TITLE_RULE" "$TITLE_RULE"
 
 if [ "$OS_KERNEL" = "Darwin" ]; then
   # hardware cache: system_profiler is slow, run it once
@@ -208,39 +267,71 @@ if [ "$USE_COLOR" -eq 1 ]; then
     pal1="${pal1}$(printf '\033[3%sm███' "$c")"
     pal2="${pal2}$(printf '\033[9%sm███' "$c")"
   done
-  INFO+=("")
-  INFO+=("${pal1}${RESET}")
-  INFO+=("${pal2}${RESET}")
+  push "" ""
+  push "${pal1}${RESET}" "$(printf '%24s' '')"
+  push "${pal2}${RESET}" "$(printf '%24s' '')"
 fi
 
 # ---------- print ----------
-echo
+TERM_W="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
+
 NLOGO=${#LOGO[@]}
 NINFO=${#INFO[@]}
-ROWS=$NLOGO
-[ "$NINFO" -gt "$ROWS" ] && ROWS=$NINFO
 
-i=0
-while [ "$i" -lt "$ROWS" ]; do
-  if [ "$i" -lt "$NLOGO" ]; then
-    line="${LOGO[$i]}"
-    if [ "$USE_COLOR" -eq 1 ]; then
-      if [ "$USE_TRUECOLOR" -eq 1 ]; then
-        n=$((NLOGO - 1))
-        r=$((R1 + (R2 - R1) * i / n))
-        g=$((G1 + (G2 - G1) * i / n))
-        b=$((B1 + (B2 - B1) * i / n))
-        printf '\033[38;2;%d;%d;%dm%s%s' "$r" "$g" "$b" "$line" "$RESET"
-      else
-        printf '\033[38;5;141m%s%s' "$line" "$RESET"
-      fi
+INFO_MAX=0
+for p in "${INFO_PLAIN[@]}"; do
+  [ "${#p}" -gt "$INFO_MAX" ] && INFO_MAX=${#p}
+done
+
+logo_line() { # $1 = row index; prints the colored logo row, no newline
+  local i=$1 line="${LOGO[$1]}" n r g b
+  if [ "$USE_COLOR" -eq 1 ]; then
+    n=$((NLOGO - 1))
+    r=$((R1 + (R2 - R1) * i / n))
+    g=$((G1 + (G2 - G1) * i / n))
+    b=$((B1 + (B2 - B1) * i / n))
+    if [ "$USE_TRUECOLOR" -eq 1 ]; then
+      printf '\033[38;2;%d;%d;%dm%s%s' "$r" "$g" "$b" "$line" "$RESET"
     else
-      printf '%s' "$line"
+      printf '\033[38;5;%dm%s%s' "$(rgb256 "$r" "$g" "$b")" "$line" "$RESET"
     fi
   else
-    printf '%*s' "$LOGO_W" ''
+    printf '%s' "$line"
   fi
-  printf '%s%s\n' "$GAP" "${INFO[$i]:-}"
-  i=$((i + 1))
-done
+}
+
+echo
+if [ "$TERM_W" -ge $((LOGO_W + ${#GAP} + INFO_MAX)) ]; then
+  # wide: logo and info side by side
+  ROWS=$NLOGO
+  [ "$NINFO" -gt "$ROWS" ] && ROWS=$NINFO
+  i=0
+  while [ "$i" -lt "$ROWS" ]; do
+    if [ "$i" -lt "$NLOGO" ]; then
+      logo_line "$i"
+    else
+      printf '%*s' "$LOGO_W" ''
+    fi
+    printf '%s%s\n' "$GAP" "${INFO[$i]:-}"
+    i=$((i + 1))
+  done
+else
+  # narrow: centered logo on top (if it fits), info below
+  if [ "$TERM_W" -ge "$LOGO_W" ]; then
+    pad=$(((TERM_W - LOGO_W) / 2))
+    i=0
+    while [ "$i" -lt "$NLOGO" ]; do
+      [ "$pad" -gt 0 ] && printf '%*s' "$pad" ''
+      logo_line "$i"
+      printf '\n'
+      i=$((i + 1))
+    done
+    echo
+  fi
+  i=0
+  while [ "$i" -lt "$NINFO" ]; do
+    printf '%s\n' "${INFO[$i]}"
+    i=$((i + 1))
+  done
+fi
 echo

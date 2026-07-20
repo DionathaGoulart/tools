@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# goodharness — biblioteca de styleguides pré-definidos para instalar em projetos
+# (também acessível como `good harness …` via dispatcher do good)
+#
+# usage: goodharness copy <nome> [origem]      salva styleguide de um projeto como predefinição
+#        goodharness install <nome> [destino]  instala predefinição em um projeto (.harness/styleguide.md)
+#        goodharness list                      lista predefinições salvas
+#        goodharness show <nome>               mostra o conteúdo de uma predefinição
+#        goodharness rm <nome>                 remove uma predefinição
+#        goodharness -h | --help
+#
+# origem:  arquivo .md OU diretório de projeto (procura .harness/styleguide.md, styleguide.md)
+#          padrão: diretório atual
+# destino: diretório do projeto — padrão: diretório atual
+#
+# predefinições ficam em styleguides/ ao lado deste script (versionadas no repo tools)
+
+set -u
+
+TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+GUIDES_DIR="${GOODHARNESS_DIR:-$TOOL_DIR/styleguides}"
+
+# ---------- cores ----------
+USE_COLOR=1
+[ -n "${NO_COLOR:-}" ] && USE_COLOR=0
+[ -t 1 ] || USE_COLOR=0
+
+RESET="" BOLD="" DIM="" VERMELHO="" VERDE="" AMARELO=""
+if [ "$USE_COLOR" -eq 1 ]; then
+  RESET=$'\033[0m'
+  BOLD=$'\033[1m'
+  DIM=$'\033[2m'
+  VERMELHO=$'\033[1;31m'
+  VERDE=$'\033[1;32m'
+  AMARELO=$'\033[1;33m'
+fi
+
+# ---------- helpers ----------
+uso() {
+  echo "usage: goodharness copy <nome> [origem]      salva styleguide como predefinição"
+  echo "       goodharness install <nome> [destino]  instala predefinição no projeto"
+  echo "       goodharness list                      lista predefinições"
+  echo "       goodharness show <nome>               mostra predefinição"
+  echo "       goodharness rm <nome>                 remove predefinição"
+  echo
+  echo "origem:  arquivo .md ou diretório de projeto (procura .harness/styleguide.md)"
+  echo "destino: diretório do projeto (instala em <destino>/.harness/styleguide.md)"
+  echo "flags:   --force sobrescreve arquivo existente (copy e install)"
+  echo "alias:   good harness <comando> funciona igual"
+  echo
+  echo "predefinições em: ${GUIDES_DIR/#$HOME/~}"
+}
+
+die() { echo "${VERMELHO}goodharness:${RESET} $*" >&2; exit 2; }
+
+ok()   { echo "${VERDE}✔${RESET} $*"; }
+avisa() { echo "${AMARELO}!${RESET} $*"; }
+
+valida_nome() {
+  case "$1" in
+    *[!a-zA-Z0-9._-]*|"") die "nome inválido: \"$1\" (use letras, números, ponto, hífen, underscore)" ;;
+  esac
+}
+
+guide_path() { echo "$GUIDES_DIR/$1.md"; }
+
+# acha o styleguide dentro de uma origem (arquivo ou diretório de projeto)
+resolve_origem() { # $1 = caminho
+  local o="$1"
+  if [ -f "$o" ]; then
+    echo "$o"; return 0
+  fi
+  if [ -d "$o" ]; then
+    local c
+    for c in "$o/.harness/styleguide.md" "$o/styleguide.md" "$o/.harness/styleguide"*.md; do
+      if [ -f "$c" ]; then echo "$c"; return 0; fi
+    done
+  fi
+  return 1
+}
+
+# ---------- comandos ----------
+cmd_copy() {
+  local force=0 args=()
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --force|-f) force=1 ;;
+      *) args+=("$a") ;;
+    esac
+  done
+  [ "${#args[@]}" -ge 1 ] || die "faltou o nome. usage: goodharness copy <nome> [origem]"
+  local nome="${args[0]}"
+  local origem="${args[1]:-.}"
+  valida_nome "$nome"
+
+  local src
+  src="$(resolve_origem "$origem")" || die "styleguide não encontrado em \"$origem\" (procurei .harness/styleguide.md e styleguide.md)"
+
+  local dest
+  dest="$(guide_path "$nome")"
+  if [ -f "$dest" ] && [ "$force" -eq 0 ]; then
+    die "predefinição \"$nome\" já existe — use --force para sobrescrever"
+  fi
+
+  mkdir -p "$GUIDES_DIR"
+  cp "$src" "$dest"
+  ok "predefinição ${BOLD}$nome${RESET} salva a partir de ${src/#$HOME/~}"
+  echo "  ${DIM}${dest/#$HOME/~}${RESET}"
+}
+
+cmd_install() {
+  local force=0 args=()
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --force|-f) force=1 ;;
+      *) args+=("$a") ;;
+    esac
+  done
+  [ "${#args[@]}" -ge 1 ] || die "faltou o nome. usage: goodharness install <nome> [destino]"
+  local nome="${args[0]}"
+  local destino="${args[1]:-.}"
+
+  local src
+  src="$(guide_path "$nome")"
+  if [ ! -f "$src" ]; then
+    echo "${VERMELHO}goodharness:${RESET} predefinição \"$nome\" não existe" >&2
+    cmd_list >&2
+    exit 2
+  fi
+
+  [ -d "$destino" ] || die "destino não é um diretório: $destino"
+
+  local harness_dir="$destino/.harness"
+  local dest="$harness_dir/styleguide.md"
+  if [ -f "$dest" ] && [ "$force" -eq 0 ]; then
+    die "já existe styleguide em ${dest/#$HOME/~} — use --force para sobrescrever"
+  fi
+
+  mkdir -p "$harness_dir"
+  cp "$src" "$dest"
+  ok "styleguide ${BOLD}$nome${RESET} instalado em ${dest/#$HOME/~}"
+}
+
+cmd_list() {
+  if [ ! -d "$GUIDES_DIR" ] || [ -z "$(ls "$GUIDES_DIR"/*.md 2>/dev/null)" ]; then
+    avisa "nenhuma predefinição salva ainda — crie com: goodharness copy <nome> <origem>"
+    return 0
+  fi
+  echo "${BOLD}predefinições${RESET} ${DIM}(${GUIDES_DIR/#$HOME/~})${RESET}"
+  local f nome linhas
+  for f in "$GUIDES_DIR"/*.md; do
+    nome="$(basename "$f" .md)"
+    linhas="$(wc -l < "$f" | tr -d ' ')"
+    echo "  ${VERDE}●${RESET} ${BOLD}$nome${RESET} ${DIM}(${linhas} linhas)${RESET}"
+  done
+}
+
+cmd_show() {
+  [ $# -ge 1 ] || die "faltou o nome. usage: goodharness show <nome>"
+  local src
+  src="$(guide_path "$1")"
+  [ -f "$src" ] || die "predefinição \"$1\" não existe"
+  cat "$src"
+}
+
+cmd_rm() {
+  [ $# -ge 1 ] || die "faltou o nome. usage: goodharness rm <nome>"
+  local src
+  src="$(guide_path "$1")"
+  [ -f "$src" ] || die "predefinição \"$1\" não existe"
+  printf "remover predefinição \"%s\"? [s/N] " "$1"
+  local resp
+  read -r resp
+  case "$resp" in
+    s|S|sim) rm "$src"; ok "predefinição \"$1\" removida" ;;
+    *) echo "cancelado" ;;
+  esac
+}
+
+# ---------- main ----------
+case "${1:-}" in
+  copy)     shift; cmd_copy "$@" ;;
+  install)  shift; cmd_install "$@" ;;
+  list|ls)  cmd_list ;;
+  show|cat) shift; cmd_show "$@" ;;
+  rm|remove) shift; cmd_rm "$@" ;;
+  -h|--help|help|"") uso ;;
+  *) die "comando desconhecido: $1 (veja goodharness --help)" ;;
+esac

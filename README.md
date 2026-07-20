@@ -7,11 +7,12 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | Ferramenta | Comando | O que faz |
 |---|---|---|
 | **Terminal** | | |
-| [cheats](./cheats) | `cheat` | Cheatsheets de comandos que eu sempre esqueço |
-| [good](./good) | `good` | Fetch de sistema estilo neofetch com logo em ASCII |
+| [goodcheats](./goodcheats) | `good` / `goodcheat` / `goodharness` | Kit de utilidades da família good: fetch de sistema + cheatsheets + styleguides |
+| [pomo](./pomo) | `pomo` | Pomodoro com notificação nativa e estatísticas |
 | **IA** (OpenRouter `:free`) | | |
 | [professor](./professor) | `professor` | Estudo Feynman invertido: te sabatina até você dominar |
 | [biografo](./biografo) | `biografo` | Sua autobiografia, uma pergunta por dia |
+| [vocab](./vocab) | `vocab` | Uma palavra de inglês por dia, com revisão espaçada |
 | [zapstats](./zapstats) | `zapstats` | Retrô de uma conversa exportada do WhatsApp |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
@@ -21,10 +22,11 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 Cada ferramenta tem um `setup.sh` que a adiciona ao `PATH`. Rode uma vez a(s) que quiser:
 
 ```bash
-bash ~/Desktop/tools/cheats/setup.sh
-bash ~/Desktop/tools/good/setup.sh
+bash ~/Desktop/tools/goodcheats/setup.sh
+bash ~/Desktop/tools/pomo/setup.sh
 bash ~/Desktop/tools/professor/setup.sh
 bash ~/Desktop/tools/biografo/setup.sh
+bash ~/Desktop/tools/vocab/setup.sh
 bash ~/Desktop/tools/zapstats/setup.sh
 ```
 
@@ -48,22 +50,33 @@ cp ~/Desktop/tools/professor/.env.example ~/Desktop/tools/professor/.env
 
 ## Terminal
 
-### [cheats](./cheats)
-Cheatsheets de comandos que eu sempre esqueço. Mais rápido que abrir o Google.
+### [goodcheats](./goodcheats)
+Kit de utilidades da família good — uma pasta, um `setup.sh`, vários comandos com prefixo `good` (todos também acessíveis como subcomando: `good cheat …`, `good harness …`):
+
+- **`good`** — fetch de sistema estilo neofetch, com o logo good em ASCII art colorido. Mostra OS, kernel, uptime, CPU, GPU, memória, disco, pacotes e bateria.
+- **`goodcheat`** — cheatsheets de comandos que eu sempre esqueço. Mais rápido que abrir o Google.
+- **`goodharness`** — biblioteca de styleguides: copia o styleguide de um projeto como predefinição e instala em outro (`.harness/styleguide.md`).
 
 ```bash
-cheat tar          # ver colinha
-cheat -l           # listar todas
-cheat -s porta     # buscar termo dentro de todas
-cheat -e docker    # editar ou criar nova
+good               # logo + infos do sistema
+good -c fbee23     # logo em outra cor (ou gradiente: fbee23,ff5500)
+goodcheat tar      # ver colinha (= good cheat tar)
+goodcheat -l       # listar todas
+goodcheat -s porta # buscar termo dentro de todas
+goodcheat -e docker # editar ou criar nova
+good harness list                       # predefinições de styleguide salvas
+good harness copy meu-tema ~/meu/site   # salva styleguide do projeto
+good harness install meu-tema .         # instala no projeto atual
 ```
 
-### [good](./good)
-Fetch de sistema estilo neofetch, com o logo good em ASCII art colorido. Mostra OS, kernel, uptime, CPU, GPU, memória, disco, pacotes e bateria.
+### [pomo](./pomo)
+Pomodoro no terminal: barra de progresso ASCII, notificação nativa (com som no macOS) quando o tempo acaba, estatísticas dos últimos dias. `p` pausa, `q` aborta; a cada 4 focos ele sugere a pausa longa.
 
 ```bash
-good            # logo + infos do sistema
-good --refresh  # refaz o cache de hardware
+pomo               # foco de 25 min
+pomo 50 estudar    # foco de 50 min com rótulo
+pomo pausa         # pausa de 5 min
+pomo -l            # hoje + últimos 14 dias
 ```
 
 ---
@@ -88,6 +101,15 @@ Sua autobiografia, uma pergunta por dia. Responde offline; depois de algumas dez
 biografo           # a pergunta de hoje
 biografo capitulo  # gera a biografia
 biografo -l        # histórico
+```
+
+### [vocab](./vocab)
+Uma palavra de inglês por dia, com revisão espaçada (caixas de Leitner). O quiz mostra o significado e a frase com lacuna; você digita a palavra. Revisar é offline — o modelo só gera lotes de palavras novas (~1 request a cada 20 dias).
+
+```bash
+vocab              # revisão do dia + palavra nova
+vocab -q           # só a revisão
+vocab -l           # baralho e status
 ```
 
 ### [zapstats](./zapstats)
@@ -131,21 +153,28 @@ Comparação completa e regra de escolha em [goodpen/README.md](./goodpen/README
 
 ```
 tools/
-  cheats/            ← cheatsheets de comandos
-    cheat              ← o CLI
-    setup.sh           ← adiciona ao PATH
+  goodcheats/        ← kit de utilidades da família good
+    setup.sh           ← adiciona ao PATH (instala todos os comandos)
+    good               ← fetch de sistema com logo (+ dispatcher good <sub>)
+    logo.svg           ← o logo original
+    goodcheat          ← cheatsheets de comandos
     sheets/            ← as colinhas (uma por arquivo)
     compose/           ← docker compose files prontos
-  good/              ← fetch de sistema com logo
-    good               ← o CLI
+    goodharness        ← biblioteca de styleguides
+    styleguides/       ← predefinições de styleguide (uma por .md)
+  pomo/              ← pomodoro no terminal
+    pomo               ← o CLI
     setup.sh           ← adiciona ao PATH
-    logo.svg           ← o logo original
   professor/         ← estudo Feynman invertido (OpenRouter :free)
     professor          ← o CLI
     setup.sh           ← adiciona ao PATH
     .env.example       ← modelo de config local
   biografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
     biografo           ← o CLI
+    setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
+    .env.example       ← modelo de config local
+  vocab/             ← inglês diário com revisão espaçada (OpenRouter :free)
+    vocab              ← o CLI
     setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
     .env.example       ← modelo de config local
   zapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
