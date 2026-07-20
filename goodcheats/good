@@ -2,6 +2,7 @@
 # good — system info at a glance, with the good logo (macOS / Linux)
 #
 # usage: good            show logo + system info
+#        good temas      list the available retro palettes
 #        good --refresh  rebuild the hardware cache (model, GPU, resolution)
 #        good <sub> …    run a family command (good cheat → goodcheat, good harness → goodharness)
 #        good -h | --help
@@ -27,48 +28,77 @@ if [ "$#" -gt 0 ]; then
   esac
 fi
 
+# ---------- tema retro (lib compartilhada) ----------
+TEMA="${GOOD_TEMA:-${RETRO_TEMA:-vault-gold}}"
+RETRO_LIB="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../lib" 2>/dev/null && pwd)/retro.sh"
+if [ -f "$RETRO_LIB" ]; then
+  . "$RETRO_LIB"
+  retro_init 52
+else
+  # degradação: sem a lib, tudo sai em texto puro
+  RESET="" BOLD="" DIM="" ACC="" ACC70="" ACC50="" ACC30="" ACC15=""
+  FG="" FG70="" FG40="" INV="" OK="" ALERTA=""
+  TRUECOLOR=0 USE_COLOR=0 DESENHA=0 COLS=80 HEX_ACC="fbee23"
+  [ -t 1 ] && DESENHA=1
+  retro_upper()   { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+  retro_repetir() { local n=$2 s=""; while [ "$n" -gt 0 ]; do s="$s$1"; n=$((n - 1)); done; printf '%s' "$s"; }
+  retro_modulo()  { printf '\n  [ MODULE: %s ]%s\n\n' "$(retro_upper "$1")" "${2:+  $(retro_upper "$2")}"; }
+  retro_secao()   { printf '  # %s\n' "$(retro_upper "$1")"; }
+  retro_kv()      { printf '  %-26s %s\n' "$1" "$2"; }
+  retro_ok()      { printf '  [ OK ] %s\n' "$(retro_upper "$1")"; }
+  retro_erro()    { printf '  [ ERRO ] %s\n' "$1"; }
+  retro_aviso()   { printf '  [ %s ] %s\n' "$(retro_upper "$1")" "${2:-}"; }
+  retro_proximo() { printf '  > %s  %s\n' "${2:-proximo passo:}" "$1"; }
+  retro_catalogo_temas() { printf '\n  [ MODULE: THEME_CATALOG ]\n\n  lib/retro.sh nao encontrada.\n\n'; }
+fi
+
+uso() {
+  retro_modulo "good_help"
+  retro_kv "good" "LOGO + INFOS"
+  retro_kv "good <sub> …" "COMANDO DA FAMILIA"
+  retro_kv "good temas" "PALETAS"
+  retro_kv "good --refresh" "REFAZ CACHE DE HARDWARE"
+  retro_kv "good -c HEX[,HEX]" "COR DO LOGO"
+  echo
+  retro_secao "familia"
+  retro_kv "good cheat <topico>" "GOODCHEAT"
+  retro_kv "good harness list" "GOODHARNESS"
+  echo
+  retro_secao "env"
+  retro_kv "GOOD_COLOR" "HEX OU HEX,HEX (GRADIENTE)"
+  retro_kv "GOOD_TEMA" "$(retro_upper "$TEMA")"
+  retro_kv "NO_COLOR" "DESLIGA AS CORES"
+  echo
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -h|--help)
-      echo "usage: good [--refresh] [-c HEX[,HEX]]"
-      echo "       good <sub> …   family command (ex: good cheat tar, good harness list)"
-      echo "  --refresh          rebuild the hardware cache (model, GPU, resolution)"
-      echo "  -c, --color HEX    logo color (6-digit hex); HEX,HEX for a gradient"
-      echo "                     also via env: GOOD_COLOR=fbee23"
-      exit 0
-      ;;
+    -h|--help) uso; exit 0 ;;
+    temas|tema) retro_catalogo_temas GOOD_TEMA; exit 0 ;;
     --refresh) rm -f "$CACHE_FILE" ;;
     -c|--color)
-      [ "$#" -ge 2 ] || { echo "good: $1 requer um valor hex (ex: -c fbee23)" >&2; exit 2; }
+      [ "$#" -ge 2 ] || { retro_erro "$1 requer um valor hex (ex: -c fbee23)" >&2; exit 2; }
       GOOD_COLOR="$2"
       shift
       ;;
     --color=*) GOOD_COLOR="${1#*=}" ;;
     *)
-      echo "good: opção desconhecida '$1' (veja good -h)" >&2
+      retro_erro "opcao desconhecida '$1' (veja good -h)" >&2
       exit 2
       ;;
   esac
   shift
 done
 
-# ---------- colors ----------
-USE_COLOR=1
-USE_TRUECOLOR=0
-[ -n "${NO_COLOR:-}" ] && USE_COLOR=0
-[ -t 1 ] || USE_COLOR=0
-case "${COLORTERM:-}" in *truecolor*|*24bit*) USE_TRUECOLOR=1 ;; esac
+# ---------- cores do logo ----------
+# tokens (ACC, FG40, …) vêm da lib; aqui só a cor do logo, que tem flag própria.
+USE_TRUECOLOR="${TRUECOLOR:-0}"
 
-RESET="" BOLD="" ACCENT=""
-if [ "$USE_COLOR" -eq 1 ]; then
-  RESET=$'\033[0m'
-  BOLD=$'\033[1m'
-fi
-
-# default color: good yellow (#fbee23)
-# override with GOOD_COLOR=rrggbb (solid) or rrggbb,rrggbb (gradient), or -c/--color
-R1=251 G1=238 B1=35
-R2=251 G2=238 B2=35
+# padrão: o accent do tema atual — override com GOOD_COLOR=rrggbb (sólido)
+# ou rrggbb,rrggbb (gradiente), ou -c/--color
+HEX_ACC="${HEX_ACC:-fbee23}"
+R1=$((16#${HEX_ACC:0:2})); G1=$((16#${HEX_ACC:2:2})); B1=$((16#${HEX_ACC:4:2}))
+R2=$R1; G2=$G1; B2=$B1
 
 parse_hex() { # rrggbb -> PR PG PB; returns 1 if invalid
   case "$1" in
@@ -92,19 +122,11 @@ if [ -n "${GOOD_COLOR:-}" ]; then
     if [ "$c2" != "$c1" ] && parse_hex "$c2"; then
       R2=$PR; G2=$PG; B2=$PB
     else
-      [ "$c2" != "$c1" ] && echo "good: segunda cor inválida ('$c2') — usando cor sólida" >&2
+      [ "$c2" != "$c1" ] && retro_erro "segunda cor invalida ('$c2') — usando cor solida" >&2
       R2=$R1; G2=$G1; B2=$B1
     fi
   else
-    echo "good: cor inválida ('$GOOD_COLOR') — use 6 dígitos hex, ex: fbee23 ou fbee23,ff5500" >&2
-  fi
-fi
-
-if [ "$USE_COLOR" -eq 1 ]; then
-  if [ "$USE_TRUECOLOR" -eq 1 ]; then
-    ACCENT=$(printf '\033[1;38;2;%d;%d;%dm' "$R1" "$G1" "$B1")
-  else
-    ACCENT=$(printf '\033[1;38;5;%dm' "$(rgb256 "$R1" "$G1" "$B1")")
+    retro_erro "cor invalida ('$GOOD_COLOR') — use 6 digitos hex, ex: fbee23 ou fbee23,ff5500" >&2
   fi
 fi
 
@@ -130,15 +152,32 @@ LOGO_W=36
 GAP='   '
 
 # ---------- helpers ----------
-INFO=()
-INFO_PLAIN=() # same lines without ANSI codes, used to measure width
-push() { # push "colored line" "plain line"
-  INFO+=("$1")
-  INFO_PLAIN+=("$2")
-}
+# as linhas viram key-value rows do style guide (chave dim, dot leader, valor accent-bold).
+# a coleta é em duas etapas: primeiro chave/valor, depois a renderização com o leader medido.
+KEYS=()
+VALS=()
+INFO=()      # linhas já coloridas
+INFO_W=()    # largura visível de cada linha (pra medir o layout lado a lado)
+
 add() { # add "Label" "value"
-  push "$(printf '%s%-8s%s %s' "$ACCENT" "$1:" "$RESET" "$2")" \
-       "$(printf '%-8s %s' "$1:" "$2")"
+  KEYS+=("$(retro_upper "$1")")
+  VALS+=("$2")
+}
+
+push() { # push "colored line" "visible width"
+  INFO+=("$1")
+  INFO_W+=("$2")
+}
+
+kv_row() { # $1 chave  $2 valor  $3 largura do leader
+  local k=$1 v=$2 pontos n
+  n=$(($3 - ${#k} - ${#v}))
+  [ "$n" -lt 2 ] && n=2
+  pontos="$(retro_repetir '·' "$n")"
+  push "$(printf '%s%s%s %s%s%s %s%s%s%s' \
+            "$FG40" "$k" "$RESET" "$ACC15" "$pontos" "$RESET" \
+            "$ACC" "$BOLD" "$v" "$RESET")" \
+       $((${#k} + 1 + n + 1 + ${#v}))
 }
 
 fmt_uptime() { # $1 = seconds
@@ -163,10 +202,6 @@ OS_KERNEL="$(uname -s)"
 USER_NAME="${USER:-$(whoami)}"
 HOST_NAME="$(hostname -s 2>/dev/null || hostname)"
 TITLE_PLAIN="${USER_NAME}@${HOST_NAME}"
-
-TITLE_RULE="$(printf '%*s' "${#TITLE_PLAIN}" '' | tr ' ' '-')"
-push "${ACCENT}${USER_NAME}${RESET}@${ACCENT}${HOST_NAME}${RESET}" "$TITLE_PLAIN"
-push "$TITLE_RULE" "$TITLE_RULE"
 
 if [ "$OS_KERNEL" = "Darwin" ]; then
   # hardware cache: system_profiler is slow, run it once
@@ -260,16 +295,30 @@ else
   done
 fi
 
-# palette strip
-if [ "$USE_COLOR" -eq 1 ]; then
-  pal1="" pal2=""
-  for c in 0 1 2 3 4 5 6 7; do
-    pal1="${pal1}$(printf '\033[3%sm███' "$c")"
-    pal2="${pal2}$(printf '\033[9%sm███' "$c")"
-  done
-  push "" ""
-  push "${pal1}${RESET}" "$(printf '%24s' '')"
-  push "${pal2}${RESET}" "$(printf '%24s' '')"
+# ---------- render das linhas ----------
+# leader: o suficiente pra todas as linhas alinharem o valor à direita
+LEAD=0
+i=0
+while [ "$i" -lt "${#KEYS[@]}" ]; do
+  n=$(( ${#KEYS[$i]} + ${#VALS[$i]} ))
+  [ "$n" -gt "$LEAD" ] && LEAD=$n
+  i=$((i + 1))
+done
+LEAD=$((LEAD + 3))
+
+i=0
+while [ "$i" -lt "${#KEYS[@]}" ]; do
+  kv_row "${KEYS[$i]}" "${VALS[$i]}" "$LEAD"
+  i=$((i + 1))
+done
+
+# faixa de accent (rampa 15 → 100%), sem cores novas
+if [ "${USE_COLOR:-0}" -eq 1 ]; then
+  bloco="$(retro_repetir '█' 4)"
+  push "" 0
+  push "$(printf '%s%s%s%s%s%s%s%s%s%s%s' \
+            "$ACC15" "$bloco" "$ACC30" "$bloco" "$ACC50" "$bloco" \
+            "$ACC70" "$bloco" "$ACC" "$bloco" "$RESET")" 20
 fi
 
 # ---------- print ----------
@@ -279,8 +328,8 @@ NLOGO=${#LOGO[@]}
 NINFO=${#INFO[@]}
 
 INFO_MAX=0
-for p in "${INFO_PLAIN[@]}"; do
-  [ "${#p}" -gt "$INFO_MAX" ] && INFO_MAX=${#p}
+for w in "${INFO_W[@]}"; do
+  [ "$w" -gt "$INFO_MAX" ] && INFO_MAX=$w
 done
 
 logo_line() { # $1 = row index; prints the colored logo row, no newline
@@ -300,7 +349,7 @@ logo_line() { # $1 = row index; prints the colored logo row, no newline
   fi
 }
 
-echo
+retro_modulo "system_info" "$TITLE_PLAIN"
 if [ "$TERM_W" -ge $((LOGO_W + ${#GAP} + INFO_MAX)) ]; then
   # wide: logo and info side by side
   ROWS=$NLOGO
@@ -330,7 +379,7 @@ else
   fi
   i=0
   while [ "$i" -lt "$NINFO" ]; do
-    printf '%s\n' "${INFO[$i]}"
+    printf '  %s\n' "${INFO[$i]}"
     i=$((i + 1))
   done
 fi

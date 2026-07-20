@@ -1,20 +1,62 @@
 #!/usr/bin/env bash
 # goodcheat — quick reference sheets (macOS / Linux / Windows via Git Bash)
+#
+# usage: goodcheat <topico>     ver colinha
+#        goodcheat -e <topico>  editar/criar colinha
+#        goodcheat -l           listar colinhas
+#        goodcheat -s <termo>   buscar dentro de todas as colinhas
+#        goodcheat -h | --help
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 SHEET_DIR="$SCRIPT_DIR/sheets"
 
-usage() {
-  echo "usage: goodcheat <topic>     — view sheet"
-  echo "       goodcheat -e <topic>  — edit/create sheet"
-  echo "       goodcheat -l          — list sheets"
-  echo "       goodcheat -s <term>   — search inside all sheets"
+# ---------- tema retro (lib compartilhada) ----------
+TEMA="${GOOD_TEMA:-${RETRO_TEMA:-vault-gold}}"
+RETRO_LIB="$(cd "$SCRIPT_DIR/../lib" 2>/dev/null && pwd)/retro.sh"
+if [ -f "$RETRO_LIB" ]; then
+  . "$RETRO_LIB"
+  retro_init 52
+else
+  # degradação: sem a lib, tudo sai em texto puro
+  RESET="" BOLD="" DIM="" ACC="" ACC70="" ACC50="" ACC30="" ACC15=""
+  FG="" FG70="" FG40="" INV="" OK="" ALERTA=""
+  TRUECOLOR=0 USE_COLOR=0 COLS=80
+  retro_upper()   { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+  retro_repetir() { local n=$2 s=""; while [ "$n" -gt 0 ]; do s="$s$1"; n=$((n - 1)); done; printf '%s' "$s"; }
+  retro_modulo()  { printf '\n  [ MODULE: %s ]%s\n\n' "$(retro_upper "$1")" "${2:+  $(retro_upper "$2")}"; }
+  retro_secao()   { printf '  # %s\n' "$(retro_upper "$1")"; }
+  retro_kv()      { printf '  %-22s %s\n' "$1" "$2"; }
+  retro_ok()      { printf '  [ OK ] %s\n' "$(retro_upper "$1")"; }
+  retro_erro()    { printf '  [ ERRO ] %s\n' "$1"; }
+  retro_aviso()   { printf '  [ %s ] %s\n' "$(retro_upper "$1")" "${2:-}"; }
+  retro_proximo() { printf '  > %s  %s\n' "${2:-proximo passo:}" "$1"; }
+fi
+
+# ---------- helpers ----------
+uso() {
+  retro_modulo "goodcheat_help"
+  retro_kv "goodcheat <topico>" "VER COLINHA"
+  retro_kv "goodcheat -e <topico>" "EDITAR / CRIAR"
+  retro_kv "goodcheat -l" "LISTAR"
+  retro_kv "goodcheat -s <termo>" "BUSCAR"
+  echo
+  retro_secao "env"
+  retro_kv "GOOD_TEMA" "$(retro_upper "$TEMA")"
+  retro_kv "EDITOR / NO_COLOR" "EDITOR / OFF"
+  echo
+  printf '  %sSHEETS: %s%s\n\n' "$ACC15" "${SHEET_DIR/#$HOME/~}" "$RESET"
 }
 
 valid_topic() {
   case "$1" in
-    */*|.*|'') echo "invalid topic name: '$1' (no slashes, no leading dot)"; return 1 ;;
+    */*|.*|'')
+      retro_erro "topico invalido: \"$1\" (sem barras, sem ponto inicial)"
+      return 1
+      ;;
   esac
+  return 0
 }
 
 pick_editor() {
@@ -27,70 +69,171 @@ pick_editor() {
   fi
 }
 
+descricao() { # $1 = arquivo → primeira linha se for comentário
+  local d
+  d="$(head -1 "$1" 2>/dev/null)"
+  case "$d" in
+    '#'*) printf '%s' "$(printf '%s' "$d" | sed 's/^# *//')" ;;
+    *)    printf '' ;;
+  esac
+}
+
+sem_colinhas() {
+  retro_modulo "cheat_sheets"
+  retro_aviso "vazio" "nenhuma colinha ainda."
+  retro_proximo "goodcheat -e <topico>" "crie a primeira:"
+  echo
+}
+
+# linha de item: · NOME   descrição
+item_colinha() { # $1 nome  $2 largura do nome  $3 descrição
+  printf '  %s·%s %s%s%-*s%s  %s%s%s\n' \
+    "$ACC" "$RESET" "$ACC" "$BOLD" "$2" "$(retro_upper "$1")" "$RESET" \
+    "$FG70" "$3" "$RESET"
+}
+
+# ---------- comandos ----------
 list() {
   if [ ! -d "$SHEET_DIR" ] || [ -z "$(ls -A "$SHEET_DIR" 2>/dev/null)" ]; then
-    echo "(no sheets yet — create one with: goodcheat -e <topic>)"
-    return
+    sem_colinhas
+    return 0
   fi
+
+  local f nomes=() descs=() larg=0 n
   for f in "$SHEET_DIR"/*; do
     [ -f "$f" ] || continue
-    desc="$(head -1 "$f")"
-    case "$desc" in
-      '#'*) desc="$(echo "$desc" | sed 's/^# *//')" ;;
-      *)    desc="" ;;
-    esac
-    printf "%-18s %s\n" "$(basename "$f")" "$desc"
+    n="$(basename "$f")"
+    nomes+=("$n")
+    descs+=("$(descricao "$f")")
+    [ "${#n}" -gt "$larg" ] && larg=${#n}
+  done
+
+  if [ "${#nomes[@]}" -eq 0 ]; then
+    sem_colinhas
+    return 0
+  fi
+
+  retro_modulo "cheat_sheets" "${#nomes[@]} colinha(s)"
+  local i=0
+  while [ "$i" -lt "${#nomes[@]}" ]; do
+    item_colinha "${nomes[$i]}" "$larg" "${descs[$i]}"
+    i=$((i + 1))
+  done
+  echo
+  retro_proximo "goodcheat <topico>" "abrir:"
+  echo
+}
+
+# lista só os nomes, indentada — usada como fallback do show
+lista_nomes() {
+  local f
+  for f in "$SHEET_DIR"/*; do
+    [ -f "$f" ] || continue
+    printf '  %s·%s %s%s%s%s\n' "$ACC30" "$RESET" "$ACC" "$BOLD" "$(retro_upper "$(basename "$f")")" "$RESET"
   done
 }
 
 search() {
-  if [ -z "${1:-}" ]; then
-    echo "usage: goodcheat -s <term>"
+  local termo="${1:-}"
+  if [ -z "$termo" ]; then
+    retro_modulo "search"
+    retro_erro "faltou o termo. uso: goodcheat -s <termo>"
+    echo
     return 1
   fi
-  matches="$(grep -RIni -- "$1" "$SHEET_DIR" 2>/dev/null)"
+
+  local matches
+  matches="$(grep -RIni -- "$termo" "$SHEET_DIR" 2>/dev/null | sed "s|^$SHEET_DIR/||")"
+
+  retro_modulo "search" "termo: $termo"
   if [ -z "$matches" ]; then
-    echo "no matches for '$1'"
+    retro_aviso "vazio" "nenhuma ocorrencia de \"$termo\"."
+    retro_proximo "goodcheat -l" "veja o que existe:"
+    echo
     return 1
   fi
-  echo "$matches" | sed "s|^$SHEET_DIR/||"
+
+  # escapa metacaracteres pro sed do realce
+  local esc
+  esc="$(printf '%s' "$termo" | sed 's/[][\.^$*+?(){}|\/\\-]/\\&/g')"
+
+  local atual="" arquivo linha texto total=0
+  while IFS=: read -r arquivo linha texto; do
+    [ -n "${arquivo:-}" ] || continue
+    if [ "$arquivo" != "$atual" ]; then
+      [ -n "$atual" ] && echo
+      retro_secao "$arquivo"
+      atual="$arquivo"
+    fi
+    if [ -n "$ACC" ]; then
+      texto="$(printf '%s' "$texto" | sed -E "s/($esc)/${ACC}${BOLD}&${RESET}${FG70}/Ig" 2>/dev/null || printf '%s' "$texto")"
+    fi
+    printf '  %s%4s%s  %s%s%s\n' "$ACC30" "$linha" "$RESET" "$FG70" "$texto" "$RESET"
+    total=$((total + 1))
+  done <<EOF
+$matches
+EOF
+
+  echo
+  retro_kv "OCORRENCIAS" "$total"
+  echo
+  return 0
 }
 
 show() {
   valid_topic "$1" || return 1
   if [ -f "$SHEET_DIR/$1" ]; then
+    # cabeçalho só quando é um terminal — mantém a colinha redirecionável
+    [ "${DESENHA:-0}" -eq 1 ] && retro_modulo "cheat_sheet" "src: $1"
     if command -v bat >/dev/null 2>&1; then
       bat --style=plain --paging=never "$SHEET_DIR/$1"
     else
       cat "$SHEET_DIR/$1"
     fi
-  else
-    echo "cheat sheet '$1' not found"
-    matches="$(ls "$SHEET_DIR" 2>/dev/null | grep -i -- "$1")"
-    if [ -n "$matches" ]; then
-      echo "did you mean:"
-      echo "$matches" | sed 's/^/  /'
-    else
-      echo "available:"
-      list | sed 's/^/  /'
-    fi
-    return 1
+    return 0
   fi
+
+  retro_modulo "cheat_sheet" "src: $1"
+  retro_erro "colinha \"$1\" nao encontrada."
+  echo
+  local matches
+  matches="$(ls "$SHEET_DIR" 2>/dev/null | grep -i -- "$1")"
+  if [ -n "$matches" ]; then
+    retro_secao "voce quis dizer"
+    local m
+    while IFS= read -r m; do
+      [ -n "$m" ] || continue
+      printf '  %s·%s %s%s%s%s\n' "$ACC30" "$RESET" "$ACC" "$BOLD" "$(retro_upper "$m")" "$RESET"
+    done <<EOF
+$matches
+EOF
+  else
+    retro_secao "disponiveis"
+    lista_nomes
+  fi
+  echo
+  retro_proximo "goodcheat -l" "listar tudo:"
+  echo
+  return 1
 }
 
 edit() {
-  if [ -z "${1:-}" ]; then
-    echo "usage: goodcheat -e <topic>"
+  local topico="${1:-}"
+  if [ -z "$topico" ]; then
+    retro_modulo "cheat_editor"
+    retro_erro "faltou o topico. uso: goodcheat -e <topico>"
+    echo
     return 1
   fi
-  valid_topic "$1" || return 1
+  valid_topic "$topico" || return 1
   mkdir -p "$SHEET_DIR"
-  "$(pick_editor)" "$SHEET_DIR/$1"
+  "$(pick_editor)" "$SHEET_DIR/$topico"
 }
 
+# ---------- main ----------
 case "${1:-}" in
-  "")                    usage ;;
-  -h|--help|help)        usage ;;
+  "")                    uso ;;
+  -h|--help|help)        uso ;;
   -l|--list|list)        list ;;
   -e|--edit|edit)        shift; edit "${1:-}" ;;
   -s|--search|search)    shift; search "${1:-}" ;;
