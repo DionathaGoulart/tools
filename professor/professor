@@ -16,11 +16,16 @@ import json
 import os
 import re
 import sys
+import textwrap
 import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro
+
 
 def carregar_dotenv():
     """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
@@ -41,6 +46,8 @@ def carregar_dotenv():
 
 
 carregar_dotenv()
+
+ui = Retro(env_prefix="PROFESSOR")
 
 BASE_DIR = Path(os.environ.get("PROFESSOR_DIR", Path.home() / ".professor"))
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -96,9 +103,11 @@ def chamar_llm(messages, max_tokens=1500):
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         die(
-            "OPENROUTER_API_KEY não definida.\n"
-            "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
-            '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
+            "OPENROUTER_API_KEY nao definida.",
+            [
+                "crie uma chave gratis em https://openrouter.ai/keys",
+                'exporte no seu rc:  export OPENROUTER_API_KEY="sk-or-..."',
+            ],
         )
     erros = []
     for model in modelos_configurados():
@@ -132,9 +141,9 @@ def chamar_llm(messages, max_tokens=1500):
             erros.append(f"{model}: HTTP {e.code}")
         except Exception as e:  # rede, timeout, JSON…
             erros.append(f"{model}: {type(e).__name__}: {e}")
-    die("Todos os modelos falharam:\n  " + "\n  ".join(erros)
-        + "\n\nDica: `professor -m` lista os modelos :free disponíveis agora; "
-        "defina OPENROUTER_MODEL pra trocar.")
+    die("todos os modelos falharam.",
+        erros + ["`professor -m` lista os modelos :free no ar",
+                 "defina OPENROUTER_MODEL pra trocar"])
 
 
 def listar_modelos_free():
@@ -142,19 +151,36 @@ def listar_modelos_free():
         with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        die(f"Não consegui consultar {MODELS_URL}: {e}")
+        die(f"nao consegui consultar {MODELS_URL}: {e}")
     livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
-    print(f"{len(livres)} modelos :free disponíveis agora:\n")
+    ui.modulo("free_models", "src: openrouter")
+    if not livres:
+        ui.aviso("vazio", "nenhum modelo :free no ar agora.")
+        print()
+        return
+    ui.kv("DISPONIVEIS", f"{len(livres)} MODELO(S)")
+    print()
+    ui.secao("catalogo")
     for m in livres:
-        print(f"  {m}")
-    print("\nPra usar outros:  export OPENROUTER_MODEL=\"modelo1,modelo2\"")
+        ui.item("►", m)
+    print()
+    ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra usar outros:")
+    print()
 
 
 # ---------------------------------------------------------------- util
 
-def die(msg):
-    print(f"professor: {msg}", file=sys.stderr)
+def die(msg, dicas=()):
+    print(f"\n  {ui.ALERTA}[ ERRO ]{ui.RESET} {msg}", file=sys.stderr)
+    for dica in dicas:
+        print(f"  {ui.ACC30}>{ui.RESET} {dica}", file=sys.stderr)
+    print(file=sys.stderr)
     sys.exit(1)
+
+
+def envolver(texto, largura=None):
+    """Quebra prosa na largura util da janela."""
+    return textwrap.wrap(texto, width=largura or max(20, ui.cf)) or [""]
 
 
 def slugify(texto):
@@ -178,8 +204,11 @@ def ler_multilinha():
 
 
 def imprimir_professor(texto):
-    print("\n\033[1;36m🧑‍🏫 professor\033[0m")
-    print(texto)
+    print()
+    ui.secao("professor")
+    print()
+    for linha in texto.splitlines():
+        print(f"  {ui.FG70}{linha}{ui.RESET}" if linha.strip() else "")
     print()
 
 
@@ -240,17 +269,31 @@ def rodar_sessao(topico, revisao=False):
         if veredito:
             contexto += f"\n\nÚltima avaliação:\n{veredito}"
         messages.append({"role": "user", "content": contexto})
-        print(f"\n📝 Revisão de \033[1m{topico}\033[0m — preparando perguntas…")
+        ui.modulo("review_session", f"topic: {slug}")
+        ui.kv("ASSUNTO", topico.upper())
+        ui.kv("MODO", "REVISAO")
+        ui.kv("VEREDITO ANTERIOR", "SIM" if veredito else "NAO")
+        print()
+        ui.aviso("preparando", "montando as perguntas…")
     else:
-        print(f"\n📝 Sessão sobre \033[1m{topico}\033[0m")
-        print("Explica com tuas palavras, como se ensinasse alguém.")
-        print("(termina com uma linha contendo só \".\" ou Ctrl-D)\n")
+        ui.modulo("feynman_session", f"topic: {slug}")
+        ui.janela(
+            "root@professor: ~/study",
+            [f"ASSUNTO: {topico.upper()}", ""]
+            + envolver("Explica com tuas palavras, como se ensinasse alguem que nunca ouviu falar disso."),
+            meta="MODO: FEYNMAN",
+            rodape="[.] OU [CTRL-D] ENCERRA",
+        )
+        print()
+        ui.item(">", "manda tua explicacao abaixo.")
+        print()
         explicacao = ler_multilinha()
         if not explicacao:
-            die("explicação vazia — sessão cancelada.")
+            die("explicacao vazia — sessao cancelada.")
         messages.append({"role": "user",
                          "content": f"Assunto: {topico}\n\nMinha explicação:\n{explicacao}"})
-        print("\n⏳ analisando…")
+        print()
+        ui.aviso("analisando", "…")
 
     model_usado = None
     while True:
@@ -262,32 +305,54 @@ def rodar_sessao(topico, revisao=False):
         if VEREDITO_MARK in resposta:
             break
 
-        print("(responde; \".\" numa linha só encerra a resposta; \"/fim\" pede o veredito)")
+        ui.item(">", 'responde abaixo · "." encerra · "/fim" pede o veredito')
+        print()
         entrada = ler_multilinha()
         if entrada.strip().lower() == "/fim":
             messages.append({"role": "user",
                              "content": "Encerra agora e dá o veredito final no formato combinado."})
         elif not entrada:
-            print("Resposta vazia = \"não sei\". Mandando assim.")
+            ui.aviso("vazio", 'resposta vazia conta como "nao sei". mandando assim.')
             messages.append({"role": "user", "content": "Não sei responder."})
         else:
             messages.append({"role": "user", "content": entrada})
-        print("\n⏳ …")
+        print()
+        ui.aviso("processando", "…")
 
-    print(f"💾 sessão salva em {caminho}")
-    print(f"   (modelo: {model_usado})")
+    print()
+    ui.ok("sessao salva")
+    ui.kv("ARQUIVO", str(caminho))
+    ui.kv("MODELO", model_usado)
+    print()
+    ui.proximo(f'professor -r "{topico}"', "revisar depois:")
+    print()
 
 
 def cmd_listar():
     tops = topicos_estudados()
+    ui.modulo("study_log", "src: sessoes/")
     if not tops:
-        print("Nenhum tópico estudado ainda. Começa com:  professor \"<assunto>\"")
+        ui.aviso("vazio", "nenhum topico estudado ainda.")
+        print()
+        ui.proximo('professor "<assunto>"')
+        print()
         return
-    print(f"{'tópico':<30} {'sessões':>7}  última")
+    total = sum(n for _, _, n, _ in tops)
+    ui.kv("TOPICOS", f"{len(tops)}")
+    ui.kv("SESSOES", f"{total}")
+    ui.kv("DIR", str(BASE_DIR))
+    print()
+    ui.secao("sessoes por topico")
     for slug, titulo, n, data in tops:
-        if len(titulo) > 30:
-            titulo = titulo[:29] + "…"
-        print(f"{titulo:<30} {n:>7}  {data}")
+        if len(titulo) > 24:
+            titulo = titulo[:23] + "…"
+        print(
+            f"  {ui.ACC}►{ui.RESET} {ui.FG70}{titulo:<24}{ui.RESET} "
+            f"{ui.barra(n, total, 10)}  {ui.FG40}{n} SESSAO(OES) · {data}{ui.RESET}"
+        )
+    print()
+    ui.proximo("professor -r", "revisar o mais esquecido:")
+    print()
 
 
 def cmd_revisao(topico):
@@ -298,41 +363,78 @@ def cmd_revisao(topico):
     if not tops:
         die("nada pra revisar ainda.")
     slug, titulo, _, data = tops[0]  # o mais esquecido
-    print(f"Tópico mais esquecido: \033[1m{titulo}\033[0m (última sessão: {data})")
+    ui.modulo("review_picker", "src: sessoes/")
+    ui.kv("MAIS ESQUECIDO", titulo.upper())
+    ui.kv("ULTIMA SESSAO", data)
     rodar_sessao(titulo, revisao=True)
 
 
 # ---------------------------------------------------------------- main
 
+def cmd_temas():
+    ui.catalogo_temas()
+
+
+def uso():
+    ui.modulo("professor_help")
+    ui.kv('professor "<assunto>"', "NOVA SESSAO")
+    ui.kv("professor -r", "REVISA O MAIS ESQUECIDO")
+    ui.kv('professor -r "<assunto>"', "REVISA UM TOPICO")
+    ui.kv("professor -l", "TOPICOS ESTUDADOS")
+    ui.kv("professor -m", "MODELOS :FREE NO AR")
+    ui.kv("professor temas", "PALETAS")
+    print()
+    ui.secao("durante a sessao")
+    ui.kv(".", "ENCERRA A RESPOSTA")
+    ui.kv("[CTRL-D]", "ENCERRA A RESPOSTA")
+    ui.kv("/fim", "PEDE O VEREDITO")
+    print()
+    ui.secao("env")
+    ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
+    ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("PROFESSOR_DIR", str(BASE_DIR))
+    ui.kv("PROFESSOR_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "DESLIGA AS CORES")
+    print()
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="professor",
         description="Você explica, ele fura tua explicação até você travar ou provar que sabe.",
-        epilog='exemplos:  professor "DNS"   ·   professor -r   ·   professor -l',
+        epilog='exemplos:  professor "DNS"   ·   professor -r   ·   professor -l   ·   professor temas',
+        add_help=False,
     )
-    ap.add_argument("topico", nargs="?", help="assunto da sessão (entre aspas)")
+    ap.add_argument("topico", nargs="?",
+                    help="assunto da sessão (entre aspas) · \"temas\" lista as paletas")
     ap.add_argument("-l", "--listar", action="store_true", help="lista tópicos estudados")
     ap.add_argument("-r", "--revisao", action="store_true",
                     help="modo revisão: sabatina sobre tópico antigo (o mais esquecido, se não indicar)")
     ap.add_argument("-m", "--modelos", action="store_true",
                     help="lista modelos :free disponíveis agora na OpenRouter")
+    ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.modelos:
+    if args.help:
+        uso()
+    elif args.modelos:
         listar_modelos_free()
     elif args.listar:
         cmd_listar()
+    elif args.topico and args.topico.lower() in ("temas", "tema") and not args.revisao:
+        cmd_temas()
     elif args.revisao:
         cmd_revisao(args.topico)
     elif args.topico:
         rodar_sessao(args.topico)
     else:
-        ap.print_help()
+        uso()
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\ninterrompido.")
+        print()
+        ui.aviso("interrompido")
         sys.exit(130)

@@ -14,6 +14,7 @@ professor -r           # revisão: sabatina sobre o tópico mais esquecido
 professor -r "DNS"     # revisão de um tópico específico
 professor -l           # lista tópicos já estudados
 professor -m           # lista modelos :free disponíveis agora
+professor temas        # paletas disponíveis
 ```
 
 ## Como funciona uma sessão
@@ -57,10 +58,30 @@ Abra um terminal novo e rode `professor "qualquer coisa"`.
 | `OPENROUTER_API_KEY` | sua chave (obrigatória) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula (fallback em ordem) | lista de modelos `:free` |
 | `PROFESSOR_DIR` | onde salvar as sessões | `~/.professor` |
+| `PROFESSOR_TEMA` | paleta (veja `professor temas`) | `vault-gold` |
+| `RETRO_TEMA` | paleta pra todas as ferramentas do repo (fallback) | `vault-gold` |
+| `NO_COLOR` | qualquer valor desliga as cores | — |
 
 Os modelos `:free` da OpenRouter mudam com o tempo e às vezes caem. O script
 tenta uma lista em ordem; se todos falharem, rode `professor -m` pra ver os que
 estão no ar e ajuste `OPENROUTER_MODEL`.
+
+## Temas
+
+Nove paletas vindas do style guide (`professor temas` lista com swatch):
+
+| Escuras | Claras |
+|---|---|
+| `vault-gold` (padrão), `noir-rose`, `midnight-ember`, `cyber-teal`, `velvet-purple` | `abyss-frost`, `crimson-chalk`, `forest-mist`, `sand-dusk` |
+
+```bash
+export PROFESSOR_TEMA=cyber-teal   # só o professor
+export RETRO_TEMA=cyber-teal       # todas as ferramentas
+```
+
+`PROFESSOR_TEMA` tem prioridade sobre `RETRO_TEMA`. Cores true-color (24-bit)
+quando `COLORTERM=truecolor`; senão cai pro ANSI básico de 8 cores. Fora de TTY
+ou com `NO_COLOR`, a saída vira texto puro.
 
 ## Privacidade
 
