@@ -15,6 +15,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [vocab](./vocab) | `vocab` | Uma palavra de inglês por dia, com revisão espaçada |
 | [zapstats](./zapstats) | `zapstats` | Retrô de uma conversa exportada do WhatsApp |
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
+| [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
