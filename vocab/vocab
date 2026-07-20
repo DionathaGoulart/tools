@@ -21,10 +21,15 @@ import json
 import os
 import re
 import sys
+import textwrap
 import urllib.error
 import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro  # noqa: E402
+
 
 def carregar_dotenv():
     """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
@@ -45,6 +50,10 @@ def carregar_dotenv():
 
 
 carregar_dotenv()
+
+# paleta do terminal: VOCAB_PALETA e depois RETRO_TEMA.
+# (VOCAB_TEMA já é dos temas das palavras — texto livre, não paleta.)
+ui = Retro(env_var="VOCAB_PALETA")
 
 BASE_DIR = Path(os.environ.get("VOCAB_DIR", Path.home() / ".vocab"))
 PALAVRAS_FILE = BASE_DIR / "palavras.json"   # palavras aprendidas + estado da revisão
@@ -150,17 +159,32 @@ def listar_modelos_free():
     except Exception as e:
         die(f"Não consegui consultar {MODELS_URL}: {e}")
     livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
-    print(f"{len(livres)} modelos :free disponíveis agora:\n")
+    ui.modulo("free_models", "src: openrouter")
+    ui.kv("DISPONIVEIS", f"{len(livres)} MODELO(S)")
+    print()
+    ui.secao("modelos")
     for m in livres:
-        print(f"  {m}")
-    print("\nPra usar outros:  export OPENROUTER_MODEL=\"modelo1,modelo2\"")
+        ui.item("·", m)
+    print()
+    ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra trocar:")
+    print()
 
 
 # ---------------------------------------------------------------- util
 
 def die(msg):
-    print(f"vocab: {msg}", file=sys.stderr)
+    linhas = str(msg).split("\n")
+    print(f"  {ui.ALERTA}[ ERRO ]{ui.RESET} {linhas[0]}", file=sys.stderr)
+    for extra in linhas[1:]:
+        print(f"          {ui.FG40}{extra.strip()}{ui.RESET}", file=sys.stderr)
     sys.exit(1)
+
+
+def envolver(texto, cor=""):
+    """Quebra o texto na largura útil da janela, já colorido linha a linha."""
+    larg = max(20, ui.cf)
+    return [f"{cor}{p}{ui.RESET}" if cor else p
+            for p in (textwrap.wrap(texto, larg) or [""])]
 
 
 def carregar_json(caminho, padrao):
@@ -256,7 +280,7 @@ def proxima_da_fila(palavras):
     conhecidas = {p["palavra"] for p in palavras}
     fila = [w for w in carregar_json(FILA_FILE, []) if w["palavra"] not in conhecidas]
     if not fila:
-        print("🧠 fila vazia — gerando palavras novas (1 request)…")
+        ui.aviso("fila vazia", "gerando palavras novas (1 request)…")
         novas = gerar_lote(conhecidas)
         fila = [w for w in novas if w["palavra"] not in conhecidas]
         if not fila:
@@ -270,26 +294,27 @@ def proxima_da_fila(palavras):
 
 def revisar(p, i, n):
     """Uma rodada de quiz: significado + frase lacunada → você digita a palavra."""
-    print(f"\n\033[1;36m{i}/{n}\033[0m  {p['significado']}")
+    print(f"\n  {ui.chip(f'{i}/{n}')}  {ui.FG70}{p['significado']}{ui.RESET}")
     frase = lacunar(p["exemplo"], p["palavra"])
     if frase:
-        print(f"     {frase}")
+        print(f"      {ui.FG40}{frase}{ui.RESET}")
     try:
-        resp = input("     palavra: ")
+        resp = input(f"      {ui.ACC30}>{ui.RESET} palavra: ")
     except EOFError:
         resp = ""
     acertou = normalizar(resp) == normalizar(p["palavra"])
+    alvo = f"{ui.ACC}{ui.BOLD}{p['palavra'].upper()}{ui.RESET}  {ui.FG40}{p['ipa']}{ui.RESET}"
     if acertou:
         p["caixa"] = min(p.get("caixa", 0) + 1, len(INTERVALOS) - 1)
         p["acertos"] = p.get("acertos", 0) + 1
-        print(f"     ✅ \033[1m{p['palavra']}\033[0m {p['ipa']}")
+        print(f"      {ui.OK}[ OK ]{ui.RESET} {alvo}")
     else:
         p["caixa"] = 0
         p["erros"] = p.get("erros", 0) + 1
-        print(f"     ❌ era: \033[1m{p['palavra']}\033[0m {p['ipa']}")
-    print(f"     {p['exemplo']}")
+        print(f"      {ui.ALERTA}[ ERRO ]{ui.RESET} era {alvo}")
+    print(f"      {ui.FG70}{p['exemplo']}{ui.RESET}")
     if p.get("traducao"):
-        print(f"     ({p['traducao']})")
+        print(f"      {ui.FG40}({p['traducao']}){ui.RESET}")
     p["proxima"] = em_dias(INTERVALOS[p["caixa"]])
     return acertou
 
@@ -299,13 +324,16 @@ def rodar_quiz(palavras):
     due = [p for p in palavras if p.get("proxima", hoje()) <= hoje()]
     if not due:
         return 0
-    print(f"🔁 revisão: {len(due)} palavra(s) pra hoje")
+    ui.modulo("spaced_review", f"due: {len(due)}")
     acertos = 0
     for i, p in enumerate(due, 1):
         if revisar(p, i, len(due)):
             acertos += 1
     salvar_json(PALAVRAS_FILE, palavras)
-    print(f"\n   revisão: {acertos}/{len(due)} acerto(s)")
+    print()
+    ui.regra()
+    ui.kv("ACERTOS", f"{acertos}/{len(due)}")
+    print(f"  {ui.barra(acertos, len(due))}")
     return len(due)
 
 
@@ -316,26 +344,37 @@ def cmd_dia(extra=False, so_quiz=False):
     revisadas = rodar_quiz(palavras)
     if so_quiz:
         if not revisadas:
-            print("✅ nada pra revisar hoje.")
+            ui.modulo("spaced_review", "due: 0")
+            ui.aviso("vazio", "nada pra revisar hoje.")
+            ui.proximo("vocab", "palavra nova:")
         marcar_sessao()
         return
 
     ja_hoje = [p for p in palavras if p.get("aprendida_em") == hoje()]
     if ja_hoje and not extra:
-        print(f"\n✅ palavra de hoje já aprendida: \033[1m{ja_hoje[0]['palavra']}\033[0m")
-        print("   Pra aprender outra mesmo assim:  vocab -x")
-        print("   Pra ver o baralho:  vocab -l")
+        ui.modulo("word_of_the_day", f"date: {hoje()}")
+        ui.aviso("ja aprendida", "a palavra de hoje já foi vista.")
+        ui.kv("PALAVRA", ja_hoje[0]["palavra"].upper())
+        print()
+        ui.proximo("vocab -x", "aprender outra:")
+        ui.proximo("vocab -l", "ver o baralho: ")
         marcar_sessao()
         return
 
     nova = proxima_da_fila(palavras)
-    titulo = "palavra extra" if ja_hoje else "palavra de hoje"
-    print(f"\n\033[1;35m📚 {titulo}\033[0m ({hoje()})\n")
-    print(f"  \033[1m{nova['palavra']}\033[0m  {nova['ipa']}")
-    print(f"  significado: {nova['significado']}")
-    print(f"  exemplo: {nova['exemplo']}")
+    ui.modulo("word_of_the_day", f"date: {hoje()}")
+    linhas = [f"{ui.ACC}{ui.BOLD}{nova['palavra'].upper()}{ui.RESET}  {ui.FG40}{nova['ipa']}{ui.RESET}", ""]
+    linhas += envolver(nova["significado"], ui.FG70)
+    linhas.append("")
+    linhas += envolver(nova["exemplo"], ui.FG)
     if nova.get("traducao"):
-        print(f"           ({nova['traducao']})")
+        linhas += envolver(f"({nova['traducao']})", ui.FG40)
+    ui.janela(
+        "root@vocab: ~/word",
+        linhas,
+        meta="EXTRA" if ja_hoje else "NOVA",
+        rodape="LEITNER BOX 0 · REVISAO AMANHA",
+    )
 
     nova.update({
         "aprendida_em": hoje(),
@@ -347,24 +386,42 @@ def cmd_dia(extra=False, so_quiz=False):
     palavras.append(nova)
     salvar_json(PALAVRAS_FILE, palavras)
     marcar_sessao()
-    print(f"\n💾 {len(palavras)} palavra(s) no baralho. Primeira revisão amanhã. 🌱")
+    print()
+    ui.kv("BARALHO", f"{len(palavras)} PALAVRA(S)")
+    ui.kv("PRIMEIRA REVISAO", em_dias(INTERVALOS[0]))
+    print()
+    ui.proximo("vocab -l", "ver o baralho:")
+    print()
 
 
 def cmd_listar():
     palavras = carregar_json(PALAVRAS_FILE, [])
+    ui.modulo("deck", f"src: {PALAVRAS_FILE.name}")
     if not palavras:
-        print("Nenhuma palavra ainda. Comece com:  vocab")
+        ui.aviso("vazio", "nenhuma palavra no baralho ainda.")
+        ui.proximo("vocab", "comece com:")
+        print()
         return
     due = [p for p in palavras if p.get("proxima", hoje()) <= hoje()]
     fila = carregar_json(FILA_FILE, [])
     dominadas = sum(1 for p in palavras if p.get("caixa", 0) >= len(INTERVALOS) - 1)
-    print(f"{len(palavras)} palavra(s) · {len(due)} pra revisar hoje · "
-          f"{dominadas} dominada(s) · {len(fila)} na fila\n")
+    ui.kv("TOTAL", f"{len(palavras)} PALAVRA(S)")
+    ui.kv("REVISAR HOJE", f"{len(due)} PALAVRA(S)")
+    ui.kv("DOMINADAS", f"{dominadas} PALAVRA(S)")
+    ui.kv("NA FILA", f"{len(fila)} PALAVRA(S)")
+    print()
+    ui.secao("baralho")
+    hj = hoje()
     for p in sorted(palavras, key=lambda x: (x.get("proxima", ""), x["palavra"])):
         caixa = p.get("caixa", 0)
-        barra = "▰" * (caixa + 1) + "▱" * (len(INTERVALOS) - 1 - caixa)
-        print(f"  {p.get('proxima', '?')}  {barra}  {p['palavra']} — {p['significado']}")
-    print("\n(a data é a próxima revisão; a barra é a caixa de Leitner)")
+        cheio = caixa + 1
+        barra = (f"{ui.ACC}{'█' * cheio}{ui.ACC15}{'▒' * (len(INTERVALOS) - cheio)}"
+                 f"{ui.RESET}{ui.FG70}")
+        prox = p.get("proxima", "?")
+        marca = "►" if prox <= hj else "·"
+        ui.item(marca, f"{prox}  {barra}  {p['palavra']}", f"— {p['significado']}")
+    print(f"\n  {ui.FG40}data = proxima revisao · barra = caixa de leitner "
+          f"· ► = vence hoje{ui.RESET}\n")
 
 
 def cmd_palavras():
@@ -377,20 +434,50 @@ def cmd_palavras():
     add = [w for w in novas if w["palavra"] not in conhecidas | na_fila]
     fila += add
     salvar_json(FILA_FILE, fila)
-    print(f"➕ {len(add)} palavra(s) nova(s) na fila (total: {len(fila)}).")
+    ui.modulo("queue_refill", "src: openrouter")
+    ui.ok(f"{len(add)} palavra(s) nova(s) na fila")
+    ui.kv("FILA", f"{len(fila)} PALAVRA(S)")
+    print()
 
 
 # ---------------------------------------------------------------- main
+
+def uso():
+    ui.modulo("vocab_help")
+    ui.secao("comandos")
+    ui.kv("vocab", "REVISAO + PALAVRA NOVA")
+    ui.kv("vocab palavras", "REABASTECE A FILA")
+    ui.kv("vocab temas", "PALETAS DO TERMINAL")
+    print()
+    ui.secao("flags")
+    ui.kv("-q, --quiz", "SO A REVISAO DO DIA")
+    ui.kv("-x, --extra", "OUTRA PALAVRA NO MESMO DIA")
+    ui.kv("-l, --listar", "BARALHO E STATUS DA REVISAO")
+    ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
+    ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
+    print()
+    ui.secao("env")
+    ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (PALAVRAS NOVAS)")
+    ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("VOCAB_NIVEL", os.environ.get("VOCAB_NIVEL", "intermediário").upper())
+    ui.kv("VOCAB_TEMA", "TEMAS DAS PALAVRAS (TEXTO LIVRE)")
+    ui.kv("VOCAB_DIR", str(BASE_DIR))
+    ui.kv("VOCAB_PALETA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "DESLIGA AS CORES")
+    print()
+
 
 def main():
     ap = argparse.ArgumentParser(
         prog="vocab",
         description="Uma palavra de inglês por dia, com revisão espaçada.",
-        epilog="exemplos:  vocab   ·   vocab -q   ·   vocab -l   ·   vocab palavras",
+        epilog="exemplos:  vocab   ·   vocab -q   ·   vocab -l   ·   vocab palavras   ·   vocab temas",
+        add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="dia",
-                    choices=["dia", "palavras"],
-                    help="dia (padrão): revisão + palavra nova · palavras: reabastece a fila")
+                    choices=["dia", "palavras", "temas"],
+                    help="dia (padrão): revisão + palavra nova · palavras: reabastece a fila "
+                         "· temas: lista as paletas do terminal (VOCAB_PALETA / RETRO_TEMA)")
     ap.add_argument("-q", "--quiz", action="store_true",
                     help="só a revisão do dia, sem palavra nova")
     ap.add_argument("-x", "--extra", action="store_true",
@@ -399,9 +486,14 @@ def main():
                     help="lista o baralho e o status da revisão")
     ap.add_argument("-m", "--modelos", action="store_true",
                     help="lista modelos :free disponíveis")
+    ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.modelos:
+    if args.help:
+        uso()
+    elif args.comando == "temas":
+        ui.catalogo_temas()
+    elif args.modelos:
         listar_modelos_free()
     elif args.listar:
         cmd_listar()
@@ -415,5 +507,6 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\ninterrompido.")
+        print()
+        ui.aviso("abortado", "sessão interrompida.")
         sys.exit(130)

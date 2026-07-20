@@ -12,6 +12,7 @@ vocab -x           # aprender outra palavra mesmo já tendo aprendido hoje
 vocab -l           # lista o baralho e o status da revisão
 vocab palavras     # reabastece a fila de palavras manualmente
 vocab -m           # lista modelos :free disponíveis agora
+vocab temas        # lista as paletas do terminal
 ```
 
 ## Como funciona
@@ -20,12 +21,12 @@ O quiz mostra o significado em português e a frase de exemplo com a palavra
 escondida — você digita a palavra em inglês:
 
 ```
-🔁 revisão: 2 palavra(s) pra hoje
+  [ MODULE: SPACED_REVIEW ]  DUE: 2
 
-1/2  adiar, enrolar pra fazer algo
-     I always _____________ my taxes until April.
-     palavra: procrastinate
-     ✅ procrastinate /prəˈkræstɪneɪt/
+  [1/2]  adiar, enrolar pra fazer algo
+      I always _____________ my taxes until April.
+      > palavra: procrastinate
+      [ OK ] PROCRASTINATE  /prəˈkræstɪneɪt/
 ```
 
 - **Palavra do dia:** vem de um lote de 20 gerado pelo modelo (nível e temas
@@ -35,6 +36,28 @@ escondida — você digita a palavra em inglês:
   esticam o intervalo (1 → 2 → 4 → 7 → 15 → 30 dias); erro derruba pra
   caixa 0 e a palavra volta amanhã.
 - **Dominada:** palavra na última caixa (revisão a cada 30 dias).
+
+## Aparência
+
+O `vocab` segue o style guide de terminal retrô do repositório
+(`.harness/styleguide-terminal.md`): a palavra do dia sai numa janela de
+terminal, as caixas de Leitner viram barras `█`/`▒` em tom de acento, rótulos
+em maiúsculas e `[ OK ]` / `[ ERRO ]` no lugar de emoji.
+
+```bash
+vocab temas                     # mostra as 9 paletas, marcando a atual com ►
+export RETRO_TEMA=cyber-teal    # paleta de todas as ferramentas do repo
+export VOCAB_PALETA=noir-rose   # só o vocab
+```
+
+Paletas: `vault-gold` (padrão) · `noir-rose` · `midnight-ember` · `cyber-teal`
+· `velvet-purple` · `abyss-frost` · `crimson-chalk` · `forest-mist` ·
+`sand-dusk`. `NO_COLOR=1`, saída redirecionada pra arquivo ou terminal estreito
+degradam pra texto puro sem perder a leitura.
+
+> **Nota:** a paleta do terminal é `VOCAB_PALETA`, não `VOCAB_TEMA` — esta
+> última já era dos *temas das palavras geradas* (texto livre, ex.:
+> `tecnologia, viagem`) e continua com esse papel.
 
 ## Privacidade
 
@@ -77,9 +100,12 @@ export VOCAB_LEMBRETE=1
 | `OPENROUTER_API_KEY` | sua chave (obrigatória só p/ gerar palavras) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
 | `VOCAB_NIVEL` | nível das palavras geradas | `intermediário` |
-| `VOCAB_TEMA` | temas preferidos (texto livre) | nenhum |
+| `VOCAB_TEMA` | temas preferidos das palavras (texto livre) | nenhum |
+| `VOCAB_PALETA` | paleta do terminal só pro vocab (veja `vocab temas`) | `vault-gold` |
+| `RETRO_TEMA` | paleta do terminal (veja `vocab temas`) | `vault-gold` |
 | `VOCAB_DIR` | onde salvar tudo | `~/.vocab` |
 | `VOCAB_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
+| `NO_COLOR` | qualquer valor desliga as cores | desligado |
 
 ## Dica
 
