@@ -17,6 +17,7 @@ Uso:
     zapstats conversa.txt --roast
     zapstats conversa.txt --roast --reais       # manda nomes reais (menos privado)
     zapstats conversa.txt --html retro.html
+    zapstats temas                              # paletas do terminal
 
 Requer: Python 3. A camada --roast também precisa de OPENROUTER_API_KEY.
 """
@@ -32,6 +33,10 @@ import urllib.request
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from html import escape
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro, largura  # noqa: E402
+
 
 def carregar_dotenv():
     """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
@@ -54,7 +59,9 @@ def carregar_dotenv():
 
 carregar_dotenv()
 
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
+ui = Retro(env_prefix="ZAPSTATS")
+
+API_URL ="https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -303,75 +310,123 @@ def fmt_dur(td):
     return " ".join(partes) or "menos de 1min"
 
 
-def barra(valor, maximo, largura=24):
-    n = round(largura * valor / maximo) if maximo else 0
-    return "█" * n + "·" * (largura - n)
+def barra(valor, maximo, larg=24):
+    """Barra do style guide: preenchido `█` em ACC, trilho `▒` em ACC15."""
+    n = round(larg * valor / maximo) if maximo else 0
+    n = max(0, min(larg, n))
+    return f"{ui.ACC}{'█' * n}{ui.ACC15}{'▒' * (larg - n)}{ui.RESET}"
+
+
+def linha_kv(chave, valor):
+    """Linha `CHAVE ··· VALOR` já dimensionada pra caber dentro da janela."""
+    n = max(2, ui.cf - largura(chave) - largura(valor) - 2)
+    return (f"{ui.FG40}{chave}{ui.RESET} {ui.ACC15}{'·' * n}{ui.RESET} "
+            f"{ui.ACC}{ui.BOLD}{valor}{ui.RESET}")
 
 
 # ---------------------------------------------------------------- relatório terminal
 
-def relatorio(st):
-    L = []
-    add = L.append
-    span = (st["fim"] - st["inicio"]).days + 1
-    add("\n\033[1;32m📊 zapstats\033[0m")
-    add(f"período: {st['inicio']:%d/%m/%Y} → {st['fim']:%d/%m/%Y}  ({span} dias)")
-    add(f"total: {st['total']} mensagens · {len(st['pessoas'])} pessoas\n")
+def linha_grafico(marca, rotulo, larg_rotulo, bar, valor, meta=""):
+    """Linha de gráfico: marcador, rótulo, barra, valor em destaque, meta apagada."""
+    linha = (f"  {ui.ACC}{marca}{ui.RESET} {ui.FG70}{rotulo[:larg_rotulo]:<{larg_rotulo}}{ui.RESET} "
+             f"{bar} {ui.ACC}{ui.BOLD}{valor:>6}{ui.RESET}")
+    if meta:
+        linha += f" {ui.FG40}{meta}{ui.RESET}"
+    print(linha)
 
-    add("\033[1mquem mais fala\033[0m")
+
+def relatorio(st, origem=""):
+    span = (st["fim"] - st["inicio"]).days + 1
+    ui.modulo("chat_wrapped", f"src: {origem}" if origem else "")
+    ui.janela(
+        "root@zapstats: ~/retro",
+        [
+            linha_kv("PERIODO", f"{st['inicio']:%d/%m/%Y} → {st['fim']:%d/%m/%Y}"),
+            linha_kv("DIAS", f"{span}"),
+            linha_kv("MENSAGENS", f"{st['total']}"),
+            linha_kv("PESSOAS", f"{len(st['pessoas'])}"),
+            linha_kv("DIAS ATIVOS", f"{len(st['dias_ativos'])}"),
+        ],
+        meta=f"{st['total']} MSG",
+        rodape="PROCESSADO LOCALMENTE · NADA SAIU DA MAQUINA",
+    )
+    print()
+
+    ui.secao("quem mais fala")
     maxm = max(st["por_pessoa"][p]["msgs"] for p in st["pessoas"])
-    for p in sorted(st["pessoas"], key=lambda x: -st["por_pessoa"][x]["msgs"]):
+    ordem = sorted(st["pessoas"], key=lambda x: -st["por_pessoa"][x]["msgs"])
+    for i, p in enumerate(ordem):
         c = st["por_pessoa"][p]
         pct = 100 * c["msgs"] / st["total"]
-        add(f"  {p[:16]:<16} {barra(c['msgs'], maxm)} {c['msgs']:>5} ({pct:.0f}%)")
-    add("")
+        linha_grafico("►" if i == 0 else " ", p, 16,
+                      barra(c["msgs"], maxm), str(c["msgs"]), f"({pct:.0f}%)")
+    print()
 
-    add("\033[1mhorário (quando vocês falam)\033[0m")
-    maxh = max(st["hora"].values())
+    ui.secao("horario (quando voces falam)")
+    maxh = max(st["hora"][h] + st["hora"][h + 1] for h in range(0, 24, 2))
     for h in range(0, 24, 2):
         v = st["hora"][h] + st["hora"][h + 1]
-        add(f"  {h:02d}h {barra(v, maxh * 2, 30)} {v}")
-    add("")
+        linha_grafico("►" if v == maxh else " ", f"{h:02d}H", 4,
+                      barra(v, maxh, 30), str(v))
+    print()
 
-    add("\033[1mdia da semana\033[0m")
+    ui.secao("dia da semana")
     maxd = max(st["dia_semana"].values())
     for i, nome in enumerate(DIAS_SEMANA):
         v = st["dia_semana"][i]
-        add(f"  {nome:<8} {barra(v, maxd)} {v}")
-    add("")
+        linha_grafico("►" if v == maxd else " ", nome.upper(), 8,
+                      barra(v, maxd), str(v))
+    print()
 
     if st["emojis"]:
-        top = " ".join(f"{e} {n}" for e, n in st["emojis"].most_common(8))
-        add(f"\033[1memojis\033[0m\n  {top}\n")
+        ui.secao("emojis")
+        maxe = st["emojis"].most_common(1)[0][1]
+        for i, (e, n) in enumerate(st["emojis"].most_common(8)):
+            linha_grafico("►" if i == 0 else " ", e, 2, barra(n, maxe, 20), str(n))
+        print()
 
     if st["palavras"]:
-        top = ", ".join(f"{w} ({n})" for w, n in st["palavras"].most_common(12))
-        add(f"\033[1mpalavras mais usadas\033[0m\n  {top}\n")
+        ui.secao("palavras mais usadas")
+        maxw = st["palavras"].most_common(1)[0][1]
+        for i, (w, n) in enumerate(st["palavras"].most_common(12)):
+            linha_grafico("►" if i == 0 else " ", w, 16, barra(n, maxw, 20), str(n))
+        print()
 
-    add("\033[1mtempo médio de resposta\033[0m")
+    ui.secao("tempo medio de resposta")
     for p in st["pessoas"]:
         tempos = st["resp_tempos"][p]
         if tempos:
             med = sorted(tempos)[len(tempos) // 2]
-            add(f"  {p[:16]:<16} {fmt_dur(timedelta(seconds=med))}  (mediana de {len(tempos)} respostas)")
-    add("")
+            ui.kv(p[:16].upper(), fmt_dur(timedelta(seconds=med)).upper())
+            ui.item(" ", f"mediana de {len(tempos)} respostas")
+    print()
 
-    add("\033[1mquem puxa assunto\033[0m")
+    ui.secao("quem puxa assunto")
     tot_ini = sum(st["iniciou"].values()) or 1
-    for p, n in st["iniciou"].most_common():
-        add(f"  {p[:16]:<16} {n} vezes ({100*n/tot_ini:.0f}%)")
-    add("")
+    maxi = st["iniciou"].most_common(1)[0][1] if st["iniciou"] else 1
+    for i, (p, n) in enumerate(st["iniciou"].most_common()):
+        linha_grafico("►" if i == 0 else " ", p, 16,
+                      barra(n, maxi), str(n), f"({100*n/tot_ini:.0f}%)")
+    print()
 
     dur, quando = st["vacuo"]
-    if quando:
-        add(f"\033[1mmaior vácuo\033[0m\n  {fmt_dur(dur)} — de {quando[0]:%d/%m/%y %Hh} a {quando[1]:%d/%m/%y %Hh}\n")
     seq, per = st["streak"]
-    if per:
-        add(f"\033[1mmaior sequência sem falhar\033[0m\n  {seq} dias seguidos ({per[0]:%d/%m/%y} → {per[1]:%d/%m/%y})\n")
+    if quando or per:
+        ui.secao("recordes")
+        if quando:
+            ui.kv("MAIOR VACUO", fmt_dur(dur).upper())
+            ui.item(" ", f"de {quando[0]:%d/%m/%y %Hh} a {quando[1]:%d/%m/%y %Hh}")
+        if per:
+            ui.kv("MAIOR SEQUENCIA", f"{seq} DIA(S)")
+            ui.item(" ", f"{per[0]:%d/%m/%y} → {per[1]:%d/%m/%y}")
+        print()
 
     if sum(st["madrugada"].values()):
-        mad = ", ".join(f"{p}: {n}" for p, n in st["madrugada"].most_common() if n)
-        add(f"\033[1mmensagens de madrugada (0-6h)\033[0m\n  {mad}\n")
+        ui.secao("mensagens de madrugada (0-6h)")
+        for p, n in st["madrugada"].most_common():
+            if n:
+                ui.kv(p[:16].upper(), str(n))
+        print()
 
     curiosidades = []
     for p in st["pessoas"]:
@@ -380,11 +435,10 @@ def relatorio(st):
         if st["perguntas"][p]:
             curiosidades.append(f"{p} fez {st['perguntas'][p]} perguntas")
     if curiosidades:
-        add("\033[1mcuriosidades\033[0m")
+        ui.secao("curiosidades")
         for c in curiosidades:
-            add(f"  · {c}")
-        add("")
-    return "\n".join(L)
+            ui.item("·", c)
+        print()
 
 
 # ---------------------------------------------------------------- camada LLM
@@ -544,15 +598,24 @@ def listar_modelos_free():
     except Exception as e:
         die(f"não consegui consultar {MODELS_URL}: {e}")
     livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
-    print(f"{len(livres)} modelos :free agora:\n")
+    ui.modulo("free_models", "src: openrouter")
+    ui.kv("DISPONIVEIS", f"{len(livres)} MODELO(S)")
+    print()
+    ui.secao("modelos")
     for m in livres:
-        print(f"  {m}")
+        ui.item("·", m)
+    print()
+    ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra trocar:")
+    print()
 
 
 # ---------------------------------------------------------------- util / main
 
 def die(msg):
-    print(f"zapstats: {msg}", file=sys.stderr)
+    linhas = str(msg).split("\n")
+    print(f"  {ui.ALERTA}[ ERRO ]{ui.RESET} {linhas[0]}", file=sys.stderr)
+    for extra in linhas[1:]:
+        print(f"          {ui.FG40}{extra.strip()}{ui.RESET}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -560,9 +623,11 @@ def main():
     ap = argparse.ArgumentParser(
         prog="zapstats",
         description="Retrospectiva de uma conversa exportada do WhatsApp (.txt).",
-        epilog="exemplo:  zapstats conversa.txt --roast --html retro.html",
+        epilog="exemplos:  zapstats conversa.txt --roast --html retro.html   ·   zapstats temas",
     )
-    ap.add_argument("arquivo", nargs="?", help="o .txt exportado do WhatsApp")
+    ap.add_argument("arquivo", nargs="?",
+                    help="o .txt exportado do WhatsApp · use \"temas\" pra listar as "
+                         "paletas do terminal (ZAPSTATS_TEMA / RETRO_TEMA)")
     ap.add_argument("--roast", action="store_true",
                     help="camada com LLM: resumo, frases icônicas, apelidos e roast")
     ap.add_argument("--reais", action="store_true",
@@ -571,6 +636,9 @@ def main():
     ap.add_argument("-m", "--modelos", action="store_true", help="lista modelos :free disponíveis")
     args = ap.parse_args()
 
+    if args.arquivo == "temas" and not os.path.isfile("temas"):
+        ui.catalogo_temas()
+        return
     if args.modelos:
         listar_modelos_free()
         return
@@ -585,26 +653,33 @@ def main():
         die("não achei mensagens reconhecíveis. Exporte pelo WhatsApp em "
             "\"Exportar conversa\" (sem mídia) e passe o .txt.")
     st = calcular(msgs)
-    print(relatorio(st))
+    relatorio(st, os.path.basename(args.arquivo))
 
     texto_llm = None
     if args.roast:
+        ui.modulo("llm_wrapped", "src: openrouter")
         if not args.reais:
-            print("🔒 anonimizando nomes antes de enviar ao modelo (use --reais pra desligar).")
-        print("⏳ gerando resumo e roast…\n")
+            ui.aviso("privado", "anonimizando nomes antes de enviar (--reais desliga).")
+        ui.aviso("gerando", "resumo e roast…")
+        print()
         texto_llm, model = camada_llm(st, msgs, args.reais)
-        print("\033[1;35m🔥 retrô\033[0m")
-        print(texto_llm)
-        print(f"\n\033[2m(modelo: {model})\033[0m")
+        ui.secao("retro")
+        print(f"{ui.FG70}{texto_llm}{ui.RESET}")
+        print()
+        ui.kv("MODEL", model)
+        print()
 
     if args.html:
         gerar_html(st, texto_llm, args.html)
-        print(f"\n💾 HTML salvo em {args.html}")
+        ui.ok("html gerado")
+        ui.kv("ARQUIVO", args.html)
+        print()
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\ninterrompido.")
+        print()
+        ui.aviso("abortado", "análise interrompida.")
         sys.exit(130)

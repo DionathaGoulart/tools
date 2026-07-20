@@ -14,6 +14,7 @@ zapstats conversa.txt --roast               # + resumo, frases icônicas e roast
 zapstats conversa.txt --roast --reais       # roast com os nomes reais (menos privado)
 zapstats conversa.txt --html retro.html     # também gera um retrô visual em HTML
 zapstats -m                                 # lista modelos :free disponíveis
+zapstats temas                              # lista as paletas do terminal
 ```
 
 ## Como exportar a conversa
@@ -38,6 +39,23 @@ de duas pessoas ou de grupo.
 
 Adiciona um resumo narrativo da dinâmica, frases icônicas reais, apelidos
 detectados e um roast bem-humorado de cada um.
+
+## Aparência
+
+O `zapstats` segue o style guide de terminal retrô do repositório
+(`.harness/styleguide-terminal.md`): janela de terminal, barras `█`/`▒` em
+tom de acento, rótulos em maiúsculas, `[ OK ]` / `[ ERRO ]`.
+
+```bash
+zapstats temas                 # mostra as 9 paletas, marcando a atual com ►
+export ZAPSTATS_TEMA=cyber-teal    # só o zapstats
+export RETRO_TEMA=noir-rose        # todas as ferramentas do repo
+```
+
+Paletas: `vault-gold` (padrão) · `noir-rose` · `midnight-ember` · `cyber-teal`
+· `velvet-purple` · `abyss-frost` · `crimson-chalk` · `forest-mist` ·
+`sand-dusk`. `NO_COLOR=1`, saída redirecionada pra arquivo ou terminal estreito
+degradam pra texto puro sem perder a leitura.
 
 ## Privacidade
 
@@ -74,6 +92,9 @@ bash ~/Desktop/tools/zapstats/setup.sh
 |---|---|---|
 | `OPENROUTER_API_KEY` | sua chave (só necessária pra `--roast`) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
+| `ZAPSTATS_TEMA` | paleta do terminal (veja `zapstats temas`) | `vault-gold` |
+| `RETRO_TEMA` | paleta padrão de todas as ferramentas (fallback) | `vault-gold` |
+| `NO_COLOR` | qualquer valor desliga as cores | desligado |
 
 ---
 
