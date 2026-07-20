@@ -25,6 +25,7 @@ dark legendas "<tema>"        # 8 captions EN A/B com gatilho explicado
 dark stories                  # plano de 7 stories pra semana (sem rosto/voz)
 dark buscar "<termo>" -s      # busca YouTube como proxy de demanda (grátis)
 dark refs add HorrorArt       # gerencia subreddits monitorados (grátis)
+dark temas                    # lista as paletas do tema retro-terminal
 ```
 
 Flags: `-f` recoleta o radar ignorando cache (6h) · `-m` lista modelos `:free` no ar · `--json` saída crua (radar/buscar/refs) pra scripts e pro skill.
@@ -64,6 +65,21 @@ Mesmos comandos dentro do Claude Code (`/dark ideias`), mas quem gera é o Claud
 | `DARK_CONTEXTO` | contexto extra da artista injetado em toda geração (materiais, ritmo, séries em andamento…) |
 | `DARK_DIR` | onde salvar cache/config (padrão `~/.dark`) |
 | `DARK_LEMBRETE=1` | lembrete diário ao abrir o terminal se o radar do dia não foi visto |
+| `DARK_TEMA` | paleta do terminal (`dark temas` lista todas; padrão `vault-gold`) |
+| `RETRO_TEMA` | paleta padrão de todas as ferramentas do repo — usada quando `DARK_TEMA` não está definida |
+| `NO_COLOR` | desliga todas as cores/escapes |
+
+## Visual
+
+A saída segue o style guide retro-terminal do repo (`.harness/styleguide-terminal.md`)
+via a lib compartilhada `lib/retro.py`: paleta de um acento só, cantos retos, rótulos
+em maiúsculo, zero emoji decorativo. Troque a paleta com:
+
+```bash
+dark temas                    # lista as 9 paletas com swatch
+export DARK_TEMA=noir-rose    # só o dark
+export RETRO_TEMA=noir-rose   # todas as ferramentas do repo
+```
 
 ## Notas
 

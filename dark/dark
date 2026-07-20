@@ -14,6 +14,9 @@ shot list, e legendas prontas em inglês.
 Radar é 100% sem LLM (calendário local + APIs públicas). O modelo entra em
 `ideias`, `pacote`, `legendas` e `stories`.
 
+Args: [radar|ideias|pacote <N|"ideia">|legendas "<tema>"|stories|
+       buscar "<termo>" [-s]|refs ...|temas] [-f]
+
 Requer: Python 3 e OPENROUTER_API_KEY (só pros comandos com geração).
 """
 
@@ -28,6 +31,11 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro  # noqa: E402
+
+ui = Retro(env_prefix="DARK")
 
 
 def carregar_dotenv():
@@ -97,8 +105,17 @@ CACHE_RADAR_HORAS = 6
 # ---------------------------------------------------------------- util
 
 def die(msg):
-    print(f"dark: {msg}", file=sys.stderr)
+    """Encerra com o bloco `[ ERRO ]` do style guide (primeira linha) + detalhe apagado."""
+    linhas = str(msg).split("\n")
+    print(f"  {ui.ALERTA}[ ERRO ]{ui.RESET} {linhas[0]}", file=sys.stderr)
+    for extra in linhas[1:]:
+        print(f"  {ui.FG40}{extra}{ui.RESET}", file=sys.stderr)
     sys.exit(1)
+
+
+def nota(texto):
+    """Aviso de progresso no stderr — prompt apagado, sem emoji."""
+    print(f"  {ui.ACC30}>{ui.RESET} {ui.FG40}{texto}{ui.RESET}", file=sys.stderr)
 
 
 def carregar_json(caminho, padrao):
@@ -299,7 +316,7 @@ def coletar_radar(force=False):
             return cache
 
     cfg = carregar_config()
-    print("🕯  coletando: calendário do nicho + subreddits de horror art…", file=sys.stderr)
+    nota("coletando: calendario do nicho + subreddits de horror art…")
 
     snapshot = {"ts": agora_utc().isoformat(), "falhas": [], "datas": proximas_datas()}
     try:
@@ -318,32 +335,47 @@ def coletar_radar(force=False):
     return snapshot
 
 
-def secao(emoji, titulo):
-    print(f"\n\033[1;35m{emoji} {titulo}\033[0m")
-
-
 def render_radar(s):
-    print(f"\033[1m🕯  radar darkning.art\033[0m  (coletado {idade_humana(s['ts'])})")
+    subs_vivos = [sub for sub in (s.get("subs") or []) if sub.get("posts")]
+    n_posts = sum(len(sub["posts"]) for sub in subs_vivos)
+    datas = s.get("datas") or []
 
-    if s.get("datas"):
-        secao("🗓", "JANELAS SAZONAIS (próximos meses)")
-        for d in s["datas"][:6]:
-            quando = "HOJE" if d["dias"] == 0 else f"em {d['dias']}d"
-            print(f"  \033[1m{quando:>7}\033[0m  \033[1m{d['nome']}\033[0m — {d['gancho']}")
+    ui.modulo("radar", "src: reddit · calendario")
+    ui.janela(
+        "root@dark: ~/radar",
+        [
+            f"{ui.FG40}PERFIL{ui.RESET}   {ui.ACC}{ui.BOLD}{PERFIL}{ui.RESET}",
+            f"{ui.FG40}JANELAS{ui.RESET}  {ui.ACC}{ui.BOLD}{len(datas)}{ui.RESET}"
+            f"   {ui.FG40}SUBS{ui.RESET}  {ui.ACC}{ui.BOLD}{len(subs_vivos)}{ui.RESET}"
+            f"   {ui.FG40}POSTS{ui.RESET}  {ui.ACC}{ui.BOLD}{n_posts}{ui.RESET}",
+        ],
+        meta=f"COLETADO {idade_humana(s['ts']).upper()}",
+        rodape="RADAR SEM LLM · CALENDARIO LOCAL",
+    )
 
-    if s.get("subs"):
-        secao("👁", "PULSO DO NICHO (Reddit)")
-        for sub in s["subs"]:
-            if not sub.get("posts"):
-                continue
-            print(f"  \033[1;36mr/{sub['nome']}\033[0m")
+    if datas:
+        print()
+        ui.secao("janelas sazonais (proximos meses)")
+        for d in datas[:6]:
+            quando = "HOJE" if d["dias"] == 0 else f"EM {d['dias']}D"
+            ui.item(f"{quando:>7}", d["nome"])
+            print(f"          {ui.apagado(d['gancho'])}")
+
+    if subs_vivos:
+        print()
+        for sub in subs_vivos:
+            ui.secao(f"r/{sub['nome']}")
             for p in sub["posts"][:3]:
-                flair = f" \033[2m[{p['flair']}]\033[0m" if p["flair"] else ""
-                print(f"    ↑{p['score']:>5}  {resumir(p['titulo'], 80)}{flair}")
+                ui.item(f"↑{p['score']:>5}", resumir(p["titulo"], 74),
+                        ui.chip(p["flair"]) if p["flair"] else "")
+            print()
 
     if s.get("falhas"):
-        print(f"\n\033[2m(fontes fora do ar: {', '.join(s['falhas'])})\033[0m")
-    print("\n\033[2mpróximo passo:  dark ideias\033[0m")
+        print()
+        ui.aviso("offline", f"fontes fora do ar: {', '.join(s['falhas'])}")
+        print()
+    ui.proximo("dark ideias")
+    print()
 
 
 # ---------------------------------------------------------------- openrouter
@@ -418,10 +450,12 @@ def listar_modelos_free():
     except Exception as e:
         die(f"Não consegui consultar {MODELS_URL}: {e}")
     livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
-    print(f"{len(livres)} modelos :free disponíveis agora:\n")
+    ui.modulo("free_models", "src: openrouter")
+    ui.kv("DISPONIVEIS AGORA", str(len(livres)))
+    print()
     for m in livres:
-        print(f"  {m}")
-    print("\nPra usar outros:  export OPENROUTER_MODEL=\"modelo1,modelo2\"")
+        ui.item("·", m)
+    print(f"\n  {ui.FG40}export OPENROUTER_MODEL=\"modelo1,modelo2\"{ui.RESET}\n")
 
 
 def extrair_json(texto, tipo="array"):
@@ -525,8 +559,10 @@ def system_estrategista(s):
 # ---------------------------------------------------------------- comandos
 
 def badge(nivel):
-    cores = {"baixo": "32", "médio": "33", "medio": "33", "alto": "31"}
-    return f"\033[{cores.get(str(nivel).lower(), '0')}m{nivel}\033[0m"
+    """Nivel (baixo/médio/alto) na rampa de opacidade do acento — sem cor nova."""
+    rampa = {"baixo": ui.ACC30, "médio": ui.ACC70, "medio": ui.ACC70, "alto": ui.ACC}
+    cor = rampa.get(str(nivel).lower(), ui.FG40)
+    return f"{cor}{ui.BOLD}{str(nivel).upper()}{ui.RESET}"
 
 
 def imprimir_json(obj):
@@ -558,26 +594,29 @@ def cmd_ideias(fresh):
         '"esforco" ("baixo"|"médio"|"alto"), '
         '"potencial" ("baixo"|"médio"|"alto").'
     )
-    print("💡 gerando ideias com os dados ao vivo…", file=sys.stderr)
+    nota("gerando ideias com os dados ao vivo…")
     ideias, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
     salvar_json(IDEIAS_FILE, {"quando": agora_utc().isoformat(), "ideias": ideias})
 
-    icones = {"reel": "🎬", "carrossel": "🖼", "post": "🖼", "story": "📱"}
-    print(f"\n\033[1m💡 10 ideias pro darkning.art\033[0m  \033[2m({model})\033[0m")
+    ui.modulo("ideias", f"model: {model}")
+    ui.kv("IDEIAS GERADAS", str(len(ideias)))
     for i, d in enumerate(ideias, 1):
-        ic = icones.get(str(d.get("formato", "")).lower(), "✏️")
-        print(f"\n  \033[1;36m{i:>2}.\033[0m {ic} \033[1m{d.get('titulo', '?')}\033[0m"
-              f"  \033[2m({d.get('formato', '?')})\033[0m")
-        print(f"      {d.get('angulo', '')}")
-        print(f"      \033[2mpor que agora:\033[0m {d.get('por_que_agora', '')}")
+        print()
+        ui.item(f"{i:>2}.", d.get("titulo", "?"), ui.chip(str(d.get("formato", "?"))))
+        if d.get("angulo"):
+            print(f"      {ui.FG70}{d['angulo']}{ui.RESET}")
+        if d.get("por_que_agora"):
+            print(f"      {ui.apagado('POR QUE AGORA:')} {ui.apagado(d['por_que_agora'])}")
         if d.get("hook"):
-            print(f"      \033[2mhook:\033[0m \"{d['hook']}\"")
-        print(f"      esforço {badge(d.get('esforco', '?'))} · potencial "
-              f"{badge(d.get('potencial', '?'))}")
-    print("\n\033[2mpacote completo de uma ideia:  dark pacote 3   "
-          "(ou:  dark pacote \"sua ideia\")\033[0m")
+            print(f"      {ui.apagado('HOOK:')} {ui.acento(chr(34) + d['hook'] + chr(34))}")
+        print(f"      {ui.apagado('ESFORCO')} {badge(d.get('esforco', '?'))}"
+              f"  {ui.apagado('POTENCIAL')} {badge(d.get('potencial', '?'))}")
+    print()
+    ui.proximo("dark pacote 3", "pacote completo:")
+    ui.proximo('dark pacote "sua ideia"', "ou uma ideia sua:")
+    print()
 
 
 def cmd_pacote(texto_ideia, fresh):
@@ -608,38 +647,48 @@ def cmd_pacote(texto_ideia, fresh):
         "INGLÊS pra promover o post: enquete, bastidor, countdown…),\n"
         '  "dica" (1 frase PT-BR: melhor prática de publicação pra esse formato).'
     )
-    print("📦 montando pacote…", file=sys.stderr)
+    nota("montando pacote…")
     p, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="objeto")
 
-    print(f"\n\033[1m📦 pacote:\033[0m {resumir(texto_ideia, 90)}  \033[2m({model})\033[0m")
+    ui.modulo("pacote", f"model: {model}")
+    ui.kv("IDEIA", resumir(texto_ideia, 60))
     if p.get("hook"):
-        secao("🎣", "HOOK (primeiros 1–2s)")
-        print(f"  \"{p['hook']}\"")
+        print()
+        ui.secao("hook (primeiros 1-2s)")
+        print(f"  {ui.forte(chr(34) + str(p['hook']) + chr(34))}")
     if p.get("roteiro"):
-        secao("🎬", "ROTEIRO / SHOT LIST")
+        print()
+        ui.secao("roteiro / shot list")
         for beat in p["roteiro"]:
-            print(f"  • {beat}")
+            ui.item("·", str(beat))
     if p.get("caption"):
-        secao("📝", "CAPTION (EN — pronta pra colar)")
+        print()
+        ui.secao("caption (en — pronta pra colar)")
         for linha in str(p["caption"]).splitlines():
-            print(f"  {linha}")
+            print(f"  {ui.FG70}{linha}{ui.RESET}")
     if p.get("hashtags"):
-        secao("🏷", "HASHTAGS")
-        print("  " + " ".join(f"#{h.lstrip('#')}" for h in p["hashtags"]))
+        print()
+        ui.secao("hashtags")
+        print("  " + ui.acento(" ".join(f"#{str(h).lstrip('#')}" for h in p["hashtags"])))
     if p.get("alt_text"):
-        secao("♿", "ALT TEXT")
-        print(f"  {p['alt_text']}")
+        print()
+        ui.secao("alt text")
+        print(f"  {ui.FG70}{p['alt_text']}{ui.RESET}")
     if p.get("audio"):
-        secao("🎧", "ÁUDIO")
-        print(f"  {p['audio']}")
+        print()
+        ui.secao("audio")
+        print(f"  {ui.FG70}{p['audio']}{ui.RESET}")
     if p.get("stories_apoio"):
-        secao("📱", "STORIES DE APOIO")
+        print()
+        ui.secao("stories de apoio")
         for st in p["stories_apoio"]:
-            print(f"  • \033[1m{st.get('tipo', '?')}\033[0m — {st.get('texto', '')}")
+            ui.item(ui.chip(str(st.get("tipo", "?"))), str(st.get("texto", "")))
     if p.get("dica"):
-        print(f"\n  \033[2m💡 {p['dica']}\033[0m")
+        print()
+        ui.aviso("dica", str(p["dica"]))
+    print()
 
 
 def cmd_legendas(tema, fresh):
@@ -654,13 +703,17 @@ def cmd_legendas(tema, fresh):
         'Devolva SOMENTE um array JSON: [{"caption": "...", '
         '"gatilho": "por que engaja, 3-6 palavras EM PT-BR"}]'
     )
+    nota("escrevendo captions…")
     tt, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=3000, json_tipo="array")
-    print(f"\n\033[1m✏️  captions:\033[0m {tema}  \033[2m({model})\033[0m\n")
+    ui.modulo("legendas", f"model: {model}")
+    ui.kv("TEMA", resumir(tema, 60))
     for i, t in enumerate(tt, 1):
-        print(f"  {i}. \033[1m{t.get('caption', '?')}\033[0m")
-        print(f"     \033[2m({t.get('gatilho', '')})\033[0m")
+        print()
+        ui.item(f"{i:>2}.", str(t.get("caption", "?")))
+        print(f"      {ui.apagado('GATILHO: ' + str(t.get('gatilho', '')))}")
+    print()
 
 
 def cmd_stories(fresh):
@@ -676,34 +729,39 @@ def cmd_stories(fresh):
         '"descricao" (1 frase PT-BR: o que mostrar/filmar), '
         '"texto" (o texto/sticker do story, EM INGLÊS, pronto).'
     )
-    print("📱 planejando a semana de stories…", file=sys.stderr)
+    nota("planejando a semana de stories…")
     plano, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=4000, json_tipo="array")
     dias = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
-    print(f"\n\033[1m📱 semana de stories\033[0m  \033[2m({model})\033[0m")
+    ui.modulo("stories", f"model: {model}")
+    ui.kv("STORIES NO PLANO", str(len(plano)))
     for item in plano:
         try:
             dia = dias[int(item.get("dia", 0)) - 1]
         except (ValueError, IndexError):
             dia = "?"
-        print(f"\n  \033[1;36m{dia}\033[0m · \033[1m{item.get('tipo', '?')}\033[0m")
-        print(f"     {item.get('descricao', '')}")
-        print(f"     \033[2m→ \"{item.get('texto', '')}\"\033[0m")
+        print()
+        ui.item(f"{dia.upper():>3}", ui.chip(str(item.get("tipo", "?"))))
+        print(f"      {ui.FG70}{item.get('descricao', '')}{ui.RESET}")
+        print(f"      {ui.apagado(chr(34) + str(item.get('texto', '')) + chr(34))}")
+    print()
 
 
 def render_busca(vids, limite=15):
     for v in vids[:limite]:
         views = f"{v['views'] / 1000:.0f}k" if v["views"] >= 1000 else str(v["views"])
         dur = f" · {v['duracao']}" if v.get("duracao") else ""
-        print(f"  {views:>7} · {v['quando'] or '?':>14}{dur}  "
-              f"\033[1;36m{resumir(v['canal'], 20)}\033[0m — {resumir(v['titulo'], 62)}")
+        ui.item(f"{views:>7}",
+                f"{resumir(v['canal'], 20)} — {resumir(v['titulo'], 58)}",
+                f"{v['quando'] or '?'}{dur}")
 
 
 def cmd_buscar(termo, semana, como_json=False):
     if not termo:
         die('faltou o termo.  Ex.:  dark buscar "junji ito style art" -s')
-    print(f"🔎 buscando \"{termo}\"…", file=sys.stderr)
+    if not como_json:
+        nota(f'buscando "{termo}"…')
     try:
         vids = fetch_busca(termo, semana)
     except Exception as e:
@@ -711,11 +769,17 @@ def cmd_buscar(termo, semana, como_json=False):
     if como_json:
         imprimir_json(vids)
         return
+    ui.modulo("buscar", "src: youtube")
+    ui.kv("TERMO", resumir(termo, 60))
+    ui.kv("JANELA", "ESTA SEMANA" if semana else "GERAL")
+    print()
     if not vids:
-        print("nenhum resultado.")
+        ui.aviso("vazio", "nenhum resultado pra esse termo.")
+        print()
         return
-    print(f"\n\033[1m🔎 {termo}\033[0m" + ("  \033[2m(esta semana)\033[0m" if semana else ""))
+    ui.secao("demanda em video curto")
     render_busca(vids)
+    print()
 
 
 def cmd_refs(resto, como_json=False):
@@ -735,7 +799,11 @@ def cmd_refs(resto, como_json=False):
         cfg["subs"].append(nome)
         salvar_json(CONFIG_FILE, cfg)
         RADAR_FILE.unlink(missing_ok=True)
-        print(f"➕ monitorando \033[1mr/{nome}\033[0m")
+        ui.modulo("refs", "src: reddit")
+        ui.ok(f"monitorando r/{nome}")
+        print()
+        ui.proximo("dark -f")
+        print()
     elif acao == "rm" and len(resto) >= 2:
         alvo = resto[1].lstrip("r/").strip("/").lower()
         antes = len(cfg["subs"])
@@ -744,16 +812,55 @@ def cmd_refs(resto, como_json=False):
             die(f"nenhum subreddit casa com \"{resto[1]}\".")
         salvar_json(CONFIG_FILE, cfg)
         RADAR_FILE.unlink(missing_ok=True)
-        print(f"➖ removido. {len(cfg['subs'])} subreddit(s) na lista.")
+        ui.modulo("refs", "src: reddit")
+        ui.ok(f"removido · {len(cfg['subs'])} subreddit(s) na lista")
+        print()
+        ui.proximo("dark -f")
+        print()
     else:
-        print(f"{len(cfg['subs'])} subreddit(s) monitorado(s):\n")
+        ui.modulo("refs", "src: reddit")
+        ui.kv("MONITORADOS", str(len(cfg["subs"])))
+        print()
         for s in cfg["subs"]:
-            print(f"  \033[1mr/{s}\033[0m")
-        print("\nadicionar:  dark refs add Junji_Ito\n"
-              "remover:    dark refs rm Junji_Ito")
+            ui.item("·", f"r/{s}")
+        print()
+        ui.proximo("dark refs add Junji_Ito", "adicionar:")
+        ui.proximo("dark refs rm Junji_Ito", "remover:  ")
+        print()
 
 
 # ---------------------------------------------------------------- main
+
+def uso():
+    ui.modulo("dark_help")
+    ui.secao("comandos")
+    ui.kv("dark", "RADAR: SAZONAIS + PULSO DO NICHO")
+    ui.kv("dark ideias", "10 IDEIAS RANKEADAS")
+    ui.kv('dark pacote <N|"ideia">', "HOOK+ROTEIRO+CAPTION+HASHTAGS")
+    ui.kv('dark legendas "<tema>"', "8 CAPTIONS A/B")
+    ui.kv("dark stories", "PLANO DA SEMANA")
+    ui.kv('dark buscar "<termo>"', "BUSCA NO YOUTUBE")
+    ui.kv("dark refs", "SUBREDDITS MONITORADOS")
+    ui.kv("dark refs add <nome>", "ADICIONA SUBREDDIT")
+    ui.kv("dark refs rm <nome>", "REMOVE SUBREDDIT")
+    ui.kv("dark temas", "PALETAS")
+    print()
+    ui.secao("flags")
+    ui.kv("-f, --fresh", "IGNORA O CACHE E RECOLETA AGORA")
+    ui.kv("-s, --semana", "(BUSCAR) SO VIDEOS DESTA SEMANA")
+    ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
+    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, REFS)")
+    ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
+    print()
+    ui.secao("env")
+    ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
+    ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("DARK_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
+    ui.kv("DARK_DIR", str(BASE_DIR))
+    ui.kv("DARK_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "DESLIGA AS CORES")
+    print()
+
 
 def main():
     ap = argparse.ArgumentParser(
@@ -762,15 +869,18 @@ def main():
                     "radar do nicho + ideias, pacotes, captions e stories em inglês.",
         epilog='exemplos:  dark   ·   dark ideias   ·   dark pacote 3   ·   '
                'dark legendas "spiral piece"   ·   dark stories   ·   '
-               'dark buscar "horror art timelapse" -s   ·   dark refs add HorrorArt',
+               'dark buscar "horror art timelapse" -s   ·   dark refs add HorrorArt   ·   '
+               'dark temas',
+        add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="radar",
                     choices=["radar", "ideias", "pacote", "legendas", "stories",
-                             "buscar", "refs"],
+                             "buscar", "refs", "temas"],
                     help="radar (padrão): janelas sazonais + pulso do nicho · ideias: "
                          "10 ideias rankeadas · pacote: hook+roteiro+caption+hashtags · "
                          "legendas: 8 captions A/B · stories: plano da semana · "
-                         "buscar: busca no YouTube · refs: subreddits monitorados")
+                         "buscar: busca no YouTube · refs: subreddits monitorados · "
+                         "temas: paletas disponíveis (DARK_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
     ap.add_argument("-f", "--fresh", action="store_true",
                     help="ignora o cache e recoleta o radar agora")
@@ -781,7 +891,12 @@ def main():
     ap.add_argument("--json", action="store_true", dest="como_json",
                     help="saída JSON crua (radar, buscar, refs) — pra scripts "
                          "e pro skill /dark do Claude Code")
+    ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
+
+    if args.help:
+        uso()
+        return
 
     if args.como_json and args.comando not in ("radar", "buscar", "refs"):
         die("--json é só pra coleta (radar, buscar, refs). Geração com o Claude: "
@@ -803,11 +918,15 @@ def main():
         cmd_buscar(" ".join(args.resto).strip(), args.semana, args.como_json)
     elif args.comando == "refs":
         cmd_refs(args.resto, args.como_json)
+    elif args.comando == "temas":
+        ui.catalogo_temas()
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\ninterrompido.")
+        print()
+        ui.aviso("abortado", "interrompido pelo usuario.")
+        print()
         sys.exit(130)
