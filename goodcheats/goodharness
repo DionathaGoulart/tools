@@ -1,24 +1,38 @@
 #!/usr/bin/env bash
-# goodharness — biblioteca de styleguides pré-definidos para instalar em projetos
+# goodharness — gerenciador de harness: presets de .harness/ pra instalar em projetos
 # (também acessível como `good harness …` via dispatcher do good)
 #
-# usage: goodharness copy <nome> [origem]      salva styleguide de um projeto como predefinição
-#        goodharness install <nome> [destino]  instala predefinição em um projeto (.harness/styleguide.md)
-#        goodharness list                      lista predefinições salvas
-#        goodharness show <nome>               mostra o conteúdo de uma predefinição
-#        goodharness rm <nome>                 remove uma predefinição
+# usage: goodharness init [destino] [--from <preset>]   scaffold de um .harness/ padrão
+#        goodharness copy <nome> [origem] [--files a,b]  salva preset (bundle ou 1 arquivo)
+#        goodharness install <nome> [destino]            instala preset em .harness/
+#        goodharness list                                lista presets salvos
+#        goodharness show <nome>                         mostra conteúdo / arquivos do preset
+#        goodharness rm <nome>                           remove um preset
+#        goodharness config <show|get KEY|set KEY VAL> [destino]   edita .harness/config.json
 #        goodharness -h | --help
 #
-# origem:  arquivo .md OU diretório de projeto (procura .harness/styleguide.md, styleguide.md)
-#          padrão: diretório atual
+# preset:  arquivo <nome>.md (legado) OU diretório <nome>/ (bundle: styleguide*.md, rules/, …)
+# origem:  diretório de projeto (captura .harness/) OU arquivo .md — padrão: diretório atual
 # destino: diretório do projeto — padrão: diretório atual
+# --force / -f: sobrescreve (faz backup .bak antes)
 #
-# predefinições ficam em styleguides/ ao lado deste script (versionadas no repo tools)
+# presets ficam em styleguides/ ao lado deste script (versionados no repo tools).
+# jq é opcional: sem ele, config.json não faz merge (degrada pra template cru).
 
 set -u
 
 TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 GUIDES_DIR="${GOODHARNESS_DIR:-$TOOL_DIR/styleguides}"
+
+PRESET_PATH=""      # setado por resolve_preset
+PRESET_KIND=""      # "bundle" | "file"
+
+JQ=0
+command -v jq >/dev/null 2>&1 && JQ=1
+
+# estado global (registry de instalações — pra sync/status). GOODHARNESS_STATE override (testes).
+STATE_DIR="${GOODHARNESS_STATE:-$HOME/.goodharness}"
+REGISTRY="$STATE_DIR/registry.json"
 
 # ---------- tema retro (lib compartilhada) ----------
 TEMA="${GOOD_TEMA:-${RETRO_TEMA:-vault-gold}}"
@@ -46,21 +60,32 @@ fi
 uso() {
   retro_modulo "goodharness_help"
   retro_secao "comandos"
-  retro_kv "copy <nome> [origem]" "SALVAR PREDEFINICAO"
+  retro_kv "init [dest] [--from N]" "SCAFFOLD .HARNESS/"
+  retro_kv "copy <nome> [origem]" "SALVAR PRESET"
   retro_kv "install <nome> [dest]" "INSTALAR NO PROJETO"
-  retro_kv "list" "LISTAR PREDEFINICOES"
-  retro_kv "show <nome>" "IMPRIMIR CONTEUDO"
-  retro_kv "rm <nome>" "REMOVER PREDEFINICAO"
+  retro_kv "list" "LISTAR PRESETS"
+  retro_kv "show <nome>" "VER PRESET"
+  retro_kv "rm <nome>" "REMOVER PRESET"
+  retro_kv "config <sub> [dest]" "SHOW / GET KEY / SET KEY VAL"
+  retro_kv "diff <nome> [dest]" "PRESET x INSTALADO"
+  retro_kv "update <nome> [dest]" "ATUALIZA DO PRESET"
+  retro_kv "sync [preset]" "REAPLICA NOS PROJETOS"
+  retro_kv "status" "PROJETOS x PRESETS"
   echo
   retro_secao "notas"
-  retro_kv "ORIGEM" ".MD OU DIR DE PROJETO"
-  retro_kv "DESTINO" ".HARNESS/STYLEGUIDE.MD"
-  retro_kv "--FORCE" "SOBRESCREVE EXISTENTE"
+  retro_kv "PRESET" "<NOME>.MD OU BUNDLE <NOME>/"
+  retro_kv "ORIGEM" "DIR DE PROJETO OU .MD"
+  retro_kv "DESTINO" ".HARNESS/ DO PROJETO"
+  retro_kv "--FILES a,b" "(COPY) ESCOLHE ARQUIVOS DO BUNDLE"
+  retro_kv "--LINK" "(INSTALL) SYMLINK EM VEZ DE COPIA"
+  retro_kv "--FORCE" "SOBRESCREVE (BACKUP .BAK)"
   retro_kv "ALIAS" "GOOD HARNESS <CMD>"
   echo
   retro_secao "env"
-  retro_kv "GOODHARNESS_DIR" "DIR DAS PREDEFINICOES"
+  retro_kv "GOODHARNESS_DIR" "DIR DOS PRESETS"
+  retro_kv "GOODHARNESS_STATE" "REGISTRY (SYNC/STATUS)"
   retro_kv "GOOD_TEMA" "$(retro_upper "$TEMA")"
+  retro_kv "JQ" "$([ "$JQ" -eq 1 ] && echo PRESENTE || echo AUSENTE)"
   echo
   printf '  %sPRESETS: %s%s\n\n' "$ACC15" "${GUIDES_DIR/#$HOME/~}" "$RESET"
 }
@@ -73,188 +98,549 @@ valida_nome() {
   esac
 }
 
-guide_path() { echo "$GUIDES_DIR/$1.md"; }
-
-# acha o styleguide dentro de uma origem (arquivo ou diretório de projeto)
-resolve_origem() { # $1 = caminho
-  local o="$1"
-  if [ -f "$o" ]; then
-    echo "$o"; return 0
+# acha um preset por nome — bundle (dir) tem prioridade sobre arquivo (.md)
+resolve_preset() {
+  local nome="$1"
+  if [ -d "$GUIDES_DIR/$nome" ]; then
+    PRESET_PATH="$GUIDES_DIR/$nome"; PRESET_KIND="bundle"; return 0
   fi
-  if [ -d "$o" ]; then
-    local c
-    for c in "$o/.harness/styleguide.md" "$o/styleguide.md" "$o/.harness/styleguide"*.md; do
-      if [ -f "$c" ]; then echo "$c"; return 0; fi
-    done
+  if [ -f "$GUIDES_DIR/$nome.md" ]; then
+    PRESET_PATH="$GUIDES_DIR/$nome.md"; PRESET_KIND="file"; return 0
   fi
   return 1
 }
 
-tem_predefinicoes() {
-  [ -d "$GUIDES_DIR" ] || return 1
-  local f
-  for f in "$GUIDES_DIR"/*.md; do
-    [ -f "$f" ] && return 0
+backup_se_existe() { [ -f "$1" ] && cp "$1" "$1.bak"; }
+
+# template do config.json (schema v1) — sem segredos, valores em branco
+config_template() {
+  if [ "$JQ" -eq 1 ]; then
+    jq -n '{version:1, client:"", stack:"", prd:"", figma_file:"", tracker_team:"", tracker_project:""}'
+  else
+    cat <<'JSON'
+{
+  "version": 1,
+  "client": "",
+  "stack": "",
+  "prd": "",
+  "figma_file": "",
+  "tracker_team": "",
+  "tracker_project": ""
+}
+JSON
+  fi
+}
+
+# garante um config.json em $1; se já existir, faz merge (valores existentes vencem).
+# $2 (opcional) = config base do bundle; senão usa o template embutido.
+ensure_config() {
+  local dest="$1" base="${2:-}" basef cleanup=0
+  if [ -n "$base" ] && [ -f "$base" ]; then
+    basef="$base"
+  else
+    basef="$(mktemp)"; config_template > "$basef"; cleanup=1
+  fi
+  if [ -f "$dest" ]; then
+    if [ "$JQ" -eq 1 ]; then
+      local tmp; tmp="$(mktemp)"
+      if jq -s '.[0] * .[1]' "$basef" "$dest" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$dest"; retro_kv "CONFIG.JSON" "MERGE (valores mantidos)"
+      else
+        rm -f "$tmp"; retro_aviso "config" "merge falhou; config.json mantido"
+      fi
+    else
+      retro_aviso "sem jq" "config.json existente mantido (sem merge)"
+    fi
+  else
+    cp "$basef" "$dest"; retro_kv "CONFIG.JSON" "CRIADO"
+  fi
+  [ "$cleanup" -eq 1 ] && rm -f "$basef"
+  return 0
+}
+
+# recibo de proveniência (não mexe no conteúdo do styleguide)
+escrever_recibo() {
+  local hdir="$1" nome="$2" kind="$3" mode="${4:-copy}" recibo="$1/.goodharness.json" data
+  data="$(date +%Y-%m-%d)"
+  if [ "$JQ" -eq 1 ]; then
+    jq -n --arg p "$nome" --arg d "$data" --arg k "$kind" --arg m "$mode" \
+      '{preset:$p, installed_at:$d, kind:$k, mode:$m}' > "$recibo"
+  else
+    printf '{"preset":"%s","installed_at":"%s","kind":"%s","mode":"%s"}\n' \
+      "$nome" "$data" "$kind" "$mode" > "$recibo"
+  fi
+}
+
+escrever_manifest() {
+  local bundle="$1" origem="$2"; shift 2
+  local data files_arr; data="$(date +%Y-%m-%d)"
+  if [ "$JQ" -eq 1 ]; then
+    files_arr="$(printf '%s\n' "$@" | jq -R . | jq -s .)"
+    jq -n --argjson files "$files_arr" --arg s "$origem" --arg d "$data" \
+      '{version:1, description:"", source:$s, created_at:$d, files:$files}' > "$bundle/manifest.json"
+  else
+    local f json="" first=1
+    for f in "$@"; do
+      [ "$first" -eq 1 ] && first=0 || json="$json,"
+      json="$json\"$f\""
+    done
+    printf '{"version":1,"description":"","source":"%s","created_at":"%s","files":[%s]}\n' \
+      "$origem" "$data" "$json" > "$bundle/manifest.json"
+  fi
+}
+
+abspath() { # arquivo ou dir -> caminho absoluto
+  if [ -d "$1" ]; then (cd "$1" && pwd)
+  else printf '%s/%s\n' "$(cd "$(dirname "$1")" && pwd)" "$(basename "$1")"; fi
+}
+
+# remove symlinks quebrados no topo de um dir (porta a limpeza do prodlabs)
+clean_broken_symlinks() {
+  local dir="$1" e
+  [ -d "$dir" ] || return 0
+  for e in "$dir"/*; do
+    [ -L "$e" ] || continue
+    [ -e "$e" ] || { rm -f "$e"; retro_aviso "limpo" "symlink quebrado: $(basename "$e")"; }
   done
-  return 1
+}
+
+# coloca um arquivo/dir no destino por cópia ou symlink (globals: LINK, FORCE)
+place_entry() {
+  local src="$1" dest="$2"
+  [ -L "$dest" ] && rm -f "$dest"
+  if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    [ "$FORCE" -eq 0 ] && die "ja existe ${dest/#$HOME/~} — use --force"
+    backup_se_existe "$dest"
+  fi
+  rm -rf "$dest"
+  if [ "$LINK" -eq 1 ]; then ln -s "$(abspath "$src")" "$dest"
+  else cp -R "$src" "$dest"; fi
+}
+
+# ---------- registry (sync/status) ----------
+registry_ensure() {
+  [ "$JQ" -eq 1 ] || return 1
+  mkdir -p "$STATE_DIR"
+  [ -f "$REGISTRY" ] || echo '{"installs":[]}' > "$REGISTRY"
+  return 0
+}
+
+registry_add() { # preset project kind mode
+  registry_ensure || { retro_aviso "sem jq" "registro pulado (sync/status ficam indisponiveis)"; return 0; }
+  local tmp data; data="$(date +%Y-%m-%d)"; tmp="$(mktemp)"
+  if jq --arg p "$1" --arg proj "$2" --arg k "$3" --arg m "$4" --arg d "$data" '
+      .installs = ((.installs // []) | map(select(.project != $proj or .preset != $p)))
+        + [{preset:$p, project:$proj, kind:$k, mode:$m, at:$d}]
+    ' "$REGISTRY" > "$tmp"; then mv "$tmp" "$REGISTRY"; else rm -f "$tmp"; fi
 }
 
 # ---------- comandos ----------
-cmd_copy() {
-  local force=0 args=()
-  local a
-  for a in "$@"; do
-    case "$a" in
+cmd_init() {
+  local force=0 from="" args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
       --force|-f) force=1 ;;
-      *) args+=("$a") ;;
+      --from) shift; from="${1:-}" ;;
+      --from=*) from="${1#--from=}" ;;
+      *) args+=("$1") ;;
     esac
+    shift
   done
-  [ "${#args[@]}" -ge 1 ] || die "faltou o nome. uso: goodharness copy <nome> [origem]"
-  local nome="${args[0]}"
-  local origem="${args[1]:-.}"
-  valida_nome "$nome"
+  local destino="${args[0]:-.}"
+  [ -d "$destino" ] || die "destino nao e um diretorio: $destino"
+  local harness_dir="$destino/.harness"
+  mkdir -p "$harness_dir" "$harness_dir/memory" "$harness_dir/plans"
 
-  local src
-  src="$(resolve_origem "$origem")" || die "styleguide nao encontrado em \"$origem\" (procurei .harness/styleguide.md e styleguide.md)"
+  retro_modulo "harness_init" "dir: ${harness_dir/#$HOME/~}"
 
-  local dest
-  dest="$(guide_path "$nome")"
-  if [ -f "$dest" ] && [ "$force" -eq 0 ]; then
-    die "predefinicao \"$nome\" ja existe — use --force para sobrescrever"
+  # semeia de um preset, se pedido (cria styleguide etc. antes dos placeholders)
+  if [ -n "$from" ]; then
+    if [ "$force" -eq 1 ]; then cmd_install "$from" "$destino" --force
+    else cmd_install "$from" "$destino"; fi
+    echo
   fi
 
-  mkdir -p "$GUIDES_DIR"
-  cp "$src" "$dest"
+  local sg="$harness_dir/styleguide.md"
+  if [ ! -f "$sg" ]; then
+    printf '# Styleguide\n\n<!-- preencha, ou rode: goodharness install <preset> %s -->\n' "$destino" > "$sg"
+    retro_kv "STYLEGUIDE.MD" "PLACEHOLDER"
+  else
+    retro_kv "STYLEGUIDE.MD" "MANTIDO"
+  fi
 
-  retro_modulo "harness_copy" "preset: $nome"
-  retro_ok "predefinicao salva"
+  ensure_config "$harness_dir/config.json"
+
+  [ -f "$harness_dir/memory/features.md" ]  || printf '# Features\n'  > "$harness_dir/memory/features.md"
+  [ -f "$harness_dir/memory/decisions.md" ] || printf '# Decisions\n' > "$harness_dir/memory/decisions.md"
+  [ -f "$harness_dir/plans/.gitkeep" ]      || : > "$harness_dir/plans/.gitkeep"
+
   echo
-  retro_kv "PREDEFINICAO" "$(retro_upper "$nome")"
-  retro_kv "ORIGEM" "${src/#$HOME/~}"
-  retro_kv "DESTINO" "${dest/#$HOME/~}"
-  echo
-  retro_proximo "goodharness install $nome <projeto>"
+  retro_ok "harness inicializado"
+  retro_proximo "goodharness config set tracker_team <TEAM|URL> $destino" "configure:"
   echo
 }
 
+cmd_copy() {
+  local force=0 files_csv="" args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force|-f) force=1 ;;
+      --files) shift; files_csv="${1:-}" ;;
+      --files=*) files_csv="${1#--files=}" ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  [ "${#args[@]}" -ge 1 ] || die "faltou o nome. uso: goodharness copy <nome> [origem]"
+  local nome="${args[0]}" origem="${args[1]:-.}"
+  valida_nome "$nome"
+
+  # já existe? (bundle ou file)
+  if resolve_preset "$nome"; then
+    [ "$force" -eq 0 ] && die "preset \"$nome\" ja existe — use --force"
+    rm -rf "$GUIDES_DIR/$nome" "$GUIDES_DIR/$nome.md"
+  fi
+  mkdir -p "$GUIDES_DIR"
+
+  # arquivo único -> preset legado
+  if [ -f "$origem" ]; then
+    local dest="$GUIDES_DIR/$nome.md"
+    cp "$origem" "$dest"
+    retro_modulo "harness_copy" "preset: $nome (file)"
+    retro_ok "preset salvo"
+    echo
+    retro_kv "ORIGEM" "${origem/#$HOME/~}"
+    retro_kv "DESTINO" "${dest/#$HOME/~}"
+    echo; retro_proximo "goodharness install $nome <projeto>"; echo
+    return 0
+  fi
+
+  [ -d "$origem" ] || die "origem nao encontrada: $origem"
+
+  # bundle: fonte = origem/.harness se existir, senão a própria origem
+  local src="$origem/.harness"
+  [ -d "$src" ] || src="$origem"
+
+  # coleta: --files explícito, senão styleguide*.md + rules/
+  local -a picks=()
+  if [ -n "$files_csv" ]; then
+    local IFS=','; local f
+    for f in $files_csv; do picks+=("$f"); done
+    unset IFS
+  else
+    local g
+    for g in "$src"/styleguide*.md; do [ -f "$g" ] && picks+=("$(basename "$g")"); done
+    [ -d "$src/rules" ] && picks+=("rules")
+  fi
+  [ "${#picks[@]}" -gt 0 ] || die "nada pra capturar em ${src/#$HOME/~} (esperava styleguide*.md; use --files)"
+
+  local bundle="$GUIDES_DIR/$nome"
+  mkdir -p "$bundle"
+  local p; local -a captured=()
+  for p in "${picks[@]}"; do
+    if [ -e "$src/$p" ]; then
+      cp -R "$src/$p" "$bundle/$p"; captured+=("$p")
+    else
+      retro_aviso "pulado" "$p (nao existe em ${src/#$HOME/~})"
+    fi
+  done
+  if [ "${#captured[@]}" -eq 0 ]; then rm -rf "$bundle"; die "nenhum arquivo capturado"; fi
+
+  escrever_manifest "$bundle" "${origem/#$HOME/~}" "${captured[@]}"
+
+  retro_modulo "harness_copy" "preset: $nome (bundle)"
+  retro_ok "preset salvo"
+  echo
+  retro_kv "ORIGEM" "${src/#$HOME/~}"
+  retro_kv "ARQUIVOS" "${#captured[@]}"
+  for p in "${captured[@]}"; do retro_kv "·" "$p"; done
+  echo; retro_proximo "goodharness install $nome <projeto>"; echo
+}
+
 cmd_install() {
-  local force=0 args=()
+  local FORCE=0 LINK=0 args=()
   local a
   for a in "$@"; do
     case "$a" in
-      --force|-f) force=1 ;;
+      --force|-f) FORCE=1 ;;
+      --link)     LINK=1 ;;
       *) args+=("$a") ;;
     esac
   done
-  [ "${#args[@]}" -ge 1 ] || die "faltou o nome. uso: goodharness install <nome> [destino]"
-  local nome="${args[0]}"
-  local destino="${args[1]:-.}"
+  [ "${#args[@]}" -ge 1 ] || die "faltou o nome. uso: goodharness install <nome> [destino] [--link]"
+  local nome="${args[0]}" destino="${args[1]:-.}"
 
-  local src
-  src="$(guide_path "$nome")"
-  if [ ! -f "$src" ]; then
-    {
-      retro_modulo "harness_install" "preset: $nome"
-      retro_erro "predefinicao \"$nome\" nao existe."
-      echo
-      cmd_list
-    } >&2
+  if ! resolve_preset "$nome"; then
+    { retro_modulo "harness_install" "preset: $nome"
+      retro_erro "preset \"$nome\" nao existe."
+      echo; cmd_list; } >&2
     exit 2
   fi
-
   [ -d "$destino" ] || die "destino nao e um diretorio: $destino"
-
   local harness_dir="$destino/.harness"
-  local dest="$harness_dir/styleguide.md"
-  if [ -f "$dest" ] && [ "$force" -eq 0 ]; then
-    die "ja existe styleguide em ${dest/#$HOME/~} — use --force para sobrescrever"
+  mkdir -p "$harness_dir"
+  clean_broken_symlinks "$harness_dir"
+
+  local MODE=copy; [ "$LINK" -eq 1 ] && MODE=link
+  retro_modulo "harness_install" "preset: $nome · $MODE"
+
+  if [ "$PRESET_KIND" = "file" ]; then
+    place_entry "$PRESET_PATH" "$harness_dir/styleguide.md"
+    retro_kv "STYLEGUIDE.MD" "$(retro_upper "$MODE")"
+  else
+    local entry base bundle_cfg=""
+    for entry in "$PRESET_PATH"/*; do
+      [ -e "$entry" ] || continue
+      base="$(basename "$entry")"
+      case "$base" in
+        manifest.json) continue ;;
+        config.json)   bundle_cfg="$entry"; continue ;;   # config nunca é symlinkado — sempre merge
+      esac
+      place_entry "$entry" "$harness_dir/$base"
+      retro_kv "$(retro_upper "$base")" "$(retro_upper "$MODE")"
+    done
+    ensure_config "$harness_dir/config.json" "$bundle_cfg"
   fi
 
-  mkdir -p "$harness_dir"
-  cp "$src" "$dest"
+  escrever_recibo "$harness_dir" "$nome" "$PRESET_KIND" "$MODE"
+  registry_add "$nome" "$(cd "$destino" && pwd)" "$PRESET_KIND" "$MODE"
 
-  retro_modulo "harness_install" "preset: $nome"
-  retro_ok "styleguide instalado"
   echo
-  retro_kv "PREDEFINICAO" "$(retro_upper "$nome")"
-  retro_kv "DESTINO" "${dest/#$HOME/~}"
-  echo
-  retro_proximo "cat ${dest/#$HOME/~}" "confira:"
+  retro_ok "harness instalado"
+  [ "$LINK" -eq 1 ] && retro_aviso "link" "symlinks apontam pro preset — nao mova ${GUIDES_DIR/#$HOME/~}"
+  retro_proximo "cat ${harness_dir/#$HOME/~}/styleguide.md" "confira:"
   echo
 }
 
 cmd_list() {
-  if ! tem_predefinicoes; then
+  local -a names=() kinds=() infos=()
+  local e n
+  for e in "$GUIDES_DIR"/*/; do
+    [ -d "$e" ] || continue
+    n="$(basename "$e")"
+    names+=("$n"); kinds+=("bundle")
+    infos+=("$(find "$e" -type f ! -name manifest.json 2>/dev/null | wc -l | tr -d ' ') arquivo(s)")
+  done
+  for e in "$GUIDES_DIR"/*.md; do
+    [ -f "$e" ] || continue
+    n="$(basename "$e" .md)"
+    names+=("$n"); kinds+=("file")
+    infos+=("$(wc -l < "$e" | tr -d ' ') linha(s)")
+  done
+
+  if [ "${#names[@]}" -eq 0 ]; then
     retro_modulo "harness_presets"
-    retro_aviso "vazio" "nenhuma predefinicao salva ainda."
-    retro_proximo "goodharness copy <nome> <origem>" "crie a primeira:"
-    echo
-    return 0
+    retro_aviso "vazio" "nenhum preset salvo ainda."
+    retro_proximo "goodharness copy <nome> <origem>" "crie o primeiro:"
+    echo; return 0
   fi
 
-  local f nomes=() linhas=() larg=0 n
-  for f in "$GUIDES_DIR"/*.md; do
-    [ -f "$f" ] || continue
-    n="$(basename "$f" .md)"
-    nomes+=("$n")
-    linhas+=("$(wc -l < "$f" | tr -d ' ')")
-    [ "${#n}" -gt "$larg" ] && larg=${#n}
-  done
-
-  retro_modulo "harness_presets" "${#nomes[@]} predefinicao(oes)"
-  local i=0
-  while [ "$i" -lt "${#nomes[@]}" ]; do
-    printf '  %s·%s %s%s%-*s%s  %s%s LINHA(S)%s\n' \
-      "$ACC" "$RESET" "$ACC" "$BOLD" "$larg" "$(retro_upper "${nomes[$i]}")" "$RESET" \
-      "$FG40" "${linhas[$i]}" "$RESET"
+  retro_modulo "harness_presets" "${#names[@]} preset(s)"
+  local larg=0 i=0
+  for n in "${names[@]}"; do [ "${#n}" -gt "$larg" ] && larg=${#n}; done
+  while [ "$i" -lt "${#names[@]}" ]; do
+    printf '  %s·%s %s%s%-*s%s  %s[%s]%s %s%s%s\n' \
+      "$ACC" "$RESET" "$ACC" "$BOLD" "$larg" "$(retro_upper "${names[$i]}")" "$RESET" \
+      "$ACC30" "${kinds[$i]}" "$RESET" "$FG40" "${infos[$i]}" "$RESET"
     i=$((i + 1))
   done
-  echo
-  retro_proximo "goodharness install <nome> <projeto>"
+  echo; retro_proximo "goodharness install <nome> <projeto>"
   printf '\n  %sPRESETS: %s%s\n\n' "$ACC15" "${GUIDES_DIR/#$HOME/~}" "$RESET"
 }
 
 cmd_show() {
   [ $# -ge 1 ] || die "faltou o nome. uso: goodharness show <nome>"
-  local src
-  src="$(guide_path "$1")"
-  [ -f "$src" ] || die "predefinicao \"$1\" nao existe"
-  # cabeçalho só quando é um terminal — mantém `show` redirecionável
-  [ "${DESENHA:-0}" -eq 1 ] && retro_modulo "harness_preset" "src: $1.md"
-  cat "$src"
+  resolve_preset "$1" || die "preset \"$1\" nao existe"
+  if [ "$PRESET_KIND" = "file" ]; then
+    [ "${DESENHA:-0}" -eq 1 ] && retro_modulo "harness_preset" "src: $1.md"
+    cat "$PRESET_PATH"
+    return 0
+  fi
+  retro_modulo "harness_preset" "bundle: $1"
+  if [ "$JQ" -eq 1 ] && [ -f "$PRESET_PATH/manifest.json" ]; then
+    local desc; desc="$(jq -r '.description // ""' "$PRESET_PATH/manifest.json")"
+    [ -n "$desc" ] && retro_kv "DESCRICAO" "$desc"
+    retro_kv "FONTE" "$(jq -r '.source // "?"' "$PRESET_PATH/manifest.json")"
+    retro_kv "DATA" "$(jq -r '.created_at // "?"' "$PRESET_PATH/manifest.json")"
+    echo
+  fi
+  retro_secao "arquivos"
+  local f
+  for f in "$PRESET_PATH"/*; do
+    [ -e "$f" ] || continue
+    [ "$(basename "$f")" = "manifest.json" ] && continue
+    retro_kv "·" "$(basename "$f")"
+  done
+  echo
 }
 
 cmd_rm() {
   [ $# -ge 1 ] || die "faltou o nome. uso: goodharness rm <nome>"
-  local src
-  src="$(guide_path "$1")"
-  [ -f "$src" ] || die "predefinicao \"$1\" nao existe"
+  resolve_preset "$1" || die "preset \"$1\" nao existe"
   retro_modulo "harness_remove" "preset: $1"
-  printf '  %s>%s remover predefinicao %s%s%s%s? [s/N] ' \
+  printf '  %s>%s remover preset %s%s%s%s? [s/N] ' \
     "$ACC30" "$RESET" "$ACC" "$BOLD" "$(retro_upper "$1")" "$RESET"
-  local resp
-  read -r resp
-  echo
+  local resp; read -r resp; echo
   case "$resp" in
     s|S|sim)
-      rm "$src"
-      retro_ok "predefinicao removida"
-      echo
-      ;;
+      rm -rf "$PRESET_PATH"
+      retro_ok "preset removido"; echo ;;
     *)
-      retro_aviso "abortado" "nada foi removido."
-      echo
-      ;;
+      retro_aviso "abortado" "nada foi removido."; echo ;;
   esac
+}
+
+cmd_config() {
+  local sub="${1:-show}"; shift 2>/dev/null || true
+  case "$sub" in
+    show)
+      local destino="${1:-.}" cfg="${1:-.}/.harness/config.json"
+      [ -f "$cfg" ] || die "sem config em ${cfg/#$HOME/~} (rode: goodharness init $destino)"
+      [ "${DESENHA:-0}" -eq 1 ] && retro_modulo "harness_config" "src: ${cfg/#$HOME/~}"
+      if [ "$JQ" -eq 1 ]; then jq . "$cfg"; else cat "$cfg"; fi ;;
+    get)
+      [ $# -ge 1 ] || die "uso: goodharness config get <KEY> [dest]"
+      [ "$JQ" -eq 1 ] || die "config get precisa do jq"
+      local key="$1" cfg="${2:-.}/.harness/config.json"
+      [ -f "$cfg" ] || die "sem config em ${cfg/#$HOME/~}"
+      jq -r --arg k "$key" '.[$k] // ""' "$cfg" ;;
+    set)
+      [ $# -ge 2 ] || die "uso: goodharness config set <KEY> <VAL> [dest]"
+      [ "$JQ" -eq 1 ] || die "config set precisa do jq"
+      local key="$1" val="$2" cfg="${3:-.}/.harness/config.json"
+      [ -f "$cfg" ] || die "sem config em ${cfg/#$HOME/~} (rode: goodharness init ${3:-.})"
+      local tmp; tmp="$(mktemp)"
+      if jq --arg k "$key" --arg v "$val" '.[$k]=$v' "$cfg" > "$tmp"; then
+        mv "$tmp" "$cfg"
+      else
+        rm -f "$tmp"; die "falha ao setar $key"
+      fi
+      retro_modulo "harness_config" "set: $key"
+      retro_ok "config atualizado"
+      retro_kv "$(retro_upper "$key")" "$val"; echo ;;
+    *) die "subcomando config desconhecido: $sub (use show|get|set)" ;;
+  esac
+}
+
+_diff_one() { # src dest label -> 0 igual, 1 difere/falta
+  local src="$1" dst="$2" label="$3"
+  if [ ! -e "$dst" ]; then retro_kv "$label" "FALTA NO PROJETO"; return 1; fi
+  if diff -q "$src" "$dst" >/dev/null 2>&1; then retro_kv "$label" "="; return 0; fi
+  retro_kv "$label" "DIFERE"; return 1
+}
+_diff_dir() { # src dest label -> 0 igual, 1 difere/falta
+  local src="$1" dst="$2" label="$3"
+  if [ ! -d "$dst" ]; then retro_kv "$label/" "FALTA NO PROJETO"; return 1; fi
+  if diff -rq "$src" "$dst" >/dev/null 2>&1; then retro_kv "$label/" "="; return 0; fi
+  retro_kv "$label/" "DIFERE"; return 1
+}
+
+cmd_diff() {
+  [ $# -ge 1 ] || die "uso: goodharness diff <nome> [dest]"
+  resolve_preset "$1" || die "preset \"$1\" nao existe"
+  local nome="$1" dest="${2:-.}" hdir="${2:-.}/.harness"
+  [ -d "$hdir" ] || die "sem .harness em ${hdir/#$HOME/~}"
+  retro_modulo "harness_diff" "preset: $nome"
+  local difs=0
+  if [ "$PRESET_KIND" = "file" ]; then
+    _diff_one "$PRESET_PATH" "$hdir/styleguide.md" "styleguide.md" || difs=$((difs + 1))
+  else
+    local entry base
+    for entry in "$PRESET_PATH"/*; do
+      [ -e "$entry" ] || continue
+      base="$(basename "$entry")"
+      case "$base" in manifest.json|config.json) continue ;; esac
+      if [ -d "$entry" ]; then _diff_dir "$entry" "$hdir/$base" "$base" || difs=$((difs + 1))
+      else _diff_one "$entry" "$hdir/$base" "$base" || difs=$((difs + 1)); fi
+    done
+  fi
+  echo
+  if [ "$difs" -eq 0 ]; then retro_ok "identico"; echo; return 0; fi
+  retro_aviso "drift" "$difs arquivo(s) diferente(s)"
+  retro_proximo "goodharness update $nome $dest" "atualizar:"
+  echo
+  return 1
+}
+
+cmd_update() {
+  [ $# -ge 1 ] || die "uso: goodharness update <nome> [dest]"
+  local nome="$1" dest="${2:-.}"
+  resolve_preset "$nome" || die "preset \"$nome\" nao existe"
+  # respeita o modo do install anterior (recibo), se houver
+  local mode="copy" recibo="$dest/.harness/.goodharness.json"
+  if [ "$JQ" -eq 1 ] && [ -f "$recibo" ]; then
+    mode="$(jq -r '.mode // "copy"' "$recibo")"
+  fi
+  if [ "$mode" = "link" ]; then cmd_install "$nome" "$dest" --force --link
+  else cmd_install "$nome" "$dest" --force; fi
+}
+
+cmd_sync() {
+  [ "$JQ" -eq 1 ] || die "sync precisa do jq"
+  [ -f "$REGISTRY" ] || die "nada registrado ainda (instale algo primeiro)"
+  local only="${1:-}" rows
+  rows="$(jq -r --arg only "$only" \
+    '.installs[] | select($only=="" or .preset==$only) | "\(.preset)\t\(.project)\t\(.mode)"' \
+    "$REGISTRY")"
+  [ -n "$rows" ] || die "nada pra sincronizar${only:+ (preset: $only)}"
+
+  retro_modulo "harness_sync" "${only:-todos}"
+  local preset project mode n=0 skip=0
+  while IFS="$(printf '\t')" read -r preset project mode; do
+    [ -n "$preset" ] || continue
+    if [ ! -d "$project" ]; then
+      retro_aviso "sumiu" "${project/#$HOME/~} (pulado)"; skip=$((skip + 1)); continue
+    fi
+    if ! resolve_preset "$preset"; then
+      retro_aviso "preset removido" "$preset (pulado)"; skip=$((skip + 1)); continue
+    fi
+    retro_kv "$(retro_upper "$preset")" "-> ${project/#$HOME/~}"
+    if [ "$mode" = "link" ]; then cmd_install "$preset" "$project" --force --link >/dev/null 2>&1
+    else cmd_install "$preset" "$project" --force >/dev/null 2>&1; fi
+    n=$((n + 1))
+  done <<EOF
+$rows
+EOF
+  echo
+  retro_ok "sync: $n aplicado(s), $skip pulado(s)"
+  echo
+}
+
+cmd_status() {
+  [ "$JQ" -eq 1 ] || die "status precisa do jq"
+  if [ ! -f "$REGISTRY" ]; then
+    retro_modulo "harness_status"; retro_aviso "vazio" "nenhum install registrado."; echo; return 0
+  fi
+  retro_modulo "harness_status" "$(jq '.installs | length' "$REGISTRY") install(s)"
+  local presets p
+  presets="$(jq -r '[.installs[].preset] | unique | .[]' "$REGISTRY")"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    retro_secao "$p"
+    jq -r --arg p "$p" '.installs[] | select(.preset==$p) | "\(.project)\t\(.mode)\t\(.at)"' "$REGISTRY" \
+    | while IFS="$(printf '\t')" read -r proj mode at; do
+        local mark="·"; [ -d "$proj/.harness" ] || mark="x"
+        retro_kv "$mark ${proj/#$HOME/~}" "$(retro_upper "$mode") · $at"
+      done
+    echo
+  done <<EOF
+$presets
+EOF
 }
 
 # ---------- main ----------
 case "${1:-}" in
-  copy)     shift; cmd_copy "$@" ;;
-  install)  shift; cmd_install "$@" ;;
-  list|ls)  cmd_list ;;
-  show|cat) shift; cmd_show "$@" ;;
+  init)      shift; cmd_init "$@" ;;
+  copy)      shift; cmd_copy "$@" ;;
+  install)   shift; cmd_install "$@" ;;
+  list|ls)   cmd_list ;;
+  show|cat)  shift; cmd_show "$@" ;;
   rm|remove) shift; cmd_rm "$@" ;;
+  config)    shift; cmd_config "$@" ;;
+  diff)      shift; cmd_diff "$@" ;;
+  update)    shift; cmd_update "$@" ;;
+  sync)      shift; cmd_sync "$@" ;;
+  status)    cmd_status ;;
   -h|--help|help|"") uso ;;
   *) die "comando desconhecido: $1 (veja goodharness --help)" ;;
 esac
