@@ -322,10 +322,10 @@ def coletar_radar(force=False):
     except Exception as e:
         velho = (cache or {}).get("subs") or []
         snapshot["subs"] = velho
-        nota = f"reddit: {type(e).__name__}"
+        falha = f"reddit: {type(e).__name__}"
         if velho and cache:
-            nota += f", mostrando coleta de {idade_humana(cache['ts'])}"
-        snapshot["falhas"].append(nota)
+            falha += f", mostrando coleta de {idade_humana(cache['ts'])}"
+        snapshot["falhas"].append(falha)
 
     # calendário é local: o radar nunca fica 100% vazio
     salvar_json(RADAR_FILE, snapshot)

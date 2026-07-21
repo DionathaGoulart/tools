@@ -440,10 +440,10 @@ def coletar_radar(force=False):
             except Exception as e:
                 velho = (cache or {}).get(chave)
                 snapshot[chave] = velho
-                nota = f"{chave}: {type(e).__name__}"
+                falha = f"{chave}: {type(e).__name__}"
                 if velho:
-                    nota += f", mostrando coleta de {idade_humana(cache['ts'])}"
-                snapshot["falhas"].append(nota)
+                    falha += f", mostrando coleta de {idade_humana(cache['ts'])}"
+                snapshot["falhas"].append(falha)
         canais = []
         for cfg_c, fut in zip(cfg["canais"], jobs_canais):
             try:
