@@ -13,7 +13,7 @@
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-NOMES=(goodcheats goodpomo goodprofessor goodbiografo goodvocab goodzapstats goodivers goodivers-skill dark dark-skill images/goodpixelart goodnerd)
+NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill dark dark-skill images/goodpixel goodnerd)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"

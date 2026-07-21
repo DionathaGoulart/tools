@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — put goodprofessor/ on PATH (macOS / Linux / Windows via Git Bash)
+# setup.sh — put images/goodpixel/ on PATH (macOS / Linux / Windows via Git Bash)
 #
 # Two ways to use it:
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
@@ -27,11 +27,11 @@ else
     *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
   esac
 
-  if grep -qsF "goodprofessor/setup.sh" "$RC"; then
-    echo "goodprofessor: already installed in $RC"
+  if grep -qsF "images/goodpixel/setup.sh" "$RC"; then
+    echo "goodpixel: already installed in $RC"
   else
-    printf '\n# tools/goodprofessor — comando goodprofessor (estudo Feynman)\n%s\n' "$LINE" >> "$RC"
-    echo "goodprofessor: installed in $RC"
+    printf '\n# tools/images/goodpixel — comando goodpixel (imagem -> pixel art)\n%s\n' "$LINE" >> "$RC"
+    echo "goodpixel: installed in $RC"
   fi
-  echo "goodprofessor: open a new terminal or run:  source ${RC/#$HOME/~}"
+  echo "goodpixel: open a new terminal or run:  source ${RC/#$HOME/~}"
 fi

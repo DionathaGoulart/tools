@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — put goodzapstats/ on PATH (macOS / Linux / Windows via Git Bash)
+# setup.sh — put goodzap/ on PATH (macOS / Linux / Windows via Git Bash)
 #
 # Two ways to use it:
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
@@ -27,11 +27,11 @@ else
     *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
   esac
 
-  if grep -qsF "goodzapstats/setup.sh" "$RC"; then
-    echo "goodzapstats: already installed in $RC"
+  if grep -qsF "goodzap/setup.sh" "$RC"; then
+    echo "goodzap: already installed in $RC"
   else
-    printf '\n# tools/goodzapstats — comando goodzapstats (retrô de conversa do WhatsApp)\n%s\n' "$LINE" >> "$RC"
-    echo "goodzapstats: installed in $RC"
+    printf '\n# tools/goodzap — comando goodzap (retrô de conversa do WhatsApp)\n%s\n' "$LINE" >> "$RC"
+    echo "goodzap: installed in $RC"
   fi
-  echo "goodzapstats: open a new terminal or run:  source ${RC/#$HOME/~}"
+  echo "goodzap: open a new terminal or run:  source ${RC/#$HOME/~}"
 fi

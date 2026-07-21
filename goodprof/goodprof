@@ -1,30 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-goodprofessor — técnica Feynman invertida no terminal.
+goodprof — técnica Feynman invertida no terminal.
 
 Você explica um assunto com suas palavras; um professor socrático (LLM via
 OpenRouter, modelos :free) aponta buracos e faz perguntas até você travar ou
 provar que domina. Sessões ficam em ~/.professor/<tópico>/ e podem ser
-revisadas depois com `goodprofessor -r`.
+revisadas depois com `goodprof -r`.
 
 Requer: Python 3 e a variável de ambiente OPENROUTER_API_KEY.
 """
 
 import argparse
-import json
 import os
 import re
 import sys
 import textwrap
 import unicodedata
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
 from retro import Retro
+from llm import LLM, LLMError
 
 
 def carregar_dotenv():
@@ -47,11 +45,9 @@ def carregar_dotenv():
 
 carregar_dotenv()
 
-ui = Retro(env_prefix="GOODPROFESSOR")
+ui = Retro(env_prefix="GOODPROF")
 
-BASE_DIR = Path(os.environ.get("GOODPROFESSOR_DIR", Path.home() / ".professor"))
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODELS_URL = "https://openrouter.ai/api/v1/models"
+BASE_DIR = Path(os.environ.get("GOODPROF_DIR", Path.home() / ".professor"))
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -92,67 +88,33 @@ da última avaliação, se fornecida."""
 
 # ---------------------------------------------------------------- openrouter
 
-def modelos_configurados():
-    env = os.environ.get("OPENROUTER_MODEL", "").strip()
-    if env:
-        return [m.strip() for m in env.split(",") if m.strip()]
-    return DEFAULT_MODELS
+_llm = LLM("goodprof", DEFAULT_MODELS)
 
 
 def chamar_llm(messages, max_tokens=1500):
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key:
-        die(
-            "OPENROUTER_API_KEY nao definida.",
-            [
-                "crie uma chave gratis em https://openrouter.ai/keys",
-                'exporte no seu rc:  export OPENROUTER_API_KEY="sk-or-..."',
-            ],
-        )
-    erros = []
-    for model in modelos_configurados():
-        payload = json.dumps({
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.6,
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            API_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
-                "X-Title": "goodprofessor",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            msg = data["choices"][0]["message"]
-            content = (msg.get("content") or "").strip()
-            if content:
-                return content, model
-            erros.append(f"{model}: resposta vazia")
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
-                die("OPENROUTER_API_KEY inválida (HTTP 401).")
-            erros.append(f"{model}: HTTP {e.code}")
-        except Exception as e:  # rede, timeout, JSON…
-            erros.append(f"{model}: {type(e).__name__}: {e}")
-    die("todos os modelos falharam.",
-        erros + ["`goodprofessor -m` lista os modelos :free no ar",
-                 "defina OPENROUTER_MODEL pra trocar"])
+    try:
+        return _llm.chat(messages, max_tokens=max_tokens, temperature=0.6)
+    except LLMError as e:
+        if e.kind == "no_key":
+            die(
+                "OPENROUTER_API_KEY nao definida.",
+                [
+                    "crie uma chave gratis em https://openrouter.ai/keys",
+                    'exporte no seu rc:  export OPENROUTER_API_KEY="sk-or-..."',
+                ],
+            )
+        if e.kind == "auth":
+            die("OPENROUTER_API_KEY inválida (HTTP 401).")
+        die("todos os modelos falharam.",
+            e.errors + ["`goodprof -m` lista os modelos :free no ar",
+                        "defina OPENROUTER_MODEL pra trocar"])
 
 
 def listar_modelos_free():
     try:
-        with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        die(f"nao consegui consultar {MODELS_URL}: {e}")
-    livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
+        livres = _llm.free_models()
+    except LLMError as e:
+        die(e.message)
     ui.modulo("free_models", "src: openrouter")
     if not livres:
         ui.aviso("vazio", "nenhum modelo :free no ar agora.")
@@ -205,7 +167,7 @@ def ler_multilinha():
 
 def imprimir_professor(texto):
     print()
-    ui.secao("goodprofessor")
+    ui.secao("goodprof")
     print()
     for linha in texto.splitlines():
         print(f"  {ui.FG70}{linha}{ui.RESET}" if linha.strip() else "")
@@ -278,7 +240,7 @@ def rodar_sessao(topico, revisao=False):
     else:
         ui.modulo("feynman_session", f"topic: {slug}")
         ui.janela(
-            "root@goodprofessor: ~/study",
+            "root@goodprof: ~/study",
             [f"ASSUNTO: {topico.upper()}", ""]
             + envolver("Explica com tuas palavras, como se ensinasse alguem que nunca ouviu falar disso."),
             meta="MODO: FEYNMAN",
@@ -324,7 +286,7 @@ def rodar_sessao(topico, revisao=False):
     ui.kv("ARQUIVO", str(caminho))
     ui.kv("MODELO", model_usado)
     print()
-    ui.proximo(f'goodprofessor -r "{topico}"', "revisar depois:")
+    ui.proximo(f'goodprof -r "{topico}"', "revisar depois:")
     print()
 
 
@@ -334,7 +296,7 @@ def cmd_listar():
     if not tops:
         ui.aviso("vazio", "nenhum topico estudado ainda.")
         print()
-        ui.proximo('goodprofessor "<assunto>"')
+        ui.proximo('goodprof "<assunto>"')
         print()
         return
     total = sum(n for _, _, n, _ in tops)
@@ -351,7 +313,7 @@ def cmd_listar():
             f"{ui.barra(n, total, 10)}  {ui.FG40}{n} SESSAO(OES) · {data}{ui.RESET}"
         )
     print()
-    ui.proximo("goodprofessor -r", "revisar o mais esquecido:")
+    ui.proximo("goodprof -r", "revisar o mais esquecido:")
     print()
 
 
@@ -376,13 +338,13 @@ def cmd_temas():
 
 
 def uso():
-    ui.modulo("goodprofessor_help")
-    ui.kv('goodprofessor "<assunto>"', "NOVA SESSAO")
-    ui.kv("goodprofessor -r", "REVISA O MAIS ESQUECIDO")
-    ui.kv('goodprofessor -r "<assunto>"', "REVISA UM TOPICO")
-    ui.kv("goodprofessor -l", "TOPICOS ESTUDADOS")
-    ui.kv("goodprofessor -m", "MODELOS :FREE NO AR")
-    ui.kv("goodprofessor temas", "PALETAS")
+    ui.modulo("goodprof_help")
+    ui.kv('goodprof "<assunto>"', "NOVA SESSAO")
+    ui.kv("goodprof -r", "REVISA O MAIS ESQUECIDO")
+    ui.kv('goodprof -r "<assunto>"', "REVISA UM TOPICO")
+    ui.kv("goodprof -l", "TOPICOS ESTUDADOS")
+    ui.kv("goodprof -m", "MODELOS :FREE NO AR")
+    ui.kv("goodprof temas", "PALETAS")
     print()
     ui.secao("durante a sessao")
     ui.kv(".", "ENCERRA A RESPOSTA")
@@ -392,17 +354,17 @@ def uso():
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
-    ui.kv("GOODPROFESSOR_DIR", str(BASE_DIR))
-    ui.kv("GOODPROFESSOR_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("GOODPROF_DIR", str(BASE_DIR))
+    ui.kv("GOODPROF_TEMA / RETRO_TEMA", ui.tema.upper())
     ui.kv("NO_COLOR", "DESLIGA AS CORES")
     print()
 
 
 def main():
     ap = argparse.ArgumentParser(
-        prog="goodprofessor",
+        prog="goodprof",
         description="Você explica, ele fura tua explicação até você travar ou provar que sabe.",
-        epilog='exemplos:  goodprofessor "DNS"   ·   goodprofessor -r   ·   goodprofessor -l   ·   goodprofessor temas',
+        epilog='exemplos:  goodprof "DNS"   ·   goodprof -r   ·   goodprof -l   ·   goodprof temas',
         add_help=False,
     )
     ap.add_argument("topico", nargs="?",
