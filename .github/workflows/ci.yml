@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # unit tests (stdlib unittest — the tools have no runtime deps)
+      - name: tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+      # unused imports / obvious mistakes across every python entrypoint
+      - name: pyflakes
+        run: |
+          python -m pip install --quiet pyflakes
+          python -m pyflakes \
+            lib/llm.py lib/retro.py \
+            dark/dark goodivers/goodivers goodvocab/goodvocab \
+            goodprof/goodprof goodbio/goodbio \
+            goodzap/goodzap images/goodpixel/goodpixel
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # syntax gate: must be clean for every shell script (incl. extensionless)
+      - name: bash -n
+        run: |
+          set -e
+          scripts="$(find . -path ./.git -prune -o -name '*.sh' -print)"
+          scripts="$scripts goodpomo/goodpomo goodnerd/goodnerd"
+          scripts="$scripts goodcheats/good goodcheats/goodcheat goodcheats/goodharness"
+          for f in $scripts; do
+            [ -f "$f" ] || continue
+            echo "checking $f"
+            bash -n "$f"
+          done
+
+      # shellcheck at error severity — fails only on real bugs, not style nits
+      - name: shellcheck
+        run: |
+          scripts="$(find . -path ./.git -prune -o -name '*.sh' -print)"
+          scripts="$scripts goodpomo/goodpomo goodnerd/goodnerd"
+          scripts="$scripts goodcheats/good goodcheats/goodcheat goodcheats/goodharness"
+          # shellcheck is preinstalled on ubuntu-latest runners
+          shellcheck -S error $scripts
+
+      # functional smoke test for goodharness (bundle presets, init, config)
+      - name: goodharness tests
+        run: bash tests/test_goodharness.sh   # jq is preinstalled on ubuntu-latest
