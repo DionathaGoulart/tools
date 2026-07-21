@@ -35,12 +35,25 @@ if [ "$SOURCED" -eq 1 ]; then
     unset _drk_stamp _drk_hoje
   fi
 
+  # Windows (Git Bash): não existe python3.exe — cai no shim do repo (py/python)
+  if ! command -v python3 >/dev/null 2>&1 && [ -f "$TOOLS_DIR/../lib/shims/python3" ]; then
+    case ":$PATH:" in
+      *":$TOOLS_DIR/../lib/shims:"*) ;;
+      *) export PATH="$TOOLS_DIR/../lib/shims:$PATH" ;;
+    esac
+  fi
+
   unset TOOLS_DIR SOURCED
 elif [ "${1:-}" = "--skill" ]; then
   # skill /dark do Claude Code (geração com o Claude da sessão, sem OpenRouter)
   [ -d "$HOME/.claude" ] || echo "dark: aviso — ~/.claude não existe (Claude Code não instalado?); criando mesmo assim."
   mkdir -p "$HOME/.claude/skills"
-  ln -sfn "$TOOLS_DIR/skill" "$HOME/.claude/skills/dark"
+  # Windows (Git Bash): sem symlink nativo, ln viraria cópia silenciosa — força
+  # symlink real e, se não der (sem Developer Mode), copia a pasta de verdade
+  if ! MSYS=winsymlinks:nativestrict ln -sfn "$TOOLS_DIR/skill" "$HOME/.claude/skills/dark" 2>/dev/null; then
+    rm -rf "$HOME/.claude/skills/dark"
+    cp -R "$TOOLS_DIR/skill" "$HOME/.claude/skills/dark"
+  fi
   echo "dark: skill /dark instalada em ~/.claude/skills/dark"
   echo "dark: o skill usa o CLI pra coletar — instale-o também se ainda não tiver (bash setup.sh)"
 else

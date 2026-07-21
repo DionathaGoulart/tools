@@ -34,9 +34,10 @@ SKILL_GOODIVERS="$HOME/.claude/skills/goodivers"
 SKILL_DARK="$HOME/.claude/skills/dark"
 
 instalada() {
+  # skills: symlink no macOS/Linux; no Windows (Git Bash) pode ser cópia da pasta
   case "$1" in
-    goodivers-skill) [ -L "$SKILL_GOODIVERS" ] ;;
-    dark-skill) [ -L "$SKILL_DARK" ] ;;
+    goodivers-skill) [ -L "$SKILL_GOODIVERS" ] || [ -d "$SKILL_GOODIVERS" ] ;;
+    dark-skill) [ -L "$SKILL_DARK" ] || [ -d "$SKILL_DARK" ] ;;
     *) grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null ;;
   esac
 }
@@ -297,6 +298,10 @@ else
           "$ORIGEM"*) rm -f "$LINKS"
                       printf '  %s−%s skill /%s removida de ~/.claude/skills\n' "$ALERTA" "$RESET" "$NOME_SKILL" ;;
         esac
+      elif [ -d "$LINKS" ] && [ -f "$LINKS/SKILL.md" ]; then
+        # Windows (Git Bash): a skill foi instalada como cópia, não symlink
+        rm -rf "$LINKS"
+        printf '  %s−%s skill /%s removida de ~/.claude/skills\n' "$ALERTA" "$RESET" "$NOME_SKILL"
       fi
       continue
     fi

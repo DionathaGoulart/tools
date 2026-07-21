@@ -130,7 +130,7 @@ def decode(path: Path, maxdim: int):
     if res is None:
         raise RuntimeError(
             "não consegui decodificar. Instale Pillow (pip install Pillow) "
-            "ou ImageMagick (brew install imagemagick)."
+            "ou ImageMagick (brew/apt/choco install imagemagick)."
         )
     return res
 

@@ -258,9 +258,16 @@ if [ "$OS_KERNEL" = "Darwin" ]; then
     add Battery "$batt${state:+ ($state)}"
   fi
 else
-  # Linux
+  # Linux / Windows (Git Bash — o MSYS2 expõe /proc, então o resto funciona igual)
   os_pretty="Linux"
-  [ -f /etc/os-release ] && os_pretty="$(. /etc/os-release && echo "$PRETTY_NAME")"
+  case "$OS_KERNEL" in
+    MINGW*|MSYS*|CYGWIN*)
+      os_pretty="$(reg.exe query 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion' /v ProductName 2>/dev/null \
+        | tr -d '\r' | sed -n 's/.*REG_SZ[[:space:]]*//p' | head -1)"
+      os_pretty="${os_pretty:-Windows}"
+      ;;
+    *) [ -f /etc/os-release ] && os_pretty="$(. /etc/os-release && echo "$PRETTY_NAME")" ;;
+  esac
   add OS "$os_pretty $(uname -m)"
 
   if [ -r /sys/devices/virtual/dmi/id/product_name ]; then

@@ -19,6 +19,14 @@ if [ "$SOURCED" -eq 1 ]; then
     *":$TOOLS_DIR:"*) ;;
     *) export PATH="$TOOLS_DIR:$PATH" ;;
   esac
+  # Windows (Git Bash): não existe python3.exe — cai no shim do repo (py/python)
+  if ! command -v python3 >/dev/null 2>&1 && [ -f "$TOOLS_DIR/../lib/shims/python3" ]; then
+    case ":$PATH:" in
+      *":$TOOLS_DIR/../lib/shims:"*) ;;
+      *) export PATH="$TOOLS_DIR/../lib/shims:$PATH" ;;
+    esac
+  fi
+
   unset TOOLS_DIR SOURCED
 else
   LINE="[ -f \"$TOOLS_DIR/setup.sh\" ] && source \"$TOOLS_DIR/setup.sh\""

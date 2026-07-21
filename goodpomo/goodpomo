@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# goodpomo — pomodoro no terminal, com notificação nativa (macOS / Linux)
+# goodpomo — pomodoro no terminal, com notificação nativa (macOS / Linux / Windows)
 #
 # usage: goodpomo [minutos] [rótulo…]   inicia um foco (padrão 25 min)
 #        goodpomo pausa [minutos]       pausa (padrão 5 min; a cada 4 focos, 15)
@@ -54,6 +54,23 @@ notificar() { # $1 = título, $2 = corpo
     fi
   elif command -v notify-send >/dev/null 2>&1; then
     notify-send "$1" "$2" >/dev/null 2>&1
+    if command -v paplay >/dev/null 2>&1 && [ -f /usr/share/sounds/freedesktop/stereo/complete.oga ]; then
+      paplay /usr/share/sounds/freedesktop/stereo/complete.oga >/dev/null 2>&1 &
+    fi
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    # Windows (Git Bash): toast nativo via WinRT + som de sistema
+    local _tit="${1//\"/}" _msg="${2//\"/}"
+    _tit="${_tit//\'/}" _msg="${_msg//\'/}"
+    powershell.exe -NoProfile -Command "
+      [System.Media.SystemSounds]::Asterisk.Play();
+      try {
+        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null;
+        \$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);
+        \$t.GetElementsByTagName('text').Item(0).InnerText = '$_tit';
+        \$t.GetElementsByTagName('text').Item(1).InnerText = '$_msg';
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('goodpomo').Show([Windows.UI.Notifications.ToastNotification]::new(\$t.GetXml()));
+      } catch {}
+    " >/dev/null 2>&1 &
   fi
   printf '\a'
 }

@@ -90,6 +90,8 @@ class Retro:
 
         self.tty = sys.stdout.isatty()
         self.cor = self.tty and not os.environ.get("NO_COLOR")
+        if self.cor and os.name == "nt":
+            os.system("")  # legacy Windows console: turns on ANSI/VT processing
         colorterm = os.environ.get("COLORTERM", "")
         self.truecolor = self.cor and ("truecolor" in colorterm or "24bit" in colorterm)
 

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# python3 shim — Windows installs expose only `python`/`py`, but every tool's
+# shebang expects `python3`. The tools' setup.sh only puts this directory on
+# PATH when the real python3 is missing, so this never shadows a native one.
+if command -v py >/dev/null 2>&1; then exec py -3 "$@"; fi
+if command -v python >/dev/null 2>&1; then exec python "$@"; fi
+echo "python3: nenhum Python encontrado — instale em https://python.org" >&2
+exit 127
