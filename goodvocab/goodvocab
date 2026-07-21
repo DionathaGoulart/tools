@@ -22,13 +22,12 @@ import os
 import re
 import sys
 import textwrap
-import urllib.error
-import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
 from retro import Retro  # noqa: E402
+from llm import LLM, LLMError  # noqa: E402
 
 
 def carregar_dotenv():
@@ -58,9 +57,6 @@ ui = Retro(env_var="GOODVOCAB_PALETA")
 BASE_DIR = Path(os.environ.get("GOODVOCAB_DIR", Path.home() / ".vocab"))
 PALAVRAS_FILE = BASE_DIR / "palavras.json"   # palavras aprendidas + estado da revisão
 FILA_FILE = BASE_DIR / "fila.json"           # palavras ainda não apresentadas
-
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -101,64 +97,31 @@ def system_palavras():
 
 # ---------------------------------------------------------------- openrouter
 
-def modelos_configurados():
-    env = os.environ.get("OPENROUTER_MODEL", "").strip()
-    if env:
-        return [m.strip() for m in env.split(",") if m.strip()]
-    return DEFAULT_MODELS
+_llm = LLM("goodvocab", DEFAULT_MODELS)
 
 
 def chamar_llm(messages, max_tokens=3000, temperature=0.8):
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key:
-        die(
-            "OPENROUTER_API_KEY não definida (necessária só pra gerar palavras novas).\n"
-            "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
-            '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
-        )
-    erros = []
-    for model in modelos_configurados():
-        payload = json.dumps({
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            API_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
-                "X-Title": "goodvocab",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            content = (data["choices"][0]["message"].get("content") or "").strip()
-            if content:
-                return content, model
-            erros.append(f"{model}: resposta vazia")
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
-                die("OPENROUTER_API_KEY inválida (HTTP 401).")
-            erros.append(f"{model}: HTTP {e.code}")
-        except Exception as e:
-            erros.append(f"{model}: {type(e).__name__}: {e}")
-    die("Todos os modelos falharam:\n  " + "\n  ".join(erros)
-        + "\n\nDica: `goodvocab -m` lista os modelos :free no ar; "
-        "defina OPENROUTER_MODEL pra trocar.")
+    try:
+        return _llm.chat(messages, max_tokens=max_tokens, temperature=temperature)
+    except LLMError as e:
+        if e.kind == "no_key":
+            die(
+                "OPENROUTER_API_KEY não definida (necessária só pra gerar palavras novas).\n"
+                "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
+                '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
+            )
+        if e.kind == "auth":
+            die("OPENROUTER_API_KEY inválida (HTTP 401).")
+        die("Todos os modelos falharam:\n  " + "\n  ".join(e.errors)
+            + "\n\nDica: `goodvocab -m` lista os modelos :free no ar; "
+            "defina OPENROUTER_MODEL pra trocar.")
 
 
 def listar_modelos_free():
     try:
-        with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        die(f"Não consegui consultar {MODELS_URL}: {e}")
-    livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
+        livres = _llm.free_models()
+    except LLMError as e:
+        die(e.message)
     ui.modulo("free_models", "src: openrouter")
     ui.kv("DISPONIVEIS", f"{len(livres)} MODELO(S)")
     print()

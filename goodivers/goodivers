@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
 from retro import Retro  # noqa: E402
+from llm import LLM, LLMError  # noqa: E402
 
 ui = Retro(env_prefix="GOODIVERS")
 
@@ -66,9 +67,6 @@ BASE_DIR = Path(os.environ.get("GOODIVERS_DIR", Path.home() / ".goodivers"))
 CONFIG_FILE = BASE_DIR / "config.json"   # canais monitorados
 RADAR_FILE = BASE_DIR / "radar.json"     # último snapshot do radar (cache)
 IDEIAS_FILE = BASE_DIR / "ideias.json"   # últimas ideias geradas (pra `pacote N`)
-
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -554,11 +552,7 @@ def render_radar(s):
 
 # ---------------------------------------------------------------- openrouter
 
-def modelos_configurados():
-    env = os.environ.get("OPENROUTER_MODEL", "").strip()
-    if env:
-        return [m.strip() for m in env.split(",") if m.strip()]
-    return DEFAULT_MODELS
+_llm = LLM("goodivers", DEFAULT_MODELS)
 
 
 def chamar_llm(messages, max_tokens=3000, temperature=0.9, json_tipo=None):
@@ -568,62 +562,27 @@ def chamar_llm(messages, max_tokens=3000, temperature=0.9, json_tipo=None):
     modelo que devolve JSON quebrado conta como falha e cai pro próximo.
     Retorna (conteudo, modelo); conteudo já parseado quando json_tipo é dado.
     """
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key:
-        die(
-            "OPENROUTER_API_KEY não definida (o radar funciona sem; gerar ideias não).\n"
-            "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
-            '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
-        )
-    erros = []
-    for model in modelos_configurados():
-        payload = json.dumps({
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            API_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
-                "X-Title": "goodivers",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            content = (data["choices"][0]["message"].get("content") or "").strip()
-            if not content:
-                erros.append(f"{model}: resposta vazia")
-                continue
-            if json_tipo is None:
-                return content, model
-            parsed = extrair_json(content, json_tipo)
-            if parsed is not None:
-                return parsed, model
-            erros.append(f"{model}: não devolveu JSON parseável")
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
-                die("OPENROUTER_API_KEY inválida (HTTP 401).")
-            erros.append(f"{model}: HTTP {e.code}")
-        except Exception as e:
-            erros.append(f"{model}: {type(e).__name__}: {e}")
-    die("Todos os modelos falharam:\n  " + "\n  ".join(erros)
-        + "\n\nDica: `goodivers -m` lista os modelos :free no ar; "
-        "defina OPENROUTER_MODEL pra trocar.")
+    try:
+        return _llm.chat(messages, max_tokens=max_tokens, temperature=temperature, json_tipo=json_tipo)
+    except LLMError as e:
+        if e.kind == "no_key":
+            die(
+                "OPENROUTER_API_KEY não definida (o radar funciona sem; gerar ideias não).\n"
+                "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
+                '  2. Adicione ao seu rc:  export OPENROUTER_API_KEY="sk-or-..."'
+            )
+        if e.kind == "auth":
+            die("OPENROUTER_API_KEY inválida (HTTP 401).")
+        die("Todos os modelos falharam:\n  " + "\n  ".join(e.errors)
+            + "\n\nDica: `goodivers -m` lista os modelos :free no ar; "
+            "defina OPENROUTER_MODEL pra trocar.")
 
 
 def listar_modelos_free():
     try:
-        with urllib.request.urlopen(MODELS_URL, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        die(f"Não consegui consultar {MODELS_URL}: {e}")
-    livres = sorted(m["id"] for m in data.get("data", []) if m["id"].endswith(":free"))
+        livres = _llm.free_models()
+    except LLMError as e:
+        die(e.message)
     ui.modulo("models", "src: openrouter")
     ui.kv("MODELOS :FREE", str(len(livres)))
     print()
@@ -632,28 +591,6 @@ def listar_modelos_free():
     print()
     ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra usar outros:")
     print()
-
-
-def extrair_json(texto, tipo="array"):
-    """Extrai o JSON da resposta (tolera cerca de markdown, reasoning e texto em volta)."""
-    abre = "[" if tipo == "array" else "{"
-    texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL).strip()
-    dec = json.JSONDecoder()
-    i = texto.find(abre)
-    while i != -1:
-        try:
-            valor, _ = dec.raw_decode(texto, i)
-            # comandos esperam array de objetos ou um objeto — evita pegar
-            # colchetes soltos do texto em volta (ex.: "lista[0]")
-            if tipo == "array":
-                if isinstance(valor, list) and valor and all(isinstance(x, dict) for x in valor):
-                    return valor
-            elif isinstance(valor, dict) and valor:
-                return valor
-        except json.JSONDecodeError:
-            pass
-        i = texto.find(abre, i + 1)
-    return None
 
 
 # ---------------------------------------------------------------- contexto do estrategista
