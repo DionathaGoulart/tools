@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pixelart — turn any image into crisp, honest pixel art.
+"""goodpixelart — turn any image into crisp, honest pixel art.
 
 Decodes the source with whatever backend is available (Pillow first, then the
 ImageMagick ``magick`` CLI), but does every pixel-art step itself so the output
@@ -12,10 +12,10 @@ is identical no matter which backend decoded the file:
 Pure Python for the transform and the PNG writer, so the only thing that can be
 missing is the *decoder*. No pip install for the tool itself.
 
-    pixelart photo.jpg
-    pixelart logo.svg -w 64 -c 8
-    pixelart *.png --palette gameboy -o /dev/null   # batch, presets
-    pixelart --temas
+    goodpixelart photo.jpg
+    goodpixelart logo.svg -w 64 -c 8
+    goodpixelart *.png --palette gameboy -o /dev/null   # batch, presets
+    goodpixelart --temas
 """
 
 from __future__ import annotations
@@ -337,7 +337,7 @@ def convert(ui: Retro, src: Path, args, out_override: Path | None):
     write_png(dst, gw, gh, scale, colors, idx)
     size = dst.stat().st_size
 
-    ui.modulo("pixelart", f"src: {src.name}")
+    ui.modulo("goodpixelart", f"src: {src.name}")
     swatches(ui, colors)
     ui.kv("ENTRADA", f"{w}x{h}")
     ui.kv("GRADE", f"{gw}x{gh} PX")
@@ -355,7 +355,7 @@ def convert(ui: Retro, src: Path, args, out_override: Path | None):
 # ------------------------------------------------------------- cli
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="pixelart",
+        prog="goodpixelart",
         description="transforma imagens (png/jpg/svg/webp/…) em pixel art.",
         add_help=False,
     )
@@ -385,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
 HELP = """
 {titulo}
 
-  {u}pixelart{r} [imagens...] [opções]
+  {u}goodpixelart{r} [imagens...] [opções]
 
   {a}-w, --width N{r}    largura da grade em px          {d}(padrão 128){r}
   {a}    --height N{r}   altura da grade                 {d}(padrão: proporção){r}
@@ -400,15 +400,15 @@ HELP = """
   {d}decoder: Pillow se houver, senão ImageMagick (svg/pdf via magick){r}
 
   {d}exemplos{r}
-    pixelart foto.jpg
-    pixelart logo.svg -w 64 -c 8
-    pixelart *.png --palette gameboy
+    goodpixelart foto.jpg
+    goodpixelart logo.svg -w 64 -c 8
+    goodpixelart *.png --palette gameboy
 """
 
 
 def main() -> int:
     args = build_parser().parse_args()
-    ui = Retro(env_prefix="PIXELART")
+    ui = Retro(env_prefix="GOODPIXELART")
 
     if args.temas:
         ui.catalogo_temas()
@@ -416,7 +416,7 @@ def main() -> int:
 
     if args.help or not args.files:
         print(HELP.format(
-            titulo=ui.forte("[ MODULE: PIXELART ]"),
+            titulo=ui.forte("[ MODULE: GOODPIXELART ]"),
             u=ui.ACC + ui.BOLD, a=ui.ACC, d=ui.FG40, r=ui.RESET,
         ))
         return 0 if args.help else 1

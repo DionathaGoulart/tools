@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — put professor/ on PATH (macOS / Linux / Windows via Git Bash)
+# setup.sh — put goodpomo/ on PATH (macOS / Linux / Windows via Git Bash)
 #
 # Two ways to use it:
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
@@ -27,11 +27,11 @@ else
     *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
   esac
 
-  if grep -qsF "professor/setup.sh" "$RC"; then
-    echo "professor: already installed in $RC"
+  if grep -qsF "goodpomo/setup.sh" "$RC"; then
+    echo "goodpomo: already installed in $RC"
   else
-    printf '\n# tools/professor — comando professor (estudo Feynman)\n%s\n' "$LINE" >> "$RC"
-    echo "professor: installed in $RC"
+    printf '\n# tools/goodpomo — comando goodpomo (pomodoro no terminal)\n%s\n' "$LINE" >> "$RC"
+    echo "goodpomo: installed in $RC"
   fi
-  echo "professor: open a new terminal or run:  source ${RC/#$HOME/~}"
+  echo "goodpomo: open a new terminal or run:  source ${RC/#$HOME/~}"
 fi

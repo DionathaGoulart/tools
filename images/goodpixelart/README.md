@@ -1,4 +1,4 @@
-# pixelart
+# goodpixelart
 
 Transforma qualquer imagem em **pixel art** limpa e honesta, no terminal. Aceita
 `png`, `jpg`/`jpeg`, `gif`, `bmp`, `webp`, `tiff` — e vetores (`svg`, `pdf`, `eps`)
@@ -19,11 +19,11 @@ A única coisa que pode faltar é o *decoder* — e aí ele usa Pillow ou ImageM
 ## Uso
 
 ```bash
-pixelart foto.jpg                     # 128px de grade, 16 cores, tamanho ~original
-pixelart logo.svg -w 64 -c 8          # grade menor, paleta menor
-pixelart *.png --palette gameboy      # lote, paleta clássica de 4 verdes
-pixelart arte.png -w 48 -d            # cores chapadas → com dithering
-pixelart icon.svg -w 32 --true        # salva no tamanho real da grade (1x1)
+goodpixelart foto.jpg                     # 128px de grade, 16 cores, tamanho ~original
+goodpixelart logo.svg -w 64 -c 8          # grade menor, paleta menor
+goodpixelart *.png --palette gameboy      # lote, paleta clássica de 4 verdes
+goodpixelart arte.png -w 48 -d            # cores chapadas → com dithering
+goodpixelart icon.svg -w 32 --true        # salva no tamanho real da grade (1x1)
 ```
 
 Saída: `<nome>.pixel.png` na mesma pasta (ou `-o arquivo.png` com uma imagem só).
@@ -60,7 +60,7 @@ Se nenhum dos dois existir, o comando avisa qual instalar.
 ## Instalação
 
 ```bash
-bash ~/Desktop/tools/images/pixelart/setup.sh
+bash ~/Desktop/tools/images/goodpixelart/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). O `setup.sh` detecta o próprio
@@ -71,5 +71,5 @@ caminho — clonar o repo em outro lugar funciona igual. Desinstalar: `bash
 
 Segue o [styleguide de terminal](../../.harness/styleguide-terminal.md) do repo
 (paleta accent-only, cantos retos, borda pesada). Escolha o tema com
-`PIXELART_TEMA` ou `RETRO_TEMA`; veja `pixelart --temas`. No terminal com truecolor
+`GOODPIXELART_TEMA` ou `RETRO_TEMA`; veja `goodpixelart --temas`. No terminal com truecolor
 ele ainda desenha uma **prévia** da arte em half-blocks e a paleta em swatches.

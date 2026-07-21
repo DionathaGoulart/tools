@@ -1,4 +1,4 @@
-# vocab
+# goodvocab
 
 Uma palavra de inglês por dia, com **revisão espaçada**. Todo dia ele te
 ensina uma palavra nova (significado, pronúncia IPA, frase de exemplo) e te
@@ -6,13 +6,13 @@ sabatina nas anteriores que estão vencendo. Acertou, a palavra volta mais
 longe; errou, volta amanhã — caixas de Leitner clássicas.
 
 ```bash
-vocab              # revisão do dia + palavra nova
-vocab -q           # só a revisão, sem palavra nova
-vocab -x           # aprender outra palavra mesmo já tendo aprendido hoje
-vocab -l           # lista o baralho e o status da revisão
-vocab palavras     # reabastece a fila de palavras manualmente
-vocab -m           # lista modelos :free disponíveis agora
-vocab temas        # lista as paletas do terminal
+goodvocab              # revisão do dia + palavra nova
+goodvocab -q           # só a revisão, sem palavra nova
+goodvocab -x           # aprender outra palavra mesmo já tendo aprendido hoje
+goodvocab -l           # lista o baralho e o status da revisão
+goodvocab palavras     # reabastece a fila de palavras manualmente
+goodvocab -m           # lista modelos :free disponíveis agora
+goodvocab temas        # lista as paletas do terminal
 ```
 
 ## Como funciona
@@ -39,15 +39,15 @@ escondida — você digita a palavra em inglês:
 
 ## Aparência
 
-O `vocab` segue o style guide de terminal retrô do repositório
+O `goodvocab` segue o style guide de terminal retrô do repositório
 (`.harness/styleguide-terminal.md`): a palavra do dia sai numa janela de
 terminal, as caixas de Leitner viram barras `█`/`▒` em tom de acento, rótulos
 em maiúsculas e `[ OK ]` / `[ ERRO ]` no lugar de emoji.
 
 ```bash
-vocab temas                     # mostra as 9 paletas, marcando a atual com ►
+goodvocab temas                     # mostra as 9 paletas, marcando a atual com ►
 export RETRO_TEMA=cyber-teal    # paleta de todas as ferramentas do repo
-export VOCAB_PALETA=noir-rose   # só o vocab
+export GOODVOCAB_PALETA=noir-rose   # só o goodvocab
 ```
 
 Paletas: `vault-gold` (padrão) · `noir-rose` · `midnight-ember` · `cyber-teal`
@@ -55,7 +55,7 @@ Paletas: `vault-gold` (padrão) · `noir-rose` · `midnight-ember` · `cyber-tea
 `sand-dusk`. `NO_COLOR=1`, saída redirecionada pra arquivo ou terminal estreito
 degradam pra texto puro sem perder a leitura.
 
-> **Nota:** a paleta do terminal é `VOCAB_PALETA`, não `VOCAB_TEMA` — esta
+> **Nota:** a paleta do terminal é `GOODVOCAB_PALETA`, não `GOODVOCAB_TEMA` — esta
 > última já era dos *temas das palavras geradas* (texto livre, ex.:
 > `tecnologia, viagem`) e continua com esse papel.
 
@@ -75,11 +75,11 @@ Precisa de Python 3 e uma chave da [OpenRouter](https://openrouter.ai/keys)
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/vocab/.env.example ~/Desktop/tools/vocab/.env
+cp ~/Desktop/tools/goodvocab/.env.example ~/Desktop/tools/goodvocab/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
-bash ~/Desktop/tools/vocab/setup.sh
+bash ~/Desktop/tools/goodvocab/setup.sh
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.
@@ -90,7 +90,7 @@ Adicione antes da linha de `source` no seu rc pra ser lembrado uma vez por
 dia, ao abrir o terminal:
 
 ```bash
-export VOCAB_LEMBRETE=1
+export GOODVOCAB_LEMBRETE=1
 ```
 
 ## Configuração
@@ -99,12 +99,12 @@ export VOCAB_LEMBRETE=1
 |---|---|---|
 | `OPENROUTER_API_KEY` | sua chave (obrigatória só p/ gerar palavras) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
-| `VOCAB_NIVEL` | nível das palavras geradas | `intermediário` |
-| `VOCAB_TEMA` | temas preferidos das palavras (texto livre) | nenhum |
-| `VOCAB_PALETA` | paleta do terminal só pro vocab (veja `vocab temas`) | `vault-gold` |
-| `RETRO_TEMA` | paleta do terminal (veja `vocab temas`) | `vault-gold` |
-| `VOCAB_DIR` | onde salvar tudo | `~/.vocab` |
-| `VOCAB_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
+| `GOODVOCAB_NIVEL` | nível das palavras geradas | `intermediário` |
+| `GOODVOCAB_TEMA` | temas preferidos das palavras (texto livre) | nenhum |
+| `GOODVOCAB_PALETA` | paleta do terminal só pro goodvocab (veja `goodvocab temas`) | `vault-gold` |
+| `RETRO_TEMA` | paleta do terminal (veja `goodvocab temas`) | `vault-gold` |
+| `GOODVOCAB_DIR` | onde salvar tudo | `~/.vocab` |
+| `GOODVOCAB_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
 | `NO_COLOR` | qualquer valor desliga as cores | desligado |
 
 ## Dica

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-zapstats — retrospectiva de uma conversa exportada do WhatsApp.
+goodzapstats — retrospectiva de uma conversa exportada do WhatsApp.
 
 Recebe o .txt do "Exportar conversa" (sem mídia) e monta um retrô estilo
 Spotify Wrapped: quem fala mais, horários, tempo de resposta, quem puxa
@@ -13,11 +13,11 @@ Opcionalmente (--roast) uma camada qualitativa via LLM (OpenRouter, modelos
 por "Pessoa A/B" antes de sair da máquina e recolocados no texto final.
 
 Uso:
-    zapstats conversa.txt
-    zapstats conversa.txt --roast
-    zapstats conversa.txt --roast --reais       # manda nomes reais (menos privado)
-    zapstats conversa.txt --html retro.html
-    zapstats temas                              # paletas do terminal
+    goodzapstats conversa.txt
+    goodzapstats conversa.txt --roast
+    goodzapstats conversa.txt --roast --reais       # manda nomes reais (menos privado)
+    goodzapstats conversa.txt --html retro.html
+    goodzapstats temas                              # paletas do terminal
 
 Requer: Python 3. A camada --roast também precisa de OPENROUTER_API_KEY.
 """
@@ -59,7 +59,7 @@ def carregar_dotenv():
 
 carregar_dotenv()
 
-ui = Retro(env_prefix="ZAPSTATS")
+ui = Retro(env_prefix="GOODZAPSTATS")
 
 API_URL ="https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -339,7 +339,7 @@ def relatorio(st, origem=""):
     span = (st["fim"] - st["inicio"]).days + 1
     ui.modulo("chat_wrapped", f"src: {origem}" if origem else "")
     ui.janela(
-        "root@zapstats: ~/retro",
+        "root@goodzapstats: ~/retro",
         [
             linha_kv("PERIODO", f"{st['inicio']:%d/%m/%Y} → {st['fim']:%d/%m/%Y}"),
             linha_kv("DIAS", f"{span}"),
@@ -518,7 +518,7 @@ def gerar_html(st, texto_llm, destino):
         bloco_llm = f'<section class="card llm"><pre>{escape(texto_llm)}</pre></section>'
     html = f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>zapstats — retrô</title>
+<title>goodzapstats — retrô</title>
 <style>
 *{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
 background:#0b0f14;color:#e6edf3;padding:24px;line-height:1.5}}
@@ -550,7 +550,7 @@ h1{{font-size:28px;margin:0 0 4px}}.sub{{color:#8b98a5;margin:0 0 24px}}
 <section class="card"><h2>emojis</h2><div class="emoji">{emojis}</div></section>
 <section class="card"><h2>palavras mais usadas</h2><p>{escape(palavras)}</p></section>
 {bloco_llm}
-<p class="foot">gerado por zapstats · dados processados localmente</p>
+<p class="foot">gerado por goodzapstats · dados processados localmente</p>
 </div></body></html>"""
     open(destino, "w", encoding="utf-8").write(html)
 
@@ -567,14 +567,14 @@ def chamar_llm(messages, max_tokens=1600, temperature=0.85):
     if not key:
         die("OPENROUTER_API_KEY não definida — necessária só pra --roast.\n"
             "  Crie grátis em https://openrouter.ai/keys e:  export OPENROUTER_API_KEY=\"sk-or-...\"\n"
-            "  (sem --roast o zapstats roda 100% offline.)")
+            "  (sem --roast o goodzapstats roda 100% offline.)")
     erros = []
     for model in modelos_configurados():
         payload = json.dumps({"model": model, "messages": messages,
                               "max_tokens": max_tokens, "temperature": temperature}).encode()
         req = urllib.request.Request(API_URL, data=payload, headers={
             "Authorization": f"Bearer {key}", "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/DionathaGoulart/tools", "X-Title": "zapstats"})
+            "HTTP-Referer": "https://github.com/DionathaGoulart/tools", "X-Title": "goodzapstats"})
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode())
@@ -588,7 +588,7 @@ def chamar_llm(messages, max_tokens=1600, temperature=0.85):
             erros.append(f"{model}: HTTP {e.code}")
         except Exception as e:
             erros.append(f"{model}: {type(e).__name__}")
-    die("todos os modelos falharam:\n  " + "\n  ".join(erros) + "\n  (`zapstats -m` lista os no ar)")
+    die("todos os modelos falharam:\n  " + "\n  ".join(erros) + "\n  (`goodzapstats -m` lista os no ar)")
 
 
 def listar_modelos_free():
@@ -621,13 +621,13 @@ def die(msg):
 
 def main():
     ap = argparse.ArgumentParser(
-        prog="zapstats",
+        prog="goodzapstats",
         description="Retrospectiva de uma conversa exportada do WhatsApp (.txt).",
-        epilog="exemplos:  zapstats conversa.txt --roast --html retro.html   ·   zapstats temas",
+        epilog="exemplos:  goodzapstats conversa.txt --roast --html retro.html   ·   goodzapstats temas",
     )
     ap.add_argument("arquivo", nargs="?",
                     help="o .txt exportado do WhatsApp · use \"temas\" pra listar as "
-                         "paletas do terminal (ZAPSTATS_TEMA / RETRO_TEMA)")
+                         "paletas do terminal (GOODZAPSTATS_TEMA / RETRO_TEMA)")
     ap.add_argument("--roast", action="store_true",
                     help="camada com LLM: resumo, frases icônicas, apelidos e roast")
     ap.add_argument("--reais", action="store_true",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-vocab — uma palavra de inglês por dia, com revisão espaçada.
+goodvocab — uma palavra de inglês por dia, com revisão espaçada.
 
 Todo dia ele te ensina UMA palavra nova (significado, pronúncia, frase de
 exemplo) e te sabatina nas palavras anteriores que estão "vencendo" — repetição
@@ -51,11 +51,11 @@ def carregar_dotenv():
 
 carregar_dotenv()
 
-# paleta do terminal: VOCAB_PALETA e depois RETRO_TEMA.
-# (VOCAB_TEMA já é dos temas das palavras — texto livre, não paleta.)
-ui = Retro(env_var="VOCAB_PALETA")
+# paleta do terminal: GOODVOCAB_PALETA e depois RETRO_TEMA.
+# (GOODVOCAB_TEMA já é dos temas das palavras — texto livre, não paleta.)
+ui = Retro(env_var="GOODVOCAB_PALETA")
 
-BASE_DIR = Path(os.environ.get("VOCAB_DIR", Path.home() / ".vocab"))
+BASE_DIR = Path(os.environ.get("GOODVOCAB_DIR", Path.home() / ".vocab"))
 PALAVRAS_FILE = BASE_DIR / "palavras.json"   # palavras aprendidas + estado da revisão
 FILA_FILE = BASE_DIR / "fila.json"           # palavras ainda não apresentadas
 
@@ -77,11 +77,11 @@ INTERVALOS = [1, 2, 4, 7, 15, 30]
 
 
 def system_palavras():
-    nivel = os.environ.get("VOCAB_NIVEL", "intermediário").strip()
-    tema = os.environ.get("VOCAB_TEMA", "").strip()
+    nivel = os.environ.get("GOODVOCAB_NIVEL", "intermediário").strip()
+    tema = os.environ.get("GOODVOCAB_TEMA", "").strip()
     linha_tema = f"Dê preferência a estes temas: {tema}.\n" if tema else ""
     return (
-        "Você monta um baralho de vocabulário de INGLÊS para um falante de português "
+        "Você monta um baralho de goodvocabulário de INGLÊS para um falante de português "
         f"do Brasil, nível {nivel}. Gere palavras e expressões úteis e frequentes no "
         "inglês real (conversa, trabalho, filmes, internet) — nada de palavra obscura "
         "de dicionário. Misture verbos, substantivos, adjetivos e phrasal verbs.\n"
@@ -131,7 +131,7 @@ def chamar_llm(messages, max_tokens=3000, temperature=0.8):
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
-                "X-Title": "vocab",
+                "X-Title": "goodvocab",
             },
         )
         try:
@@ -148,7 +148,7 @@ def chamar_llm(messages, max_tokens=3000, temperature=0.8):
         except Exception as e:
             erros.append(f"{model}: {type(e).__name__}: {e}")
     die("Todos os modelos falharam:\n  " + "\n  ".join(erros)
-        + "\n\nDica: `vocab -m` lista os modelos :free no ar; "
+        + "\n\nDica: `goodvocab -m` lista os modelos :free no ar; "
         "defina OPENROUTER_MODEL pra trocar.")
 
 
@@ -346,7 +346,7 @@ def cmd_dia(extra=False, so_quiz=False):
         if not revisadas:
             ui.modulo("spaced_review", "due: 0")
             ui.aviso("vazio", "nada pra revisar hoje.")
-            ui.proximo("vocab", "palavra nova:")
+            ui.proximo("goodvocab", "palavra nova:")
         marcar_sessao()
         return
 
@@ -356,8 +356,8 @@ def cmd_dia(extra=False, so_quiz=False):
         ui.aviso("ja aprendida", "a palavra de hoje já foi vista.")
         ui.kv("PALAVRA", ja_hoje[0]["palavra"].upper())
         print()
-        ui.proximo("vocab -x", "aprender outra:")
-        ui.proximo("vocab -l", "ver o baralho: ")
+        ui.proximo("goodvocab -x", "aprender outra:")
+        ui.proximo("goodvocab -l", "ver o baralho: ")
         marcar_sessao()
         return
 
@@ -370,7 +370,7 @@ def cmd_dia(extra=False, so_quiz=False):
     if nova.get("traducao"):
         linhas += envolver(f"({nova['traducao']})", ui.FG40)
     ui.janela(
-        "root@vocab: ~/word",
+        "root@goodvocab: ~/word",
         linhas,
         meta="EXTRA" if ja_hoje else "NOVA",
         rodape="LEITNER BOX 0 · REVISAO AMANHA",
@@ -390,7 +390,7 @@ def cmd_dia(extra=False, so_quiz=False):
     ui.kv("BARALHO", f"{len(palavras)} PALAVRA(S)")
     ui.kv("PRIMEIRA REVISAO", em_dias(INTERVALOS[0]))
     print()
-    ui.proximo("vocab -l", "ver o baralho:")
+    ui.proximo("goodvocab -l", "ver o baralho:")
     print()
 
 
@@ -399,7 +399,7 @@ def cmd_listar():
     ui.modulo("deck", f"src: {PALAVRAS_FILE.name}")
     if not palavras:
         ui.aviso("vazio", "nenhuma palavra no baralho ainda.")
-        ui.proximo("vocab", "comece com:")
+        ui.proximo("goodvocab", "comece com:")
         print()
         return
     due = [p for p in palavras if p.get("proxima", hoje()) <= hoje()]
@@ -443,11 +443,11 @@ def cmd_palavras():
 # ---------------------------------------------------------------- main
 
 def uso():
-    ui.modulo("vocab_help")
+    ui.modulo("goodvocab_help")
     ui.secao("comandos")
-    ui.kv("vocab", "REVISAO + PALAVRA NOVA")
-    ui.kv("vocab palavras", "REABASTECE A FILA")
-    ui.kv("vocab temas", "PALETAS DO TERMINAL")
+    ui.kv("goodvocab", "REVISAO + PALAVRA NOVA")
+    ui.kv("goodvocab palavras", "REABASTECE A FILA")
+    ui.kv("goodvocab temas", "PALETAS DO TERMINAL")
     print()
     ui.secao("flags")
     ui.kv("-q, --quiz", "SO A REVISAO DO DIA")
@@ -459,25 +459,25 @@ def uso():
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (PALAVRAS NOVAS)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
-    ui.kv("VOCAB_NIVEL", os.environ.get("VOCAB_NIVEL", "intermediário").upper())
-    ui.kv("VOCAB_TEMA", "TEMAS DAS PALAVRAS (TEXTO LIVRE)")
-    ui.kv("VOCAB_DIR", str(BASE_DIR))
-    ui.kv("VOCAB_PALETA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("GOODVOCAB_NIVEL", os.environ.get("GOODVOCAB_NIVEL", "intermediário").upper())
+    ui.kv("GOODVOCAB_TEMA", "TEMAS DAS PALAVRAS (TEXTO LIVRE)")
+    ui.kv("GOODVOCAB_DIR", str(BASE_DIR))
+    ui.kv("GOODVOCAB_PALETA / RETRO_TEMA", ui.tema.upper())
     ui.kv("NO_COLOR", "DESLIGA AS CORES")
     print()
 
 
 def main():
     ap = argparse.ArgumentParser(
-        prog="vocab",
+        prog="goodvocab",
         description="Uma palavra de inglês por dia, com revisão espaçada.",
-        epilog="exemplos:  vocab   ·   vocab -q   ·   vocab -l   ·   vocab palavras   ·   vocab temas",
+        epilog="exemplos:  goodvocab   ·   goodvocab -q   ·   goodvocab -l   ·   goodvocab palavras   ·   goodvocab temas",
         add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="dia",
                     choices=["dia", "palavras", "temas"],
                     help="dia (padrão): revisão + palavra nova · palavras: reabastece a fila "
-                         "· temas: lista as paletas do terminal (VOCAB_PALETA / RETRO_TEMA)")
+                         "· temas: lista as paletas do terminal (GOODVOCAB_PALETA / RETRO_TEMA)")
     ap.add_argument("-q", "--quiz", action="store_true",
                     help="só a revisão do dia, sem palavra nova")
     ap.add_argument("-x", "--extra", action="store_true",

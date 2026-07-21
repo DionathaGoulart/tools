@@ -1,4 +1,4 @@
-# professor
+# goodprofessor
 
 Estudo pela **técnica Feynman invertida** no terminal. Você explica um assunto
 com suas palavras; um professor socrático fura sua explicação com perguntas até
@@ -9,17 +9,17 @@ A regra de ouro: **ele nunca explica o assunto.** Só interroga. Quem tem que
 descobrir os buracos é você.
 
 ```bash
-professor "DNS"        # nova sessão sobre um assunto
-professor -r           # revisão: sabatina sobre o tópico mais esquecido
-professor -r "DNS"     # revisão de um tópico específico
-professor -l           # lista tópicos já estudados
-professor -m           # lista modelos :free disponíveis agora
-professor temas        # paletas disponíveis
+goodprofessor "DNS"        # nova sessão sobre um assunto
+goodprofessor -r           # revisão: sabatina sobre o tópico mais esquecido
+goodprofessor -r "DNS"     # revisão de um tópico específico
+goodprofessor -l           # lista tópicos já estudados
+goodprofessor -m           # lista modelos :free disponíveis agora
+goodprofessor temas        # paletas disponíveis
 ```
 
 ## Como funciona uma sessão
 
-1. `professor "TCP handshake"` — você digita sua explicação (várias linhas;
+1. `goodprofessor "TCP handshake"` — você digita sua explicação (várias linhas;
    termina com uma linha contendo só `.` ou `Ctrl-D`).
 2. O professor aponta o que ficou vago/circular/errado e faz 2-3 perguntas.
 3. Você responde. Ele desce um nível e pergunta de novo.
@@ -40,16 +40,16 @@ Precisa de Python 3 e uma chave da [OpenRouter](https://openrouter.ai/keys)
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/professor/.env.example ~/Desktop/tools/professor/.env
+cp ~/Desktop/tools/goodprofessor/.env.example ~/Desktop/tools/goodprofessor/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
-bash ~/Desktop/tools/professor/setup.sh
+bash ~/Desktop/tools/goodprofessor/setup.sh
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.
 
-Abra um terminal novo e rode `professor "qualquer coisa"`.
+Abra um terminal novo e rode `goodprofessor "qualquer coisa"`.
 
 ## Configuração
 
@@ -57,29 +57,29 @@ Abra um terminal novo e rode `professor "qualquer coisa"`.
 |---|---|---|
 | `OPENROUTER_API_KEY` | sua chave (obrigatória) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula (fallback em ordem) | lista de modelos `:free` |
-| `PROFESSOR_DIR` | onde salvar as sessões | `~/.professor` |
-| `PROFESSOR_TEMA` | paleta (veja `professor temas`) | `vault-gold` |
+| `GOODPROFESSOR_DIR` | onde salvar as sessões | `~/.professor` |
+| `GOODPROFESSOR_TEMA` | paleta (veja `goodprofessor temas`) | `vault-gold` |
 | `RETRO_TEMA` | paleta pra todas as ferramentas do repo (fallback) | `vault-gold` |
 | `NO_COLOR` | qualquer valor desliga as cores | — |
 
 Os modelos `:free` da OpenRouter mudam com o tempo e às vezes caem. O script
-tenta uma lista em ordem; se todos falharem, rode `professor -m` pra ver os que
+tenta uma lista em ordem; se todos falharem, rode `goodprofessor -m` pra ver os que
 estão no ar e ajuste `OPENROUTER_MODEL`.
 
 ## Temas
 
-Nove paletas vindas do style guide (`professor temas` lista com swatch):
+Nove paletas vindas do style guide (`goodprofessor temas` lista com swatch):
 
 | Escuras | Claras |
 |---|---|
 | `vault-gold` (padrão), `noir-rose`, `midnight-ember`, `cyber-teal`, `velvet-purple` | `abyss-frost`, `crimson-chalk`, `forest-mist`, `sand-dusk` |
 
 ```bash
-export PROFESSOR_TEMA=cyber-teal   # só o professor
+export GOODPROFESSOR_TEMA=cyber-teal   # só o goodprofessor
 export RETRO_TEMA=cyber-teal       # todas as ferramentas
 ```
 
-`PROFESSOR_TEMA` tem prioridade sobre `RETRO_TEMA`. Cores true-color (24-bit)
+`GOODPROFESSOR_TEMA` tem prioridade sobre `RETRO_TEMA`. Cores true-color (24-bit)
 quando `COLORTERM=truecolor`; senão cai pro ANSI básico de 8 cores. Fora de TTY
 ou com `NO_COLOR`, a saída vira texto puro.
 

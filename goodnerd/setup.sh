@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — put zapstats/ on PATH (macOS / Linux / Windows via Git Bash)
+# setup.sh — put goodnerd/ on PATH (macOS / Linux / Windows via Git Bash)
 #
 # Two ways to use it:
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
@@ -27,11 +27,11 @@ else
     *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
   esac
 
-  if grep -qsF "zapstats/setup.sh" "$RC"; then
-    echo "zapstats: already installed in $RC"
+  if grep -qsF "goodnerd/setup.sh" "$RC"; then
+    echo "goodnerd: already installed in $RC"
   else
-    printf '\n# tools/zapstats — comando zapstats (retrô de conversa do WhatsApp)\n%s\n' "$LINE" >> "$RC"
-    echo "zapstats: installed in $RC"
+    printf '\n# tools/goodnerd — comando goodnerd (teatro de hacker fake)\n%s\n' "$LINE" >> "$RC"
+    echo "goodnerd: installed in $RC"
   fi
-  echo "zapstats: open a new terminal or run:  source ${RC/#$HOME/~}"
+  echo "goodnerd: open a new terminal or run:  source ${RC/#$HOME/~}"
 fi

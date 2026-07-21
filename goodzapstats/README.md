@@ -1,4 +1,4 @@
-# zapstats
+# goodzapstats
 
 Retrospectiva de uma conversa do WhatsApp — estilo Spotify Wrapped, no
 terminal. Passe o `.txt` do "Exportar conversa" e receba quem fala mais,
@@ -9,18 +9,18 @@ maior sequência de dias e mais.
 a camada de roast com `--roast`.
 
 ```bash
-zapstats conversa.txt                       # só as estatísticas (100% offline)
-zapstats conversa.txt --roast               # + resumo, frases icônicas e roast (LLM)
-zapstats conversa.txt --roast --reais       # roast com os nomes reais (menos privado)
-zapstats conversa.txt --html retro.html     # também gera um retrô visual em HTML
-zapstats -m                                 # lista modelos :free disponíveis
-zapstats temas                              # lista as paletas do terminal
+goodzapstats conversa.txt                       # só as estatísticas (100% offline)
+goodzapstats conversa.txt --roast               # + resumo, frases icônicas e roast (LLM)
+goodzapstats conversa.txt --roast --reais       # roast com os nomes reais (menos privado)
+goodzapstats conversa.txt --html retro.html     # também gera um retrô visual em HTML
+goodzapstats -m                                 # lista modelos :free disponíveis
+goodzapstats temas                              # lista as paletas do terminal
 ```
 
 ## Como exportar a conversa
 
 No WhatsApp: abra a conversa → menu → **Exportar conversa** → **Sem mídia**.
-Você recebe um `.txt`. É esse arquivo que o `zapstats` lê. Funciona com export
+Você recebe um `.txt`. É esse arquivo que o `goodzapstats` lê. Funciona com export
 de iPhone e de Android (formatos diferentes, ambos suportados), com datas
 `dd/mm` ou `mm/dd` (detecta sozinho olhando o arquivo inteiro) e com conversas
 de duas pessoas ou de grupo.
@@ -42,13 +42,13 @@ detectados e um roast bem-humorado de cada um.
 
 ## Aparência
 
-O `zapstats` segue o style guide de terminal retrô do repositório
+O `goodzapstats` segue o style guide de terminal retrô do repositório
 (`.harness/styleguide-terminal.md`): janela de terminal, barras `█`/`▒` em
 tom de acento, rótulos em maiúsculas, `[ OK ]` / `[ ERRO ]`.
 
 ```bash
-zapstats temas                 # mostra as 9 paletas, marcando a atual com ►
-export ZAPSTATS_TEMA=cyber-teal    # só o zapstats
+goodzapstats temas                 # mostra as 9 paletas, marcando a atual com ►
+export GOODZAPSTATS_TEMA=cyber-teal    # só o goodzapstats
 export RETRO_TEMA=noir-rose        # todas as ferramentas do repo
 ```
 
@@ -77,11 +77,11 @@ Precisa de Python 3. A camada `--roast` também precisa de uma chave da
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/zapstats/.env.example ~/Desktop/tools/zapstats/.env
+cp ~/Desktop/tools/goodzapstats/.env.example ~/Desktop/tools/goodzapstats/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
-bash ~/Desktop/tools/zapstats/setup.sh
+bash ~/Desktop/tools/goodzapstats/setup.sh
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.
@@ -92,7 +92,7 @@ bash ~/Desktop/tools/zapstats/setup.sh
 |---|---|---|
 | `OPENROUTER_API_KEY` | sua chave (só necessária pra `--roast`) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
-| `ZAPSTATS_TEMA` | paleta do terminal (veja `zapstats temas`) | `vault-gold` |
+| `GOODZAPSTATS_TEMA` | paleta do terminal (veja `goodzapstats temas`) | `vault-gold` |
 | `RETRO_TEMA` | paleta padrão de todas as ferramentas (fallback) | `vault-gold` |
 | `NO_COLOR` | qualquer valor desliga as cores | desligado |
 

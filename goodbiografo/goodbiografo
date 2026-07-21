@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-biografo — sua autobiografia, uma pergunta por dia.
+goodbiografo — sua autobiografia, uma pergunta por dia.
 
 Todo dia ele te faz UMA pergunta sobre sua vida. Você responde no terminal; a
 resposta fica salva localmente. Depois de algumas dezenas de respostas,
-`biografo capitulo` costura tudo em capítulos de biografia escritos em texto
+`goodbiografo capitulo` costura tudo em capítulos de biografia escritos em texto
 corrido.
 
 Privacidade: suas respostas NUNCA saem da máquina no uso diário. Elas só são
 enviadas ao modelo em dois momentos, e você escolhe quando: no modo follow-up
-(`-f`) e ao gerar capítulos (`biografo capitulo`).
+(`-f`) e ao gerar capítulos (`goodbiografo capitulo`).
 
 Requer: Python 3 e a variável de ambiente OPENROUTER_API_KEY (só pra gerar
 perguntas novas, follow-up e capítulos — responder o dia a dia é offline).
@@ -50,9 +50,9 @@ def carregar_dotenv():
 
 carregar_dotenv()
 
-ui = Retro(env_prefix="BIOGRAFO")
+ui = Retro(env_prefix="GOODBIOGRAFO")
 
-BASE_DIR = Path(os.environ.get("BIOGRAFO_DIR", Path.home() / ".biografo"))
+BASE_DIR = Path(os.environ.get("GOODBIOGRAFO_DIR", Path.home() / ".biografo"))
 RESP_DIR = BASE_DIR / "respostas"
 CAP_DIR = BASE_DIR / "capitulos"
 FILA_FILE = BASE_DIR / "fila.json"       # perguntas pendentes
@@ -141,7 +141,7 @@ def chamar_llm(messages, max_tokens=2000, temperature=0.8):
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
-                "X-Title": "biografo",
+                "X-Title": "goodbiografo",
             },
         )
         try:
@@ -158,7 +158,7 @@ def chamar_llm(messages, max_tokens=2000, temperature=0.8):
         except Exception as e:
             erros.append(f"{model}: {type(e).__name__}: {e}")
     die("todos os modelos falharam.",
-        erros + ["`biografo -m` lista os modelos :free no ar",
+        erros + ["`goodbiografo -m` lista os modelos :free no ar",
                  "defina OPENROUTER_MODEL pra trocar"])
 
 
@@ -308,8 +308,8 @@ def cmd_diario(followup=False, extra=False):
             ui.modulo("daily_question", f"date: {hoje}")
             ui.aviso("respondido", f"voce ja respondeu hoje ({hoje}).")
             print()
-            ui.proximo("biografo -x", "responder outra:")
-            ui.proximo("biografo -l", "ver o historico:")
+            ui.proximo("goodbiografo -x", "responder outra:")
+            ui.proximo("goodbiografo -l", "ver o historico:")
             print()
             return
         eh_extra = True
@@ -337,7 +337,7 @@ def cmd_diario(followup=False, extra=False):
         pergunta = proxima_pergunta()
 
     ui.janela(
-        "root@biografo: ~/memoir",
+        "root@goodbiografo: ~/memoir",
         envolver(pergunta),
         meta=("EXTRA" if eh_extra else "FOLLOW-UP" if followup else "DO DIA"),
         rodape='[.] OU [CTRL-D] ENCERRA',
@@ -370,9 +370,9 @@ def cmd_diario(followup=False, extra=False):
     print(f"  {ui.barra(feito, LOTE)}  {ui.FG40}{feito}/{LOTE}{ui.RESET}")
     print()
     if total and total % LOTE == 0:
-        ui.proximo("biografo capitulo", "ja da pra montar capitulos:")
+        ui.proximo("goodbiografo capitulo", "ja da pra montar capitulos:")
     else:
-        ui.proximo("biografo", "volte amanha:")
+        ui.proximo("goodbiografo", "volte amanha:")
     print()
 
 
@@ -397,7 +397,7 @@ def cmd_capitulo():
     )
     CAP_DIR.mkdir(parents=True, exist_ok=True)
     destino = CAP_DIR / f"biografia-{datetime.now():%Y-%m-%d}.md"
-    destino.write_text(f"<!-- gerado por biografo · modelo {model} -->\n\n{texto}\n", encoding="utf-8")
+    destino.write_text(f"<!-- gerado por goodbiografo · modelo {model} -->\n\n{texto}\n", encoding="utf-8")
     print()
     ui.ok("biografia salva")
     ui.kv("ARQUIVO", str(destino))
@@ -411,7 +411,7 @@ def cmd_listar():
     if not respostas:
         ui.aviso("vazio", "nenhuma resposta ainda.")
         print()
-        ui.proximo("biografo")
+        ui.proximo("goodbiografo")
         print()
         return
     fila = carregar_json(FILA_FILE, [])
@@ -453,30 +453,30 @@ def cmd_temas():
 # ---------------------------------------------------------------- main
 
 def uso():
-    ui.modulo("biografo_help")
-    ui.kv("biografo", "PERGUNTA DO DIA")
-    ui.kv("biografo -f", "FOLLOW-UP DAS ULTIMAS RESPOSTAS")
-    ui.kv("biografo -x", "PERGUNTA EXTRA NO MESMO DIA")
-    ui.kv("biografo -l", "RESPOSTAS E STATUS")
-    ui.kv("biografo -m", "MODELOS :FREE NO AR")
-    ui.kv("biografo capitulo", "GERA A BIOGRAFIA")
-    ui.kv("biografo perguntas", "REABASTECE A FILA")
-    ui.kv("biografo temas", "PALETAS")
+    ui.modulo("goodbiografo_help")
+    ui.kv("goodbiografo", "PERGUNTA DO DIA")
+    ui.kv("goodbiografo -f", "FOLLOW-UP DAS ULTIMAS RESPOSTAS")
+    ui.kv("goodbiografo -x", "PERGUNTA EXTRA NO MESMO DIA")
+    ui.kv("goodbiografo -l", "RESPOSTAS E STATUS")
+    ui.kv("goodbiografo -m", "MODELOS :FREE NO AR")
+    ui.kv("goodbiografo capitulo", "GERA A BIOGRAFIA")
+    ui.kv("goodbiografo perguntas", "REABASTECE A FILA")
+    ui.kv("goodbiografo temas", "PALETAS")
     print()
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
-    ui.kv("BIOGRAFO_DIR", str(BASE_DIR))
-    ui.kv("BIOGRAFO_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("GOODBIOGRAFO_DIR", str(BASE_DIR))
+    ui.kv("GOODBIOGRAFO_TEMA / RETRO_TEMA", ui.tema.upper())
     ui.kv("NO_COLOR", "DESLIGA AS CORES")
     print()
 
 
 def main():
     ap = argparse.ArgumentParser(
-        prog="biografo",
+        prog="goodbiografo",
         description="Sua autobiografia, uma pergunta por dia.",
-        epilog="exemplos:  biografo   ·   biografo -f   ·   biografo capitulo   ·   biografo temas",
+        epilog="exemplos:  goodbiografo   ·   goodbiografo -f   ·   goodbiografo capitulo   ·   goodbiografo temas",
         add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="dia",

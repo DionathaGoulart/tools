@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# setup.sh — put biografo/ on PATH (macOS / Linux / Windows via Git Bash)
+# setup.sh — put goodbiografo/ on PATH (macOS / Linux / Windows via Git Bash)
 #
 # Two ways to use it:
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
 #   source setup.sh   ← what the rc line runs on every new terminal (adds to PATH)
 #
-# Optional: set BIOGRAFO_LEMBRETE=1 before sourcing to print the day's question
+# Optional: set GOODBIOGRAFO_LEMBRETE=1 before sourcing to print the day's question
 # once per day when you open a terminal (a gentle nudge, not a nag).
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -24,13 +24,13 @@ if [ "$SOURCED" -eq 1 ]; then
   esac
 
   # once-a-day reminder (opt-in)
-  if [ "${BIOGRAFO_LEMBRETE:-0}" = "1" ]; then
-    _bio_stamp="${BIOGRAFO_DIR:-$HOME/.biografo}/.ultimo_lembrete"
+  if [ "${GOODBIOGRAFO_LEMBRETE:-0}" = "1" ]; then
+    _bio_stamp="${GOODBIOGRAFO_DIR:-$HOME/.biografo}/.ultimo_lembrete"
     _bio_hoje="$(date +%Y-%m-%d)"
     if [ ! -f "$_bio_stamp" ] || [ "$(cat "$_bio_stamp" 2>/dev/null)" != "$_bio_hoje" ]; then
       mkdir -p "$(dirname "$_bio_stamp")" && echo "$_bio_hoje" > "$_bio_stamp"
-      if [ ! -f "${BIOGRAFO_DIR:-$HOME/.biografo}/respostas/$_bio_hoje.md" ]; then
-        echo "📖 biografo: você ainda não respondeu hoje. Rode  biografo"
+      if [ ! -f "${GOODBIOGRAFO_DIR:-$HOME/.biografo}/respostas/$_bio_hoje.md" ]; then
+        echo "📖 goodbiografo: você ainda não respondeu hoje. Rode  goodbiografo"
       fi
     fi
     unset _bio_stamp _bio_hoje
@@ -44,11 +44,11 @@ else
     *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
   esac
 
-  if grep -qsF "biografo/setup.sh" "$RC"; then
-    echo "biografo: already installed in $RC"
+  if grep -qsF "goodbiografo/setup.sh" "$RC"; then
+    echo "goodbiografo: already installed in $RC"
   else
-    printf '\n# tools/biografo — comando biografo (autobiografia diária)\n# export BIOGRAFO_LEMBRETE=1  # descomente pra lembrete diário\n%s\n' "$LINE" >> "$RC"
-    echo "biografo: installed in $RC"
+    printf '\n# tools/goodbiografo — comando goodbiografo (autobiografia diária)\n# export GOODBIOGRAFO_LEMBRETE=1  # descomente pra lembrete diário\n%s\n' "$LINE" >> "$RC"
+    echo "goodbiografo: installed in $RC"
   fi
-  echo "biografo: open a new terminal or run:  source ${RC/#$HOME/~}"
+  echo "goodbiografo: open a new terminal or run:  source ${RC/#$HOME/~}"
 fi

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# setup.sh — put vocab/ on PATH (macOS / Linux / Windows via Git Bash)
+# setup.sh — put goodvocab/ on PATH (macOS / Linux / Windows via Git Bash)
 #
 # Two ways to use it:
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
 #   source setup.sh   ← what the rc line runs on every new terminal (adds to PATH)
 #
-# Optional: set VOCAB_LEMBRETE=1 before sourcing to print a reminder once per
+# Optional: set GOODVOCAB_LEMBRETE=1 before sourcing to print a reminder once per
 # day when you open a terminal, if you haven't practiced yet.
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -24,11 +24,11 @@ if [ "$SOURCED" -eq 1 ]; then
   esac
 
   # once-a-day reminder (opt-in)
-  if [ "${VOCAB_LEMBRETE:-0}" = "1" ]; then
-    _voc_stamp="${VOCAB_DIR:-$HOME/.vocab}/.ultima_sessao"
+  if [ "${GOODVOCAB_LEMBRETE:-0}" = "1" ]; then
+    _voc_stamp="${GOODVOCAB_DIR:-$HOME/.vocab}/.ultima_sessao"
     _voc_hoje="$(date +%Y-%m-%d)"
     if [ "$(cat "$_voc_stamp" 2>/dev/null)" != "$_voc_hoje" ]; then
-      echo "📚 vocab: você ainda não praticou hoje. Rode  vocab"
+      echo "📚 goodvocab: você ainda não praticou hoje. Rode  goodvocab"
     fi
     unset _voc_stamp _voc_hoje
   fi
@@ -41,11 +41,11 @@ else
     *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
   esac
 
-  if grep -qsF "vocab/setup.sh" "$RC"; then
-    echo "vocab: already installed in $RC"
+  if grep -qsF "goodvocab/setup.sh" "$RC"; then
+    echo "goodvocab: already installed in $RC"
   else
-    printf '\n# tools/vocab — comando vocab (inglês diário)\n# export VOCAB_LEMBRETE=1  # descomente pra lembrete diário\n%s\n' "$LINE" >> "$RC"
-    echo "vocab: installed in $RC"
+    printf '\n# tools/goodvocab — comando goodvocab (inglês diário)\n# export GOODVOCAB_LEMBRETE=1  # descomente pra lembrete diário\n%s\n' "$LINE" >> "$RC"
+    echo "goodvocab: installed in $RC"
   fi
-  echo "vocab: open a new terminal or run:  source ${RC/#$HOME/~}"
+  echo "goodvocab: open a new terminal or run:  source ${RC/#$HOME/~}"
 fi

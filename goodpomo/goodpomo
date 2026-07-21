@@ -1,49 +1,49 @@
 #!/usr/bin/env bash
-# pomo — pomodoro no terminal, com notificação nativa (macOS / Linux)
+# goodpomo — pomodoro no terminal, com notificação nativa (macOS / Linux)
 #
-# usage: pomo [minutos] [rótulo…]   inicia um foco (padrão 25 min)
-#        pomo pausa [minutos]       pausa (padrão 5 min; a cada 4 focos, 15)
-#        pomo -l | --log            estatísticas (hoje + últimos 14 dias)
-#        pomo temas                 lista as paletas disponíveis
-#        pomo -h | --help
+# usage: goodpomo [minutos] [rótulo…]   inicia um foco (padrão 25 min)
+#        goodpomo pausa [minutos]       pausa (padrão 5 min; a cada 4 focos, 15)
+#        goodpomo -l | --log            estatísticas (hoje + últimos 14 dias)
+#        goodpomo temas                 lista as paletas disponíveis
+#        goodpomo -h | --help
 #
 # durante a contagem:  [p] pausa/retoma   [q] aborta
 
 set -u
 
-POMO_DIR="${POMO_DIR:-$HOME/.pomo}"
-LOG_FILE="$POMO_DIR/log.csv"
+GOODPOMO_DIR="${GOODPOMO_DIR:-$HOME/.pomo}"
+LOG_FILE="$GOODPOMO_DIR/log.csv"
 
-FOCO_PADRAO="${POMO_FOCO:-25}"
-PAUSA_PADRAO="${POMO_PAUSA:-5}"
-PAUSA_LONGA="${POMO_PAUSA_LONGA:-15}"
+FOCO_PADRAO="${GOODPOMO_FOCO:-25}"
+PAUSA_PADRAO="${GOODPOMO_PAUSA:-5}"
+PAUSA_LONGA="${GOODPOMO_PAUSA_LONGA:-15}"
 
 # ---------- lib compartilhada (tema / caixa / blocos) ----------
-_pomo_src="${BASH_SOURCE[0]:-$0}"
-while [ -L "$_pomo_src" ]; do
-  _pomo_dir="$(cd -P "$(dirname "$_pomo_src")" 2>/dev/null && pwd)" || break
-  _pomo_src="$(readlink "$_pomo_src")"
-  case "$_pomo_src" in /*) ;; *) _pomo_src="$_pomo_dir/$_pomo_src" ;; esac
+_goodpomo_src="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_goodpomo_src" ]; do
+  _goodpomo_dir="$(cd -P "$(dirname "$_goodpomo_src")" 2>/dev/null && pwd)" || break
+  _goodpomo_src="$(readlink "$_goodpomo_src")"
+  case "$_goodpomo_src" in /*) ;; *) _goodpomo_src="$_goodpomo_dir/$_goodpomo_src" ;; esac
 done
-_pomo_dir="$(cd -P "$(dirname "$_pomo_src")" 2>/dev/null && pwd)"
-RETRO_LIB="$_pomo_dir/../lib/retro.sh"
+_goodpomo_dir="$(cd -P "$(dirname "$_goodpomo_src")" 2>/dev/null && pwd)"
+RETRO_LIB="$_goodpomo_dir/../lib/retro.sh"
 [ -f "$RETRO_LIB" ] || \
   RETRO_LIB="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../lib" 2>/dev/null && pwd)/retro.sh"
-[ -f "$RETRO_LIB" ] || { echo "pomo: lib/retro.sh não encontrada" >&2; exit 2; }
+[ -f "$RETRO_LIB" ] || { echo "goodpomo: lib/retro.sh não encontrada" >&2; exit 2; }
 # shellcheck source=../lib/retro.sh
 . "$RETRO_LIB"
-unset _pomo_src _pomo_dir
+unset _goodpomo_src _goodpomo_dir
 
-TEMA="${POMO_TEMA:-${RETRO_TEMA:-vault-gold}}"
+TEMA="${GOODPOMO_TEMA:-${RETRO_TEMA:-vault-gold}}"
 retro_init 52
 
 ANIM=1
 [ "$DESENHA" -eq 1 ] || ANIM=0
-[ -n "${POMO_SEM_ANIM:-}" ] && ANIM=0
+[ -n "${GOODPOMO_SEM_ANIM:-}" ] && ANIM=0
 if [ "$ANIM" -eq 1 ]; then sleep 0.01 2>/dev/null || ANIM=0; fi
 
 # ---------- helpers ----------
-die() { echo "pomo: $*" >&2; exit 2; }
+die() { echo "goodpomo: $*" >&2; exit 2; }
 eh_numero() { retro_eh_numero "$1"; }
 
 notificar() { # $1 = título, $2 = corpo
@@ -59,7 +59,7 @@ notificar() { # $1 = título, $2 = corpo
 }
 
 registrar() { # $1 tipo  $2 minutos  $3 status  $4 rótulo
-  mkdir -p "$POMO_DIR"
+  mkdir -p "$GOODPOMO_DIR"
   [ -f "$LOG_FILE" ] || echo "data,hora,tipo,minutos,status,rotulo" > "$LOG_FILE"
   printf '%s,%s,%s,%s,%s,%s\n' \
     "$(date +%Y-%m-%d)" "$(date +%H:%M)" "$1" "$2" "$3" "${4//,/;}" >> "$LOG_FILE"
@@ -285,7 +285,7 @@ cmd_foco() { # $1 = minutos, resto = rótulo
   local min=$1; shift
   local rotulo="${*:-}"
   TIPO=foco MIN=$min ROTULO=$rotulo
-  CHROME_TITULO="root@pomo: ~/focus"
+  CHROME_TITULO="root@goodpomo: ~/focus"
   MODULO="[ MODULE: FOCUS_TIMER ]"
   TITULO_CURTO="🍅 FOCO"
   ETIQUETA=$(retro_upper "${rotulo:-sem rotulo}")
@@ -294,7 +294,7 @@ cmd_foco() { # $1 = minutos, resto = rótulo
     registrar foco "$min" ok "$rotulo"
     TIPO=""
     local n; n=$(focos_hoje)
-    notificar "pomo" "Foco concluído! ${n} pomodoro(s) hoje."
+    notificar "goodpomo" "Foco concluído! ${n} pomodoro(s) hoje."
     echo
     retro_ok "foco concluido"
     echo
@@ -303,9 +303,9 @@ cmd_foco() { # $1 = minutos, resto = rótulo
     [ -n "$rotulo" ] && retro_kv "ROTULO" "$(retro_upper "$rotulo")"
     echo
     if [ $((n % 4)) -eq 0 ]; then
-      retro_proximo "pomo pausa $PAUSA_LONGA" "pausa longa recomendada:"
+      retro_proximo "goodpomo pausa $PAUSA_LONGA" "pausa longa recomendada:"
     else
-      retro_proximo "pomo pausa"
+      retro_proximo "goodpomo pausa"
     fi
     echo
   else
@@ -320,7 +320,7 @@ cmd_foco() { # $1 = minutos, resto = rótulo
 cmd_pausa() { # $1 = minutos
   local min=$1
   TIPO=pausa MIN=$min ROTULO=""
-  CHROME_TITULO="root@pomo: ~/break"
+  CHROME_TITULO="root@goodpomo: ~/break"
   MODULO="[ MODULE: BREAK_TIMER ]"
   TITULO_CURTO="☕ PAUSA"
   ETIQUETA="LEVANTA · ALONGA · AGUA"
@@ -328,18 +328,18 @@ cmd_pausa() { # $1 = minutos
   if contagem $((min * 60)); then
     registrar pausa "$min" ok ""
     TIPO=""
-    notificar "pomo" "Pausa acabou — de volta ao foco."
+    notificar "goodpomo" "Pausa acabou — de volta ao foco."
     echo
     retro_ok "pausa concluida"
     echo
-    retro_proximo "pomo"
+    retro_proximo "goodpomo"
     echo
   else
     registrar pausa "$min" abortado ""
     TIPO=""
     echo
     retro_aviso "encerrada" "pausa cortada antes da hora."
-    retro_proximo "pomo"
+    retro_proximo "goodpomo"
     echo
   fi
 }
@@ -347,7 +347,7 @@ cmd_pausa() { # $1 = minutos
 cmd_log() {
   if [ ! -f "$LOG_FILE" ]; then
     echo
-    retro_aviso "vazio" "nenhuma sessao ainda. Comece com:  ${ACC}${BOLD}pomo${RESET}"
+    retro_aviso "vazio" "nenhuma sessao ainda. Comece com:  ${ACC}${BOLD}goodpomo${RESET}"
     echo
     return
   fi
@@ -399,24 +399,24 @@ EOF
   echo
 }
 
-cmd_temas() { retro_catalogo_temas POMO_TEMA; }
+cmd_temas() { retro_catalogo_temas GOODPOMO_TEMA; }
 
 uso() {
-  retro_modulo "pomo_help"
-  retro_kv "pomo [min] [rotulo]" "FOCO ($FOCO_PADRAO MIN)"
-  retro_kv "pomo pausa [min]" "PAUSA ($PAUSA_PADRAO MIN)"
-  retro_kv "pomo -l" "ESTATISTICAS"
-  retro_kv "pomo temas" "PALETAS"
+  retro_modulo "goodpomo_help"
+  retro_kv "goodpomo [min] [rotulo]" "FOCO ($FOCO_PADRAO MIN)"
+  retro_kv "goodpomo pausa [min]" "PAUSA ($PAUSA_PADRAO MIN)"
+  retro_kv "goodpomo -l" "ESTATISTICAS"
+  retro_kv "goodpomo temas" "PALETAS"
   echo
   retro_secao "durante a contagem"
   retro_kv "[P]" "PAUSA / RETOMA"
   retro_kv "[Q]" "ABORTA"
   echo
   retro_secao "env"
-  retro_kv "POMO_FOCO / POMO_PAUSA" "MINUTOS"
-  retro_kv "POMO_PAUSA_LONGA" "$PAUSA_LONGA MIN"
-  retro_kv "POMO_TEMA" "$(retro_upper "$TEMA")"
-  retro_kv "POMO_DIR / NO_COLOR" "PATH / OFF"
+  retro_kv "GOODPOMO_FOCO / GOODPOMO_PAUSA" "MINUTOS"
+  retro_kv "GOODPOMO_PAUSA_LONGA" "$PAUSA_LONGA MIN"
+  retro_kv "GOODPOMO_TEMA" "$(retro_upper "$TEMA")"
+  retro_kv "GOODPOMO_DIR / NO_COLOR" "PATH / OFF"
   echo
 }
 
@@ -427,7 +427,7 @@ case "${1:-}" in
   -l|--log)    cmd_log; exit 0 ;;
   temas|tema)  cmd_temas; exit 0 ;;
   pausa|p)     MODO=pausa; shift ;;
-  -*)          die "opção desconhecida '$1' (veja pomo -h)" ;;
+  -*)          die "opção desconhecida '$1' (veja goodpomo -h)" ;;
 esac
 
 MINUTOS=""
@@ -445,7 +445,7 @@ eh_numero "$MINUTOS" || die "minutos inválidos ('$MINUTOS')"
 [ "$MINUTOS" -ge 1 ] && [ "$MINUTOS" -le 600 ] || die "minutos fora da faixa (1–600)"
 
 if [ "$MODO" = "pausa" ]; then
-  [ "$#" -eq 0 ] || die "pausa não leva rótulo (veja pomo -h)"
+  [ "$#" -eq 0 ] || die "pausa não leva rótulo (veja goodpomo -h)"
   cmd_pausa "$MINUTOS"
 else
   cmd_foco "$MINUTOS" "$@"

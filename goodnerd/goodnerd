@@ -1,0 +1,426 @@
+#!/usr/bin/env bash
+# goodnerd — fake "hacker" theatrics for the terminal (a la hollywood/genact).
+#
+# Pure smoke and mirrors: no network, no files touched, nothing real happens.
+# It just looks like you're doing something impossibly cool so people who don't
+# code think you're breaking into the mainframe.
+#
+# usage: goodnerd                inicia a "operação completa" (todas as cenas)
+#        goodnerd matrix         chuva de código (roda até você apertar uma tecla)
+#        goodnerd scan           varredura de portas + invasão + ACCESS GRANTED
+#        goodnerd crack          quebra de hash/senha, char por char
+#        goodnerd deploy         compilando/deployando estilo make/npm
+#        goodnerd temas          lista as paletas disponíveis
+#        goodnerd -h | --help
+#
+# velocidade:  --fast | --slow   (ou export GOODNERD_VEL=fast|normal|slow)
+# durante a matrix:  qualquer tecla (ou q) encerra
+
+set -u
+
+# ---------- shared lib (theme / box / blocks) ----------
+_goodnerd_src="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_goodnerd_src" ]; do
+  _goodnerd_dir="$(cd -P "$(dirname "$_goodnerd_src")" 2>/dev/null && pwd)" || break
+  _goodnerd_src="$(readlink "$_goodnerd_src")"
+  case "$_goodnerd_src" in /*) ;; *) _goodnerd_src="$_goodnerd_dir/$_goodnerd_src" ;; esac
+done
+_goodnerd_dir="$(cd -P "$(dirname "$_goodnerd_src")" 2>/dev/null && pwd)"
+RETRO_LIB="$_goodnerd_dir/../lib/retro.sh"
+[ -f "$RETRO_LIB" ] || \
+  RETRO_LIB="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../lib" 2>/dev/null && pwd)/retro.sh"
+[ -f "$RETRO_LIB" ] || { echo "goodnerd: lib/retro.sh não encontrada" >&2; exit 2; }
+# shellcheck source=../lib/retro.sh
+. "$RETRO_LIB"
+unset _goodnerd_src _goodnerd_dir
+
+TEMA="${GOODNERD_TEMA:-${RETRO_TEMA:-cyber-teal}}"
+retro_init 66
+
+# ---------- speed ----------
+VEL="${GOODNERD_VEL:-normal}"
+
+# ---------- terminal state / cleanup ----------
+STTY_SAVED=""
+RAW=0
+ALT=0
+
+_cleanup() {
+  [ "$ALT" -eq 1 ] && printf '\033[?1049l'          # leave alt screen
+  printf '\033[?25h\033[0m'                          # show cursor, reset
+  [ -n "$STTY_SAVED" ] && stty "$STTY_SAVED" 2>/dev/null
+  STTY_SAVED=""
+}
+trap '_cleanup; exit 130' INT TERM
+trap '_cleanup' EXIT
+
+_hide_cursor() { printf '\033[?25l'; }
+_show_cursor() { printf '\033[?25h'; }
+
+_raw_on() { # non-blocking single-char reads, no echo
+  [ "$DESENHA" -eq 1 ] || return 0
+  STTY_SAVED="$(stty -g 2>/dev/null)"
+  stty -echo -icanon min 0 time 0 2>/dev/null && RAW=1
+}
+_key_pressed() { # returns 0 if a key was pressed (raw mode required)
+  [ "$RAW" -eq 1 ] || return 1
+  local k=
+  IFS= read -rsn1 k 2>/dev/null
+  [ -n "$k" ]
+}
+
+# ---------- timing ----------
+_tick() { # base frame delay, scaled by VEL
+  local t
+  case "$VEL" in
+    fast)   t=0.012 ;;
+    slow)   t=0.08  ;;
+    *)      t=0.035 ;;
+  esac
+  sleep "$t" 2>/dev/null || sleep 1
+}
+_beat() { # a "pause for effect", multiple of tick
+  local n="${1:-6}"
+  while [ "$n" -gt 0 ]; do _tick; n=$((n - 1)); done
+}
+
+# ---------- randomness ----------
+_rnd()  { echo $(( RANDOM % ${1:-100} )); }
+_pick() { local a=("$@"); echo "${a[$((RANDOM % $#))]}"; }
+_hex()  { local n="${1:-8}" s= h=0123456789abcdef; while [ "$n" -gt 0 ]; do s="$s${h:$((RANDOM % 16)):1}"; n=$((n - 1)); done; echo "$s"; }
+_ip()   { echo "$((RANDOM % 223 + 1)).$((RANDOM % 256)).$((RANDOM % 256)).$((RANDOM % 256))"; }
+_mac()  { printf '%02x:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)); }
+
+# ---------- log helpers (scrolling, unboxed) ----------
+# Status brackets follow the style guide: [ OK ] green, [ ERRO ] red — those two
+# colors only. Everything else rides the accent tokens.
+_line() { # $1 tag-color  $2 tag(4 visible chars)  $3 message
+  printf '  %s[ %s ]%s %s%s%s\n' "$1" "$2" "$RESET" "$FG70" "$3" "$RESET"
+}
+_ok()    { _line "$OK"     'OK' "$1"; }
+_warn()  { _line "$ACC"    '~~' "$1"; }
+_err()   { _line "$ALERTA" '!!' "$1"; }
+_info()  { _line "$ACC70"  '>>' "$1"; }
+_pkt()   { printf '  %s>%s %s%s%s\n' "$ACC30" "$RESET" "$FG40" "$1" "$RESET"; }
+
+_type() { # typewriter effect. $1 = text, $2 = color(optional)
+  local text="$1" color="${2:-$FG}" i=0 n=${#1}
+  printf '  '
+  while [ "$i" -lt "$n" ]; do
+    printf '%s%s%s' "$color" "${text:$i:1}" "$RESET"
+    i=$((i + 1))
+    _tick
+  done
+  printf '\n'
+}
+
+_dots() { # $1 label, $2 count → "label..."  animated
+  local label="$1" n="${2:-4}"
+  printf '  %s%s%s' "$FG70" "$label" "$RESET"
+  while [ "$n" -gt 0 ]; do printf '%s.%s' "$ACC" "$RESET"; _beat 3; n=$((n - 1)); done
+  printf '\n'
+}
+
+_bar() { # animated progress bar. $1 = label
+  local label="$1" total=100 i=0 step
+  while [ "$i" -le "$total" ]; do
+    printf '\r  %s%-22s%s %s' "$FG70" "$label" "$RESET" "$(retro_barra "$i" "$total" 28)"
+    step=$(( RANDOM % 9 + 3 ))
+    i=$((i + step))
+    [ "$i" -gt "$total" ] && i=$total
+    _tick
+    [ "$i" -eq "$total" ] && break
+  done
+  printf '\n'
+}
+
+_spinner() { # $1 label, $2 ticks   — pulsing accent head (no jumpy spinner)
+  local label="$1" ticks="${2:-16}" frames='█▓▒░' j=0
+  while [ "$ticks" -gt 0 ]; do
+    printf '\r  %s[ %s ]%s %s%s%s' "$ACC" "${frames:$((j % 4)):1}" "$RESET" "$FG70" "$label" "$RESET"
+    j=$((j + 1)); ticks=$((ticks - 1)); _beat 1
+  done
+  printf '\r  %s[ OK ]%s %s%s%s\n' "$OK" "$RESET" "$FG70" "$label" "$RESET"
+}
+
+# ---------- framed banners ----------
+banner() { # $1 = big word, $2 = subtitle
+  local word="$(retro_upper "$1")" sub="${2:-}"
+  echo
+  retro_topo
+  retro_chrome "root@0day: ~/${3:-op}" "$(date '+%H:%M:%S')"
+  retro_sep
+  retro_vazia
+  retro_linha "$ACC$BOLD$(retro_espacos $(( (CF - ${#word}) / 2 )) )$word$RESET" "$CF"
+  [ -n "$sub" ] && retro_linha "$FG40$(retro_espacos $(( (CF - ${#sub}) / 2 )) )$sub$RESET" "$CF"
+  retro_vazia
+  retro_base
+  retro_sombra
+  echo
+}
+
+header() { # scene intro line
+  echo
+  retro_modulo "$1" "${2:-}"
+  echo
+}
+
+# ---------- guard: no tty → plain, minimal ----------
+_no_tty_show() {
+  echo "[goodnerd] ACCESS GRANTED — root@$( _ip )"
+  echo "[goodnerd] (rode em um terminal de verdade pra ver o show completo)"
+  exit 0
+}
+
+# =====================================================================
+# SCENE: matrix rain
+# =====================================================================
+GLYPHS=(ﾊ ﾋ ﾌ ﾍ ﾎ ﾑ ﾒ ﾓ ﾔ ﾕ ﾗ ﾘ ﾜ ﾝ ｦ ｱ ｳ ｴ ｵ ｶ ｷ ｹ ｻ ｼ ｽ ｾ ｿ ﾀ ﾂ ﾃ ﾅ ﾆ ﾇ ﾈ 0 1 2 3 4 5 6 7 8 9 A Z '#' '$' % @ = + - ¥ ﾞ ﾟ)
+GN=${#GLYPHS[@]}
+
+_put() { printf '\033[%d;%dH%s%s%s' "$1" "$2" "$3" "$4" "$RESET"; }
+
+scene_matrix() { # $1 = frame count (-1/empty = run until keypress)
+  [ "$DESENHA" -eq 1 ] || _no_tty_show
+  local frames="${1:--1}"
+  local rows cols c f=0
+  rows=$( { tput lines; } 2>/dev/null || echo 24 )
+  retro_eh_numero "$rows" || rows=24
+  cols=$COLS
+  local head=() len=()
+  for ((c = 0; c < cols; c++)); do
+    head[c]=$(( -(RANDOM % rows) ))
+    len[c]=$(( RANDOM % (rows / 2 + 1) + 5 ))
+  done
+
+  printf '\033[?1049h'; ALT=1
+  _hide_cursor
+  [ "$frames" -lt 0 ] && _raw_on
+  printf '\033[2J'
+
+  local r l et g
+  while :; do
+    for ((c = 0; c < cols; c++)); do
+      r=${head[c]}; l=${len[c]}
+      if [ "$r" -ge 1 ] && [ "$r" -le "$rows" ]; then
+        g=${GLYPHS[$((RANDOM % GN))]}; _put "$r" $((c + 1)) "$BOLD$FG" "$g"
+      fi
+      if [ $((r - 1)) -ge 1 ] && [ $((r - 1)) -le "$rows" ]; then
+        g=${GLYPHS[$((RANDOM % GN))]}; _put $((r - 1)) $((c + 1)) "$ACC" "$g"
+      fi
+      if [ $((r - 2)) -ge 1 ] && [ $((r - 2)) -le "$rows" ]; then
+        g=${GLYPHS[$((RANDOM % GN))]}; _put $((r - 2)) $((c + 1)) "$ACC30" "$g"
+      fi
+      et=$((r - l))
+      if [ "$et" -ge 1 ] && [ "$et" -le "$rows" ]; then printf '\033[%d;%dH ' "$et" $((c + 1)); fi
+      head[c]=$((r + 1))
+      if [ $((r - l)) -gt "$rows" ]; then
+        head[c]=$(( -(RANDOM % 8) )); len[c]=$(( RANDOM % (rows / 2 + 1) + 5 ))
+      fi
+    done
+    printf '%s' "$RESET"
+    _tick
+    f=$((f + 1))
+    [ "$frames" -ge 0 ] && [ "$f" -ge "$frames" ] && break
+    [ "$frames" -lt 0 ] && _key_pressed && break
+  done
+  _cleanup
+}
+
+# =====================================================================
+# SCENE: port scan / breach
+# =====================================================================
+scene_scan() {
+  [ "$DESENHA" -eq 1 ] || _no_tty_show
+  _hide_cursor
+  local target="$(_ip)"
+  header "recon" "target: $target"
+  _info "resolving target vector $target"
+  _spinner "handshake with gateway $(_ip)" 10
+  _ok "route established via tor exit node $(_ip)"
+  echo
+
+  _info "nmap -sS -T4 -A -p- $target"; _beat 2
+  local ports=(21 22 23 25 53 80 110 143 443 445 3306 3389 5432 6379 8080 8443 9200)
+  local svcs=(ftp ssh telnet smtp domain http pop3 imap https microsoft-ds mysql ms-wbt-rdp postgresql redis http-proxy https-alt elasticsearch)
+  local i state
+  for i in "${!ports[@]}"; do
+    if [ $((RANDOM % 3)) -eq 0 ]; then
+      state="${FG40}filtered${RESET}"
+    else
+      state="${OK}open    ${RESET}"
+    fi
+    printf '  %s%-6s%s %b %s%-16s%s %sv%s.%s.%s%s\n' \
+      "$ACC" "${ports[$i]}/tcp" "$RESET" "$state" \
+      "$FG70" "${svcs[$i]}" "$RESET" \
+      "$FG40" "$((RANDOM%9))" "$((RANDOM%9))" "$((RANDOM%9))" "$RESET"
+    _beat 2
+  done
+  echo
+  _warn "$((RANDOM % 4 + 3)) exploitable services identified"
+  _info "loading exploit db  ·  CVE-$((RANDOM%9+2015))-$(printf '%04d' $((RANDOM%9999)))"
+  _bar "injecting payload"
+  _dots "escalating privileges" 5
+  _spinner "bypassing WAF / firewall rules" 14
+  _ok "kernel exploit landed — uid=0(root)"
+  _type "root@$target:~# whoami" "$ACC"
+  _type "root" "$ACC$BOLD"
+  banner "ACCESS GRANTED" "shell obtained on $target · uid=0(root)" "breach"
+}
+
+# =====================================================================
+# SCENE: crack / decrypt
+# =====================================================================
+scene_crack() {
+  [ "$DESENHA" -eq 1 ] || _no_tty_show
+  _hide_cursor
+  local hash; hash="$(_hex 64)"
+  header "crack" "sha-256"
+  _info "captured credential hash:"
+  printf '  %s%s%s\n' "$ACC70" "$hash" "$RESET"
+  echo
+  _info "wordlist: rockyou.txt  ·  keyspace 2^$((RANDOM%20+40))"
+  _dots "loading rainbow tables" 5
+
+  # reveal a secret word char-by-char, spinning random chars before each locks
+  local secrets=(TR0ubad0ur h4ck3rman m41nfr4me n30_m4tr1x sup3rs3cr3t xX_gh0st_Xx r00t_kit_99 z3r0_c00l)
+  local secret; secret="$(_pick "${secrets[@]}")"
+  local n=${#secret} locked=0 pool='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%'
+  local pn=${#pool}
+  printf '  %scracking:%s ' "$FG70" "$RESET"
+  while [ "$locked" -lt "$n" ]; do
+    local spins=$(( RANDOM % 5 + 3 )) shown
+    while [ "$spins" -gt 0 ]; do
+      shown="${secret:0:$locked}${pool:$((RANDOM % pn)):1}"
+      printf '\r  %scracking:%s %s%s%s%s' "$FG70" "$RESET" "$ACC70" "${secret:0:$locked}" "$BOLD$FG" "${shown:$locked}${RESET}"
+      _beat 1
+      spins=$((spins - 1))
+    done
+    locked=$((locked + 1))
+  done
+  printf '\r  %scracking:%s %s%s%s\n' "$FG70" "$RESET" "$ACC$BOLD" "$secret" "$RESET"
+  echo
+  _bar "verifying against shadow"
+  _ok "collision found in $((RANDOM%900+100)).$((RANDOM%999))ms"
+  banner "PASSWORD RECOVERED" "plaintext: $secret" "crack"
+}
+
+# =====================================================================
+# SCENE: compile / deploy
+# =====================================================================
+scene_deploy() {
+  [ "$DESENHA" -eq 1 ] || _no_tty_show
+  _hide_cursor
+  header "build" "target: prod"
+  local mods=(core net crypto/aes runtime/sched io/uring parser/lexer vm/jit gpu/cuda mesh/router driver/nvme)
+  local m
+  _info "make -j$((RANDOM%8+4))  (release, lto=fat)"
+  for m in "${mods[@]}"; do
+    _spinner_inline "$m"
+    _beat 1
+  done
+  echo
+  _info "downloading dependencies from registry"
+  _bar "resolving 1.4k packages"
+  _bar "linking static binary"
+  echo
+  _info "running test suite"
+  local t
+  for t in unit integration e2e fuzz race; do
+    printf '  %s[ OK ]%s %s%-12s%s %s%d passed%s\n' \
+      "$OK" "$RESET" "$ACC" "$(retro_upper "$t") TESTS" "$RESET" "$FG40" "$((RANDOM%400+30))" "$RESET"
+    _beat 2
+  done
+  echo
+  _dots "pushing image to registry" 4
+  _spinner "rolling out to $((RANDOM%40+6)) nodes" 16
+  _ok "health checks green across all regions"
+  banner "DEPLOY LIVE" "v$((RANDOM%9)).$((RANDOM%20)).$((RANDOM%40)) shipped to production" "ship"
+}
+
+_spinner_inline() { # $1 = module name. pulses, then locks in [ OK ] on the same line
+  local mod="$1" frames='█▓▒░' j=0 ticks=$((RANDOM % 6 + 3))
+  while [ "$ticks" -gt 0 ]; do
+    printf '\r  %sCC%s   %s%-18s%s %s[ %s ]%s' "$ACC70" "$RESET" "$FG70" "$mod" "$RESET" \
+      "$ACC" "${frames:$((j % 4)):1}" "$RESET"
+    j=$((j + 1)); ticks=$((ticks - 1)); _beat 1
+  done
+  printf '\r  %sCC%s   %s%-18s%s %s[ OK ]%s\n' "$ACC70" "$RESET" "$FG70" "$mod" "$RESET" "$OK" "$RESET"
+}
+
+# =====================================================================
+# full op: chain every scene into one narrative
+# =====================================================================
+scene_full() {
+  [ "$DESENHA" -eq 1 ] || _no_tty_show
+  _hide_cursor
+  _type "initializing operation $(retro_upper "$(_hex 4)") ..." "$ACC"
+  _beat 4
+  scene_scan
+  _beat 6
+  scene_crack
+  _beat 6
+  scene_deploy
+  _beat 6
+  scene_matrix 90
+  banner "MISSION COMPLETE" "0 traces left · connection scrubbed" "done"
+  _info "pressione ENTER pra voltar à realidade"
+  [ "$DESENHA" -eq 1 ] && IFS= read -r _ 2>/dev/null
+}
+
+# =====================================================================
+# help
+# =====================================================================
+uso() {
+  echo
+  retro_topo
+  retro_chrome "root@goodnerd: ~/help" "v1"
+  retro_sep
+  retro_modulo "goodnerd" "teatro de hacker · 100% fake"
+  echo
+  retro_kv "goodnerd"        "operação completa (todas as cenas)"
+  retro_kv "goodnerd matrix [seg]" "chuva de código (para com tecla, ou N seg)"
+  retro_kv "goodnerd scan"   "varredura + invasão + ACCESS GRANTED"
+  retro_kv "goodnerd crack"  "quebra de senha char por char"
+  retro_kv "goodnerd deploy" "compilando/deployando estilo make"
+  retro_kv "goodnerd temas"  "paletas disponíveis"
+  echo
+  retro_secao "velocidade"
+  retro_kv "--fast / --slow" "ou export GOODNERD_VEL=fast|normal|slow"
+  retro_kv "export GOODNERD_TEMA" "escolhe a paleta (ver: goodnerd temas)"
+  echo
+  retro_aviso "aviso" "nada real acontece — é só pra impressionar os leigos"
+  retro_base
+  retro_sombra
+  echo
+}
+
+# ---------- arg parse ----------
+CMD=""
+MSECS=""
+for a in "$@"; do
+  case "$a" in
+    --fast)  VEL=fast ;;
+    --slow)  VEL=slow ;;
+    -h|--help|help|ajuda) CMD=help ;;
+    temas|themes|-t) CMD=temas ;;
+    matrix|rain)    CMD=matrix ;;
+    scan|breach|recon|nmap) CMD=scan ;;
+    crack|decrypt|brute) CMD=crack ;;
+    deploy|build|compile|ship) CMD=deploy ;;
+    ''|full|op|all) CMD=full ;;
+    *) if retro_eh_numero "$a"; then MSECS="$a"; else [ -z "$CMD" ] && CMD=unknown && BAD="$a"; fi ;;
+  esac
+done
+[ -z "$CMD" ] && CMD=full
+
+case "$CMD" in
+  help)   uso ;;
+  temas)  echo; retro_topo; retro_chrome "root@goodnerd: ~/temas" "$TEMA"; retro_sep; retro_catalogo_temas GOODNERD_TEMA; retro_base; retro_sombra; echo ;;
+  matrix) if [ -n "$MSECS" ] && [ "$MSECS" -gt 0 ]; then scene_matrix $(( MSECS * 25 )); else scene_matrix -1; fi ;;
+  scan)   scene_scan ;;
+  crack)  scene_crack ;;
+  deploy) scene_deploy ;;
+  full)   scene_full ;;
+  unknown) echo "goodnerd: comando desconhecido: ${BAD:-}" >&2; echo "tente:  goodnerd --help" >&2; exit 2 ;;
+esac

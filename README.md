@@ -8,16 +8,17 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 |---|---|---|
 | **Terminal** | | |
 | [goodcheats](./goodcheats) | `good` / `goodcheat` / `goodharness` | Kit de utilidades da família good: fetch de sistema + cheatsheets + styleguides |
-| [pomo](./pomo) | `pomo` | Pomodoro com notificação nativa e estatísticas |
+| [goodpomo](./goodpomo) | `goodpomo` | Pomodoro com notificação nativa e estatísticas |
+| [goodnerd](./goodnerd) | `goodnerd` | Teatro de "hacker" fake no terminal, pra impressionar os leigos |
 | **IA** (OpenRouter `:free`) | | |
-| [professor](./professor) | `professor` | Estudo Feynman invertido: te sabatina até você dominar |
-| [biografo](./biografo) | `biografo` | Sua autobiografia, uma pergunta por dia |
-| [vocab](./vocab) | `vocab` | Uma palavra de inglês por dia, com revisão espaçada |
-| [zapstats](./zapstats) | `zapstats` | Retrô de uma conversa exportada do WhatsApp |
+| [goodprofessor](./goodprofessor) | `goodprofessor` | Estudo Feynman invertido: te sabatina até você dominar |
+| [goodbiografo](./goodbiografo) | `goodbiografo` | Sua autobiografia, uma pergunta por dia |
+| [goodvocab](./goodvocab) | `goodvocab` | Uma palavra de inglês por dia, com revisão espaçada |
+| [goodzapstats](./goodzapstats) | `goodzapstats` | Retrô de uma conversa exportada do WhatsApp |
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
 | **Imagens** | | |
-| [images/pixelart](./images/pixelart) | `pixelart` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
+| [images/goodpixelart](./images/goodpixelart) | `goodpixelart` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
@@ -34,14 +35,15 @@ Ou individualmente — cada ferramenta tem um `setup.sh` que a adiciona ao `PATH
 
 ```bash
 bash ~/Desktop/tools/goodcheats/setup.sh
-bash ~/Desktop/tools/pomo/setup.sh
-bash ~/Desktop/tools/professor/setup.sh
-bash ~/Desktop/tools/biografo/setup.sh
-bash ~/Desktop/tools/vocab/setup.sh
-bash ~/Desktop/tools/zapstats/setup.sh
+bash ~/Desktop/tools/goodpomo/setup.sh
+bash ~/Desktop/tools/goodnerd/setup.sh
+bash ~/Desktop/tools/goodprofessor/setup.sh
+bash ~/Desktop/tools/goodbiografo/setup.sh
+bash ~/Desktop/tools/goodvocab/setup.sh
+bash ~/Desktop/tools/goodzapstats/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude Code
-bash ~/Desktop/tools/images/pixelart/setup.sh
+bash ~/Desktop/tools/images/goodpixelart/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
@@ -55,7 +57,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 Ou, por ferramenta, copie o `.env.example` da pasta pra `.env` e preencha (o `.env` não é versionado; o env do shell tem prioridade):
 
 ```bash
-cp ~/Desktop/tools/professor/.env.example ~/Desktop/tools/professor/.env
+cp ~/Desktop/tools/goodprofessor/.env.example ~/Desktop/tools/goodprofessor/.env
 ```
 
 > ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma ferramenta manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.
@@ -71,8 +73,8 @@ Nove paletas, as mesmas do portfólio. Troque global ou por ferramenta:
 
 ```bash
 export RETRO_TEMA=cyber-teal     # vale pra todas
-export POMO_TEMA=noir-rose       # só o pomo (<FERRAMENTA>_TEMA tem prioridade)
-pomo temas                       # catálogo com swatches; qualquer ferramenta aceita `temas`
+export GOODPOMO_TEMA=noir-rose       # só o goodpomo (<FERRAMENTA>_TEMA tem prioridade)
+goodpomo temas                       # catálogo com swatches; qualquer ferramenta aceita `temas`
 ```
 
 Paletas: `vault-gold` `noir-rose` `midnight-ember` `cyber-teal` `velvet-purple`
@@ -102,14 +104,25 @@ good harness copy meu-tema ~/meu/site   # salva styleguide do projeto
 good harness install meu-tema .         # instala no projeto atual
 ```
 
-### [pomo](./pomo)
+### [goodpomo](./goodpomo)
 Pomodoro no terminal: barra de progresso ASCII, notificação nativa (com som no macOS) quando o tempo acaba, estatísticas dos últimos dias. `p` pausa, `q` aborta; a cada 4 focos ele sugere a pausa longa.
 
 ```bash
-pomo               # foco de 25 min
-pomo 50 estudar    # foco de 50 min com rótulo
-pomo pausa         # pausa de 5 min
-pomo -l            # hoje + últimos 14 dias
+goodpomo               # foco de 25 min
+goodpomo 50 estudar    # foco de 50 min com rótulo
+goodpomo pausa         # pausa de 5 min
+goodpomo -l            # hoje + últimos 14 dias
+```
+
+### [goodnerd](./goodnerd)
+Teatro de "hacker" no terminal — puro efeito visual, **nada real acontece** (sem rede, sem tocar arquivo). Varredura de portas, quebra de senha, compilação/deploy e chuva de código estilo Matrix, pra impressionar quem não programa. `goodnerd` sozinho encadeia tudo numa "operação completa".
+
+```bash
+goodnerd               # op completa: scan → crack → deploy → matrix
+goodnerd scan          # varredura de portas + invasão + ACCESS GRANTED
+goodnerd crack         # quebra de senha, char por char
+goodnerd deploy        # compilando/deployando estilo make
+goodnerd matrix [seg]  # chuva de código (para com tecla, ou N segundos)
 ```
 
 ---
@@ -118,40 +131,40 @@ pomo -l            # hoje + últimos 14 dias
 
 Usam a [OpenRouter](https://openrouter.ai) com modelos `:free` — de graça, sem cartão. Precisam do `OPENROUTER_API_KEY` (veja [Instalação](#instalação)). Todas aceitam `-m` pra listar os modelos disponíveis no momento e `OPENROUTER_MODEL` pra escolher outro.
 
-### [professor](./professor)
+### [goodprofessor](./goodprofessor)
 Estudo pela técnica Feynman invertida: você explica um assunto, ele fura sua explicação com perguntas socráticas até você travar ou provar que domina. Nunca entrega a resposta.
 
 ```bash
-professor "DNS"    # nova sessão
-professor -r       # revisão do tópico mais esquecido
-professor -l       # lista o que já estudou
+goodprofessor "DNS"    # nova sessão
+goodprofessor -r       # revisão do tópico mais esquecido
+goodprofessor -l       # lista o que já estudou
 ```
 
-### [biografo](./biografo)
-Sua autobiografia, uma pergunta por dia. Responde offline; depois de algumas dezenas de respostas, `biografo capitulo` costura tudo em capítulos escritos na sua voz.
+### [goodbiografo](./goodbiografo)
+Sua autobiografia, uma pergunta por dia. Responde offline; depois de algumas dezenas de respostas, `goodbiografo capitulo` costura tudo em capítulos escritos na sua voz.
 
 ```bash
-biografo           # a pergunta de hoje
-biografo capitulo  # gera a biografia
-biografo -l        # histórico
+goodbiografo           # a pergunta de hoje
+goodbiografo capitulo  # gera a biografia
+goodbiografo -l        # histórico
 ```
 
-### [vocab](./vocab)
+### [goodvocab](./goodvocab)
 Uma palavra de inglês por dia, com revisão espaçada (caixas de Leitner). O quiz mostra o significado e a frase com lacuna; você digita a palavra. Revisar é offline — o modelo só gera lotes de palavras novas (~1 request a cada 20 dias).
 
 ```bash
-vocab              # revisão do dia + palavra nova
-vocab -q           # só a revisão
-vocab -l           # baralho e status
+goodvocab              # revisão do dia + palavra nova
+goodvocab -q           # só a revisão
+goodvocab -l           # baralho e status
 ```
 
-### [zapstats](./zapstats)
+### [goodzapstats](./goodzapstats)
 Retrô estilo Spotify Wrapped de uma conversa exportada do WhatsApp: quem fala mais, horários, tempo de resposta, quem puxa assunto, maior vácuo. Stats 100% locais; `--roast` adiciona a camada divertida via LLM (anonimizada por padrão).
 
 ```bash
-zapstats conversa.txt                    # só as estatísticas (offline)
-zapstats conversa.txt --roast            # + resumo e roast
-zapstats conversa.txt --html retro.html  # retrô visual
+goodzapstats conversa.txt                    # só as estatísticas (offline)
+goodzapstats conversa.txt --roast            # + resumo e roast
+goodzapstats conversa.txt --html retro.html  # retrô visual
 ```
 
 ### [goodivers](./goodivers)
@@ -215,23 +228,26 @@ tools/
     compose/           ← docker compose files prontos
     goodharness        ← biblioteca de styleguides
     styleguides/       ← predefinições de styleguide (uma por .md)
-  pomo/              ← pomodoro no terminal
-    pomo               ← o CLI
+  goodpomo/              ← pomodoro no terminal
+    goodpomo               ← o CLI
     setup.sh           ← adiciona ao PATH
-  professor/         ← estudo Feynman invertido (OpenRouter :free)
-    professor          ← o CLI
+  goodnerd/              ← teatro de hacker fake (só efeito visual)
+    goodnerd               ← o CLI
+    setup.sh           ← adiciona ao PATH
+  goodprofessor/         ← estudo Feynman invertido (OpenRouter :free)
+    goodprofessor          ← o CLI
     setup.sh           ← adiciona ao PATH
     .env.example       ← modelo de config local
-  biografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
-    biografo           ← o CLI
+  goodbiografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
+    goodbiografo           ← o CLI
     setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
     .env.example       ← modelo de config local
-  vocab/             ← inglês diário com revisão espaçada (OpenRouter :free)
-    vocab              ← o CLI
+  goodvocab/             ← inglês diário com revisão espaçada (OpenRouter :free)
+    goodvocab              ← o CLI
     setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
     .env.example       ← modelo de config local
-  zapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
-    zapstats           ← o CLI
+  goodzapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
+    goodzapstats           ← o CLI
     setup.sh           ← adiciona ao PATH
     .env.example       ← modelo de config local
   goodivers/         ← copiloto do canal de Helldivers 2 (OpenRouter :free)

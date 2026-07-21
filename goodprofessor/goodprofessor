@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-professor — técnica Feynman invertida no terminal.
+goodprofessor — técnica Feynman invertida no terminal.
 
 Você explica um assunto com suas palavras; um professor socrático (LLM via
 OpenRouter, modelos :free) aponta buracos e faz perguntas até você travar ou
 provar que domina. Sessões ficam em ~/.professor/<tópico>/ e podem ser
-revisadas depois com `professor -r`.
+revisadas depois com `goodprofessor -r`.
 
 Requer: Python 3 e a variável de ambiente OPENROUTER_API_KEY.
 """
@@ -47,9 +47,9 @@ def carregar_dotenv():
 
 carregar_dotenv()
 
-ui = Retro(env_prefix="PROFESSOR")
+ui = Retro(env_prefix="GOODPROFESSOR")
 
-BASE_DIR = Path(os.environ.get("PROFESSOR_DIR", Path.home() / ".professor"))
+BASE_DIR = Path(os.environ.get("GOODPROFESSOR_DIR", Path.home() / ".professor"))
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 
@@ -124,7 +124,7 @@ def chamar_llm(messages, max_tokens=1500):
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://github.com/DionathaGoulart/tools",
-                "X-Title": "professor",
+                "X-Title": "goodprofessor",
             },
         )
         try:
@@ -142,7 +142,7 @@ def chamar_llm(messages, max_tokens=1500):
         except Exception as e:  # rede, timeout, JSON…
             erros.append(f"{model}: {type(e).__name__}: {e}")
     die("todos os modelos falharam.",
-        erros + ["`professor -m` lista os modelos :free no ar",
+        erros + ["`goodprofessor -m` lista os modelos :free no ar",
                  "defina OPENROUTER_MODEL pra trocar"])
 
 
@@ -205,7 +205,7 @@ def ler_multilinha():
 
 def imprimir_professor(texto):
     print()
-    ui.secao("professor")
+    ui.secao("goodprofessor")
     print()
     for linha in texto.splitlines():
         print(f"  {ui.FG70}{linha}{ui.RESET}" if linha.strip() else "")
@@ -278,7 +278,7 @@ def rodar_sessao(topico, revisao=False):
     else:
         ui.modulo("feynman_session", f"topic: {slug}")
         ui.janela(
-            "root@professor: ~/study",
+            "root@goodprofessor: ~/study",
             [f"ASSUNTO: {topico.upper()}", ""]
             + envolver("Explica com tuas palavras, como se ensinasse alguem que nunca ouviu falar disso."),
             meta="MODO: FEYNMAN",
@@ -324,7 +324,7 @@ def rodar_sessao(topico, revisao=False):
     ui.kv("ARQUIVO", str(caminho))
     ui.kv("MODELO", model_usado)
     print()
-    ui.proximo(f'professor -r "{topico}"', "revisar depois:")
+    ui.proximo(f'goodprofessor -r "{topico}"', "revisar depois:")
     print()
 
 
@@ -334,7 +334,7 @@ def cmd_listar():
     if not tops:
         ui.aviso("vazio", "nenhum topico estudado ainda.")
         print()
-        ui.proximo('professor "<assunto>"')
+        ui.proximo('goodprofessor "<assunto>"')
         print()
         return
     total = sum(n for _, _, n, _ in tops)
@@ -351,7 +351,7 @@ def cmd_listar():
             f"{ui.barra(n, total, 10)}  {ui.FG40}{n} SESSAO(OES) · {data}{ui.RESET}"
         )
     print()
-    ui.proximo("professor -r", "revisar o mais esquecido:")
+    ui.proximo("goodprofessor -r", "revisar o mais esquecido:")
     print()
 
 
@@ -376,13 +376,13 @@ def cmd_temas():
 
 
 def uso():
-    ui.modulo("professor_help")
-    ui.kv('professor "<assunto>"', "NOVA SESSAO")
-    ui.kv("professor -r", "REVISA O MAIS ESQUECIDO")
-    ui.kv('professor -r "<assunto>"', "REVISA UM TOPICO")
-    ui.kv("professor -l", "TOPICOS ESTUDADOS")
-    ui.kv("professor -m", "MODELOS :FREE NO AR")
-    ui.kv("professor temas", "PALETAS")
+    ui.modulo("goodprofessor_help")
+    ui.kv('goodprofessor "<assunto>"', "NOVA SESSAO")
+    ui.kv("goodprofessor -r", "REVISA O MAIS ESQUECIDO")
+    ui.kv('goodprofessor -r "<assunto>"', "REVISA UM TOPICO")
+    ui.kv("goodprofessor -l", "TOPICOS ESTUDADOS")
+    ui.kv("goodprofessor -m", "MODELOS :FREE NO AR")
+    ui.kv("goodprofessor temas", "PALETAS")
     print()
     ui.secao("durante a sessao")
     ui.kv(".", "ENCERRA A RESPOSTA")
@@ -392,17 +392,17 @@ def uso():
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
-    ui.kv("PROFESSOR_DIR", str(BASE_DIR))
-    ui.kv("PROFESSOR_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("GOODPROFESSOR_DIR", str(BASE_DIR))
+    ui.kv("GOODPROFESSOR_TEMA / RETRO_TEMA", ui.tema.upper())
     ui.kv("NO_COLOR", "DESLIGA AS CORES")
     print()
 
 
 def main():
     ap = argparse.ArgumentParser(
-        prog="professor",
+        prog="goodprofessor",
         description="Você explica, ele fura tua explicação até você travar ou provar que sabe.",
-        epilog='exemplos:  professor "DNS"   ·   professor -r   ·   professor -l   ·   professor temas',
+        epilog='exemplos:  goodprofessor "DNS"   ·   goodprofessor -r   ·   goodprofessor -l   ·   goodprofessor temas',
         add_help=False,
     )
     ap.add_argument("topico", nargs="?",

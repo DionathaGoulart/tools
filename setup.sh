@@ -13,7 +13,7 @@
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-NOMES=(goodcheats pomo professor biografo vocab zapstats goodivers goodivers-skill dark dark-skill images/pixelart)
+NOMES=(goodcheats goodpomo goodprofessor goodbiografo goodvocab goodzapstats goodivers goodivers-skill dark dark-skill images/goodpixelart goodnerd)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -26,6 +26,7 @@ DESCS=(
   "copiloto do Instagram @darkning.art, horror art (OpenRouter)"
   "skill /dark no Claude Code: gera com o Claude, sem chave"
   "imagem (png/jpg/svg/…) -> pixel art, paletas clássicas"
+  "teatro de hacker fake no terminal, pra impressionar leigos"
 )
 
 RCS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile")
