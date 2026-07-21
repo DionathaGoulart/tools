@@ -8,7 +8,7 @@ prefixo `good`.
 |---|---|
 | [`good`](#good) | fetch de sistema estilo neofetch com o logo good |
 | [`goodcheat`](#goodcheat) | cheatsheets de comandos que eu sempre esqueço |
-| [`goodharness`](#goodharness) | biblioteca de styleguides pra instalar em projetos |
+| [`goodharness`](#goodharness) | gerenciador de harness: presets do `.harness/` (bundle), scaffold e config |
 
 Todo comando da família também roda como subcomando do `good`:
 `good cheat tar` = `goodcheat tar` · `good harness list` = `goodharness list`.
@@ -128,42 +128,82 @@ primeira linha aparece no `goodcheat -l`.
 
 ## goodharness
 
-Biblioteca de styleguides pré-definidos. Extraia o styleguide de um projeto uma
-vez, salve como predefinição versionada aqui no repo, e instale em qualquer
-projeto novo com um comando — o arquivo vai pra `.harness/styleguide.md`, onde
-os skills do harness (Claude Code) leem.
+Gerenciador de harness: presets do `.harness/` pra instalar em projetos. Extraia
+o harness de um projeto uma vez, salve como preset versionado aqui no repo, e
+scaffolde/instale em qualquer projeto novo — os arquivos vão pro `.harness/`,
+onde os skills (Claude Code) leem.
+
+Um preset pode ser **um arquivo** (`<nome>.md`, legado → `styleguide.md`) ou um
+**bundle** (diretório `<nome>/` com `styleguide*.md`, `rules/`, …). O bundle
+captura o harness inteiro, não só um arquivo.
 
 ### Uso
 
 ```bash
-good harness list                                    # lista predefinições
-good harness copy portfolio-dev ~/Desktop/Portfolio  # salva styleguide do projeto como predefinição
+good harness init .                                  # scaffold de um .harness/ padrão (config, memory, plans)
+good harness init . --from portfolio-dev             # scaffold já semeando de um preset
+good harness list                                    # lista presets (bundle/file)
+good harness copy portfolio-dev ~/Desktop/Portfolio  # salva o .harness/ do projeto como bundle
 good harness install portfolio-dev ~/dev/site-novo   # instala no projeto (cria .harness/ se precisar)
-good harness show portfolio-dev                      # imprime a predefinição
+good harness show portfolio-dev                      # arquivos + metadata do preset
 good harness rm portfolio-dev                        # remove (pede confirmação)
+good harness config show .                           # imprime o .harness/config.json
+good harness config set tracker_team PROD .          # edita um campo (via jq)
+good harness install portfolio-dev . --link          # symlink em vez de cópia (update do preset propaga)
+good harness diff portfolio-dev .                    # compara preset x instalado (exit 1 se difere)
+good harness update portfolio-dev .                  # atualiza o projeto a partir do preset
+good harness sync portfolio-dev                      # reaplica o preset em todos os projetos que o usam
+good harness status                                  # árvore preset -> projetos (mode, data)
 ```
 
-- `copy <nome> [origem]` — origem pode ser um arquivo `.md` direto ou um
-  diretório de projeto (procura `.harness/styleguide.md`, depois
-  `styleguide.md`). Padrão: diretório atual.
-- `install <nome> [destino]` — destino é o diretório do projeto; escreve em
-  `<destino>/.harness/styleguide.md`. Padrão: diretório atual.
-- `--force` sobrescreve arquivo existente (vale pra `copy` e `install`).
+- `init [dest] [--from <preset>]` — cria `<dest>/.harness/` com `config.json`
+  (template), `styleguide.md` placeholder, `memory/` e `plans/`. Não sobrescreve
+  o que já existe.
+- `copy <nome> [origem] [--files a,b]` — origem = arquivo `.md` (preset legado)
+  ou diretório de projeto (vira **bundle**, capturando `styleguide*.md` + `rules/`;
+  `config.json` **não** é capturado, pra não vazar valores do projeto). `--files`
+  escolhe explicitamente o que entra no bundle.
+- `install <nome> [destino]` — derrama os arquivos do preset em
+  `<destino>/.harness/`. O `config.json` do projeto é **preservado** (merge via
+  `jq`, valores existentes vencem; só entram chaves novas). Grava um recibo
+  `.goodharness.json`.
+- `config <show|get KEY|set KEY VAL> [dest]` — lê/edita `.harness/config.json`
+  (campos: `tracker_team`, `tracker_project`, `prd`, `client`, `stack`, …).
+  `get`/`set` precisam do `jq`; `show` funciona sem.
+- `install ... --link` — symlinka os arquivos do preset em vez de copiar. Editar
+  o preset propaga na hora pros projetos linkados (o `config.json` continua real e
+  com merge — nunca é symlink). Trade-off: não mova o diretório de presets.
+- `diff <nome> [dest]` — compara os arquivos do preset com o instalado no
+  `.harness/` (exit `1` se houver drift; útil em script/CI).
+- `update <nome> [dest]` — reinstala do preset (força), respeitando o modo do
+  install anterior (cópia ou link). O `config.json` do projeto é preservado.
+- `sync [preset]` / `status` — o goodharness registra cada install num
+  `registry.json` (em `~/.goodharness`, ou `GOODHARNESS_STATE`). `sync` reaplica
+  um preset (ou todos) em cada projeto registrado, pulando os que sumiram;
+  `status` mostra a árvore preset → projetos com modo e data.
+- `--force` sobrescreve (faz backup `.bak` antes). Vale pra `copy`/`install`.
 
-### Predefinições
+> **Dependência opcional:** `jq`. Sem ele, `config.json` sai do template cru (sem
+> merge), `config get/set` avisam que precisam do `jq`, e `sync`/`status` (que
+> dependem do registry JSON) ficam indisponíveis. Bundle, `init`, `copy`,
+> `install`, `diff` e `update` funcionam sem `jq`.
 
-Ficam em [`styleguides/`](./styleguides) — um `.md` por tema, versionado junto
-com o repo tools.
+### Presets
 
-| Predefinição | Origem | Estética |
+Ficam em [`styleguides/`](./styleguides) — cada entrada é um `.md` (legado) ou um
+diretório de bundle, versionado junto com o repo tools.
+
+| Preset | Origem | Estética |
 |---|---|---|
 | [portfolio-dev](./styleguides/portfolio-dev.md) | Portfolio, página `/dev` | Retro terminal neo-brutalista: JetBrains Mono, bordas 2px, sombras offset, paletas Abyss Frost / Vault Gold |
 
 ### Fluxo típico
 
-1. Fez um site com um visual que quer reaproveitar? `good harness copy meu-tema ~/caminho/do/site`
-2. Começou um projeto novo? `good harness install meu-tema .`
-3. O Claude Code (skills `prod:*`) lê `.harness/styleguide.md` e implementa seguindo os tokens.
+1. Projeto novo? `good harness init .` — nasce com `.harness/` completo.
+2. Tem um visual/harness pra reaproveitar? `good harness copy meu-tema ~/caminho/do/site`
+3. Instala em outro: `good harness install meu-tema .` (config do projeto é preservado).
+4. Ajusta o tracker: `good harness config set tracker_team TEAM .`
+5. O Claude Code (skills `prod:*`) lê `.harness/` e implementa seguindo os tokens.
 
 ---
 

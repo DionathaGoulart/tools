@@ -11,14 +11,14 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [goodpomo](./goodpomo) | `goodpomo` | Pomodoro com notificação nativa e estatísticas |
 | [goodnerd](./goodnerd) | `goodnerd` | Teatro de "hacker" fake no terminal, pra impressionar os leigos |
 | **IA** (OpenRouter `:free`) | | |
-| [goodprofessor](./goodprofessor) | `goodprofessor` | Estudo Feynman invertido: te sabatina até você dominar |
-| [goodbiografo](./goodbiografo) | `goodbiografo` | Sua autobiografia, uma pergunta por dia |
+| [goodprof](./goodprof) | `goodprof` | Estudo Feynman invertido: te sabatina até você dominar |
+| [goodbio](./goodbio) | `goodbio` | Sua autobiografia, uma pergunta por dia |
 | [goodvocab](./goodvocab) | `goodvocab` | Uma palavra de inglês por dia, com revisão espaçada |
-| [goodzapstats](./goodzapstats) | `goodzapstats` | Retrô de uma conversa exportada do WhatsApp |
+| [goodzap](./goodzap) | `goodzap` | Retrô de uma conversa exportada do WhatsApp |
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
 | **Imagens** | | |
-| [images/goodpixelart](./images/goodpixelart) | `goodpixelart` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
+| [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
@@ -37,13 +37,13 @@ Ou individualmente — cada ferramenta tem um `setup.sh` que a adiciona ao `PATH
 bash ~/Desktop/tools/goodcheats/setup.sh
 bash ~/Desktop/tools/goodpomo/setup.sh
 bash ~/Desktop/tools/goodnerd/setup.sh
-bash ~/Desktop/tools/goodprofessor/setup.sh
-bash ~/Desktop/tools/goodbiografo/setup.sh
+bash ~/Desktop/tools/goodprof/setup.sh
+bash ~/Desktop/tools/goodbio/setup.sh
 bash ~/Desktop/tools/goodvocab/setup.sh
-bash ~/Desktop/tools/goodzapstats/setup.sh
+bash ~/Desktop/tools/goodzap/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude Code
-bash ~/Desktop/tools/images/goodpixelart/setup.sh
+bash ~/Desktop/tools/images/goodpixel/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
@@ -57,7 +57,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 Ou, por ferramenta, copie o `.env.example` da pasta pra `.env` e preencha (o `.env` não é versionado; o env do shell tem prioridade):
 
 ```bash
-cp ~/Desktop/tools/goodprofessor/.env.example ~/Desktop/tools/goodprofessor/.env
+cp ~/Desktop/tools/goodprof/.env.example ~/Desktop/tools/goodprof/.env
 ```
 
 > ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma ferramenta manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.
@@ -131,22 +131,22 @@ goodnerd matrix [seg]  # chuva de código (para com tecla, ou N segundos)
 
 Usam a [OpenRouter](https://openrouter.ai) com modelos `:free` — de graça, sem cartão. Precisam do `OPENROUTER_API_KEY` (veja [Instalação](#instalação)). Todas aceitam `-m` pra listar os modelos disponíveis no momento e `OPENROUTER_MODEL` pra escolher outro.
 
-### [goodprofessor](./goodprofessor)
+### [goodprof](./goodprof)
 Estudo pela técnica Feynman invertida: você explica um assunto, ele fura sua explicação com perguntas socráticas até você travar ou provar que domina. Nunca entrega a resposta.
 
 ```bash
-goodprofessor "DNS"    # nova sessão
-goodprofessor -r       # revisão do tópico mais esquecido
-goodprofessor -l       # lista o que já estudou
+goodprof "DNS"    # nova sessão
+goodprof -r       # revisão do tópico mais esquecido
+goodprof -l       # lista o que já estudou
 ```
 
-### [goodbiografo](./goodbiografo)
-Sua autobiografia, uma pergunta por dia. Responde offline; depois de algumas dezenas de respostas, `goodbiografo capitulo` costura tudo em capítulos escritos na sua voz.
+### [goodbio](./goodbio)
+Sua autobiografia, uma pergunta por dia. Responde offline; depois de algumas dezenas de respostas, `goodbio capitulo` costura tudo em capítulos escritos na sua voz.
 
 ```bash
-goodbiografo           # a pergunta de hoje
-goodbiografo capitulo  # gera a biografia
-goodbiografo -l        # histórico
+goodbio           # a pergunta de hoje
+goodbio capitulo  # gera a biografia
+goodbio -l        # histórico
 ```
 
 ### [goodvocab](./goodvocab)
@@ -158,13 +158,13 @@ goodvocab -q           # só a revisão
 goodvocab -l           # baralho e status
 ```
 
-### [goodzapstats](./goodzapstats)
+### [goodzap](./goodzap)
 Retrô estilo Spotify Wrapped de uma conversa exportada do WhatsApp: quem fala mais, horários, tempo de resposta, quem puxa assunto, maior vácuo. Stats 100% locais; `--roast` adiciona a camada divertida via LLM (anonimizada por padrão).
 
 ```bash
-goodzapstats conversa.txt                    # só as estatísticas (offline)
-goodzapstats conversa.txt --roast            # + resumo e roast
-goodzapstats conversa.txt --html retro.html  # retrô visual
+goodzap conversa.txt                    # só as estatísticas (offline)
+goodzap conversa.txt --roast            # + resumo e roast
+goodzap conversa.txt --html retro.html  # retrô visual
 ```
 
 ### [goodivers](./goodivers)
@@ -208,6 +208,54 @@ Comparação completa e regra de escolha em [goodpen/README.md](./goodpen/README
 
 ---
 
+## Comandos
+
+Prefixo (comando de entrada) e subcomandos de cada ferramenta. `-h` em qualquer
+uma abre a ajuda completa; `<tool> temas` lista as paletas do terminal.
+
+### Terminal
+
+| Ferramenta | Prefixo | Subcomandos principais |
+|---|---|---|
+| goodcheats | `good` | `good` (logo+infos) · `good cheat <sub>` · `good harness <sub>` · `good temas` · `good --refresh` · `good -c HEX` |
+| | `goodcheat` | `<topico>` · `-e` editar/criar · `-l` listar · `-s <termo>` buscar |
+| | `goodharness` | `init [dest] [--from N]` · `copy <nome> [--files a,b]` · `install <nome> [--link]` · `list` · `show <nome>` · `rm <nome>` · `config <show\|get\|set> [dest]` · `diff <nome>` · `update <nome>` · `sync [preset]` · `status` |
+| goodpomo | `goodpomo` | `[min] [rotulo]` foco · `pausa [min]` · `-l` estatísticas · `temas` |
+| goodnerd | `goodnerd` | (operação completa) · `matrix [seg]` · `scan` · `crack` · `deploy` · `temas` · `--fast`/`--slow` |
+
+### IA (OpenRouter `:free`)
+
+| Ferramenta | Prefixo | Subcomandos principais |
+|---|---|---|
+| goodprof | `goodprof` | `"<assunto>"` nova sessão · `-r ["<assunto>"]` revisa · `-l` lista · `-m` modelos · `temas` |
+| goodbio | `goodbio` | (pergunta do dia) · `-f` follow-up · `-x` extra · `-l` respostas · `capitulo` · `perguntas` · `-m` · `temas` |
+| goodvocab | `goodvocab` | (revisão + palavra) · `palavras` reabastece · `-q` quiz · `-x` extra · `-l` baralho · `-m` · `temas` |
+| goodzap | `goodzap` | `<arquivo.txt>` · `--roast` · `--reais` · `--html ARQ` · `-m` · `temas` |
+| goodivers | `goodivers` | (radar) · `ideias` · `inspirar` · `pacote <N\|"ideia">` · `titulos "<tema>"` · `buscar "<termo>"` · `canais` · `temas` |
+| dark | `dark` | (radar) · `ideias` · `pacote <N\|"ideia">` · `legendas "<tema>"` · `stories` · `buscar "<termo>"` · `refs` · `temas` |
+
+Comuns às de IA: `-m` (modelos `:free` no ar), env `OPENROUTER_API_KEY` /
+`OPENROUTER_MODEL`. Skills no Claude Code: `/goodivers` e `/dark` usam os mesmos
+subcomandos, gerando com o Claude da sessão (sem chave).
+
+### Imagens
+
+| Ferramenta | Prefixo | Subcomandos principais |
+|---|---|---|
+| goodpixel | `goodpixel` | `[imagens...]` · `-w/--width` · `-c/--colors` · `--palette mono\|gameboy\|cga\|pico8` · `-d` dither · `-s/--scale` · `--temas` |
+
+### Senhas
+
+| Ferramenta | Prefixo | Subcomandos principais |
+|---|---|---|
+| goodpen (standalone) | `cofre` | `cofre` menu · `cofre web` navegador · `cofre frase` gera passphrase · `cofre temas` |
+| goodpen (pass-store) | `pass` | ecossistema `pass` padrão (ver [pass-store](./goodpen/pass-store)) |
+
+Paleta global de qualquer ferramenta: `export RETRO_TEMA=<nome>` (cada uma
+também aceita seu `<TOOL>_TEMA`). `NO_COLOR` desliga as cores.
+
+---
+
 ## Estrutura
 
 ```
@@ -219,6 +267,9 @@ tools/
   lib/
     retro.sh           ← tema compartilhado das ferramentas em bash
     retro.py           ← tema compartilhado das ferramentas em python
+    llm.py             ← cliente OpenRouter compartilhado (ferramentas de IA)
+  tests/             ← suíte unittest (stdlib) de lib/ + guard de compilação
+  .github/workflows/ ← CI: testes + pyflakes + bash -n + shellcheck
   goodcheats/        ← kit de utilidades da família good
     setup.sh           ← adiciona ao PATH (instala todos os comandos)
     good               ← fetch de sistema com logo (+ dispatcher good <sub>)
@@ -234,20 +285,20 @@ tools/
   goodnerd/              ← teatro de hacker fake (só efeito visual)
     goodnerd               ← o CLI
     setup.sh           ← adiciona ao PATH
-  goodprofessor/         ← estudo Feynman invertido (OpenRouter :free)
-    goodprofessor          ← o CLI
+  goodprof/              ← estudo Feynman invertido (OpenRouter :free)
+    goodprof               ← o CLI
     setup.sh           ← adiciona ao PATH
     .env.example       ← modelo de config local
-  goodbiografo/          ← autobiografia, 1 pergunta por dia (OpenRouter :free)
-    goodbiografo           ← o CLI
+  goodbio/               ← autobiografia, 1 pergunta por dia (OpenRouter :free)
+    goodbio                ← o CLI
     setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
     .env.example       ← modelo de config local
   goodvocab/             ← inglês diário com revisão espaçada (OpenRouter :free)
     goodvocab              ← o CLI
     setup.sh           ← adiciona ao PATH (+ lembrete diário opcional)
     .env.example       ← modelo de config local
-  goodzapstats/          ← retrô de conversa do WhatsApp (OpenRouter :free)
-    goodzapstats           ← o CLI
+  goodzap/               ← retrô de conversa do WhatsApp (OpenRouter :free)
+    goodzap                ← o CLI
     setup.sh           ← adiciona ao PATH
     .env.example       ← modelo de config local
   goodivers/         ← copiloto do canal de Helldivers 2 (OpenRouter :free)
@@ -265,4 +316,42 @@ tools/
       setup.sh           ← setup interativo
       README.md          ← guia completo
       cheatsheet         ← colinha do pass
+  images/
+    goodpixel/         ← imagem → pixel art (Pillow/ImageMagick)
+      goodpixel          ← o CLI
+      setup.sh         ← adiciona ao PATH
 ```
+
+---
+
+## Desenvolvimento
+
+As ferramentas são scripts de arquivo único, **sem dependências de runtime** (só
+a biblioteca padrão do Python/bash). O código compartilhado mora em `lib/`:
+
+- `lib/retro.py` · `lib/retro.sh` — tema retrô do terminal (python e bash)
+- `lib/llm.py` — cliente OpenRouter compartilhado pelas ferramentas de IA:
+  chave, fallback entre modelos, timeout, tratamento de 401 e parse de JSON num
+  lugar só (antes era copiado em cada tool)
+
+### Testes
+
+Suíte em `tests/`, usando o `unittest` da stdlib (nada de pytest):
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+Cobre `lib/llm.py` (fallback de modelo, erro sem chave, extração de JSON,
+modelos `:free`), `lib/retro.py` (largura ANSI/caracteres largos, mix de cor,
+temas) e um guard que compila todos os CLIs python.
+
+### CI
+
+`.github/workflows/ci.yml` roda em todo push/PR:
+
+- **python** — testes + `pyflakes` (imports mortos) em cada entrypoint
+- **shell** — `bash -n` (sintaxe) + `shellcheck -S error` em todo script bash
+
+Antes de abrir PR, o mesmo local: `python3 -m unittest discover -s tests` (a
+suíte já recompila cada tool).
