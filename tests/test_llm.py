@@ -8,6 +8,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -107,6 +108,73 @@ class TestChat(unittest.TestCase):
             parsed, model = llm.chat([{"role": "user", "content": "oi"}], json_tipo="array")
         self.assertEqual(parsed, [{"a": 1}])
         self.assertEqual(model, "bom:free")
+
+
+class TestCache(unittest.TestCase):
+    def _ok(self, content="cacheado"):
+        return json.dumps({"choices": [{"message": {"content": content}}]}).encode("utf-8")
+
+    def test_desligado_por_padrao_nao_cacheia(self):
+        # sem cache_ttl nem env: dois chats -> duas chamadas de rede
+        chamadas = []
+
+        def resp(*a, **k):
+            chamadas.append(1)
+            return io.BytesIO(self._ok())
+
+        llm = LLM("t", ["m:free"])
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-x",
+                                             "GOODTOOLS_CACHE_DIR": d}, clear=False), \
+                mock.patch("urllib.request.urlopen", side_effect=resp):
+            os.environ.pop("GOODTOOLS_LLM_CACHE_TTL", None)
+            msgs = [{"role": "user", "content": "oi"}]
+            llm.chat(msgs)
+            llm.chat(msgs)
+        self.assertEqual(len(chamadas), 2)
+
+    def test_hit_serve_do_disco_sem_rede_nem_chave(self):
+        llm = LLM("t", ["m:free"])
+        msgs = [{"role": "user", "content": "oi"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {"GOODTOOLS_CACHE_DIR": d}, clear=False):
+            # 1ª chamada popula o cache (uma ida à rede)
+            with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-x"}), \
+                    mock.patch("urllib.request.urlopen", return_value=io.BytesIO(self._ok())):
+                v1, m1 = llm.chat(msgs, cache_ttl=3600)
+            self.assertEqual((v1, m1), ("cacheado", "m:free"))
+
+            # 2ª chamada: sem chave e com urlopen que explode se tocado -> hit puro
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("não deveria ir à rede")):
+                v2, m2 = llm.chat(msgs, cache_ttl=3600)
+            self.assertEqual((v2, m2), ("cacheado", "m:free"))
+
+    def test_ttl_expirado_e_um_miss(self):
+        llm = LLM("t", ["m:free"])
+        msgs = [{"role": "user", "content": "oi"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {"GOODTOOLS_CACHE_DIR": d,
+                                             "OPENROUTER_API_KEY": "sk-or-x"}, clear=False):
+            with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(self._ok())):
+                llm.chat(msgs, cache_ttl=3600)
+            # ttl=0 nunca é hit; a entrada existe mas está "vencida"
+            key = llm._cache_key(msgs, 3000, 0.8, None)
+            self.assertIsNone(llm._cache_get(key, 0))
+
+    def test_env_liga_o_cache(self):
+        llm = LLM("t", ["m:free"])
+        msgs = [{"role": "user", "content": "oi"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {"GOODTOOLS_CACHE_DIR": d,
+                                             "GOODTOOLS_LLM_CACHE_TTL": "3600",
+                                             "OPENROUTER_API_KEY": "sk-or-x"}, clear=False):
+            with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(self._ok())):
+                llm.chat(msgs)  # sem cache_ttl -> usa o env
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("não deveria ir à rede")):
+                v, _ = llm.chat(msgs)
+            self.assertEqual(v, "cacheado")
 
 
 class TestFreeModels(unittest.TestCase):

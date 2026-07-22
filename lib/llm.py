@@ -24,9 +24,11 @@ dependency-free and portable.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -34,6 +36,8 @@ API_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 # sent to OpenRouter for attribution; shared by every tool in this repo
 REFERER = "https://github.com/DionathaGoulart/tools"
+# bump when the cache record layout changes (invalidates old entries)
+CACHE_VERSION = "v1"
 
 
 class LLMError(Exception):
@@ -104,7 +108,68 @@ class LLM:
             raise LLMError("OPENROUTER_API_KEY não definida", kind="no_key")
         return key
 
-    def chat(self, messages, *, max_tokens: int = 3000, temperature: float = 0.8, json_tipo=None):
+    # --- response cache -----------------------------------------------------
+    # Opt-in only: disabled unless a call passes ``cache_ttl`` or the env var
+    # ``GOODTOOLS_LLM_CACHE_TTL`` is set. Keyed by the full request (title +
+    # resolved model list + messages + params), so identical prompts within the
+    # TTL are served from disk — saving :free quota and working offline.
+
+    def _cache_root(self) -> str:
+        root = os.environ.get("GOODTOOLS_CACHE_DIR", "").strip()
+        if not root:
+            root = os.path.join(os.path.expanduser("~"), ".cache", "goodtools", "llm")
+        return root
+
+    @staticmethod
+    def _resolve_ttl(override) -> int:
+        """Effective TTL in seconds: per-call ``override`` wins, else the env
+        default, else 0 (disabled). Bad values fall back to 0."""
+        raw = override if override is not None else os.environ.get("GOODTOOLS_LLM_CACHE_TTL", "")
+        try:
+            return max(0, int(raw)) if str(raw).strip() else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _cache_key(self, messages, max_tokens, temperature, json_tipo) -> str:
+        blob = json.dumps({
+            "v": CACHE_VERSION,
+            "title": self.title,
+            "models": self.modelos(),
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "json_tipo": json_tipo,
+        }, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _cache_get(self, key: str, ttl: int):
+        """Return ``(value, model)`` on a fresh hit, else ``None``. Never raises —
+        a corrupt or unreadable entry is treated as a miss."""
+        path = os.path.join(self._cache_root(), key + ".json")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                rec = json.load(fh)
+            if time.time() - float(rec["ts"]) > ttl:
+                return None
+            return rec["value"], rec["model"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _cache_put(self, key: str, value, model: str) -> None:
+        """Persist a successful reply. Best-effort — write failures are ignored."""
+        try:
+            root = self._cache_root()
+            os.makedirs(root, exist_ok=True)
+            path = os.path.join(root, key + ".json")
+            tmp = f"{path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump({"ts": time.time(), "model": model, "value": value}, fh, ensure_ascii=False)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+
+    def chat(self, messages, *, max_tokens: int = 3000, temperature: float = 0.8,
+             json_tipo=None, cache_ttl=None):
         """Try each configured model in order, returning ``(conteudo, modelo)``.
 
         With ``json_tipo`` ("array" | "objeto") the reply is parsed and validated
@@ -112,8 +177,21 @@ class LLM:
         as a failure and falls through to the next. ``conteudo`` is the parsed
         value when ``json_tipo`` is given, otherwise the raw string.
 
+        ``cache_ttl`` (seconds) opts this call into the on-disk response cache;
+        when unset it falls back to the ``GOODTOOLS_LLM_CACHE_TTL`` env var, and
+        to 0 (disabled) otherwise. A fresh hit is returned without any network
+        call — no API key required — so repeated prompts are cheap and work
+        offline. Only successful replies are cached.
+
         Raises :class:`LLMError` (``no_key`` / ``auth`` / ``all_failed``).
         """
+        ttl = self._resolve_ttl(cache_ttl)
+        ckey = None
+        if ttl > 0:
+            ckey = self._cache_key(messages, max_tokens, temperature, json_tipo)
+            hit = self._cache_get(ckey, ttl)
+            if hit is not None:
+                return hit  # (value, model), served from disk
         key = self._key()
         erros = []
         for model in self.modelos():
@@ -141,9 +219,13 @@ class LLM:
                     erros.append(f"{model}: resposta vazia")
                     continue
                 if json_tipo is None:
+                    if ckey:
+                        self._cache_put(ckey, content, model)
                     return content, model
                 parsed = extrair_json(content, json_tipo)
                 if parsed is not None:
+                    if ckey:
+                        self._cache_put(ckey, parsed, model)
                     return parsed, model
                 erros.append(f"{model}: não devolveu JSON parseável")
             except urllib.error.HTTPError as e:
