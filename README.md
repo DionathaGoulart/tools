@@ -24,7 +24,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 
 ## Instalação
 
-Jeito rápido — o instalador interativo da raiz lista tudo, você marca o que quer (`1-9` marca, `a` todos, `n` nenhum, `Enter` instala):
+Jeito rápido: o instalador interativo da raiz lista tudo, você marca o que quer (`1-9` marca, `a` todos, `n` nenhum, `Enter` instala). Ele se ajusta à altura do terminal (mostra mais itens por página em janelas altas) e marca com `[✓]` verde o que já está instalado:
 
 ```bash
 bash ~/Desktop/tools/setup.sh        # instalar (marque e dê Enter)

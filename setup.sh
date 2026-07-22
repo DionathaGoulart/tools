@@ -108,13 +108,15 @@ draw() {
     n=$((k + 1))
     i="${ITENS[$k]}"
     nome="${NOMES[$i]}"
-    tag=""
-    [ "$MODO" = install ] && instalada "$nome" && tag="  [INSTALADA]"
-    desc="$(cortar "${DESCS[$i]}${tag}" $((CF - LARG_NOME - 10)))"
+    inst=0
+    [ "$MODO" = install ] && instalada "$nome" && inst=1
+    desc="$(cortar "${DESCS[$i]}" $((CF - LARG_NOME - 10)))"
     marca="  "
     [ "$CUR" = "$k" ] && marca="► "
+    # checkbox: [x] selecionada (accent) · [✓] já instalada (verde) · [ ] livre
     caixa="[ ]"
-    [ "${SEL[$k]}" = 1 ] && caixa="[x]"
+    if [ "${SEL[$k]}" = 1 ]; then caixa="[x]"
+    elif [ "$inst" = 1 ]; then caixa="[✓]"; fi
 
     larg=$(( 2 + 3 + 1 + 4 + LARG_NOME + 1 + ${#desc} ))
     [ "$larg" -gt "$CF" ] && larg=$CF
@@ -126,7 +128,8 @@ draw() {
       larg=$CF
     else
       local cor_caixa="$ACC30"
-      [ "${SEL[$k]}" = 1 ] && cor_caixa="$OK"
+      if [ "${SEL[$k]}" = 1 ]; then cor_caixa="$ACC"
+      elif [ "$inst" = 1 ]; then cor_caixa="$OK"; fi
       conteudo="$(printf '%s%s%s%s%s%s %2d. %s%-*s%s %s%s%s' \
         "$ACC" "$marca" "$RESET" "$cor_caixa" "$caixa" "$RESET" "$n" \
         "$ACC" "$LARG_NOME" "$nome" "$RESET" "$FG40" "$desc" "$RESET")"
@@ -152,8 +155,8 @@ draw() {
   retro_sombra
 
   if [ "$MODO" = install ]; then
-    printf '  %sdesinstalar: bash setup.sh -u · goodpen tem setup próprio (goodpen/README.md)%s%s\n' \
-      "$FG40" "$RESET" "$CLR"
+    printf '  %s[%s✓%s]%s %sjá instalada · desinstalar: bash setup.sh -u · goodpen tem setup próprio%s%s\n' \
+      "$FG40" "$OK" "$FG40" "$RESET" "$FG40" "$RESET" "$CLR"
   fi
   [ -n "$AVISO" ] && printf '\n  %s[ AVISO ]%s %s%s' "$ALERTA" "$RESET" "$AVISO" "$CLR"
 }
@@ -168,8 +171,9 @@ paginate() {
   # linhas fixas: topo+chrome+sep(3) + vazia+botao+sep+status+base+sombra(6) [+dica]
   local overhead=9; [ "$MODO" = install ] && overhead=$((overhead + 1))
   fits=$((rows - overhead - 2))          # -2 reserva pro AVISO
-  PAGE_SIZE=5
-  [ "$PAGE_SIZE" -gt "$fits" ]  && PAGE_SIZE=$fits
+  # page size acompanha a altura do terminal: enche o espaço disponível,
+  # nunca passa do total de itens (terminal alto = tudo numa página só)
+  PAGE_SIZE=$fits
   [ "$PAGE_SIZE" -gt "$total" ] && PAGE_SIZE=$total
   [ "$PAGE_SIZE" -lt 1 ] && PAGE_SIZE=1
   NPAGES=$(( (total + PAGE_SIZE - 1) / PAGE_SIZE ))
