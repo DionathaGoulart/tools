@@ -1,0 +1,28 @@
+# Pre-commit hooks that mirror CI. Install once:
+#   pip install pre-commit && pre-commit install
+# The hooks shell out to the same tools the Makefile/CI use, so they need
+# ruff + shellcheck on PATH (brew install ruff shellcheck). Config lives in
+# ruff.toml / .shellcheckrc, so a hook and `make check` behave identically.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (python lint)
+        entry: make lint-py
+        language: system
+        pass_filenames: false
+        types_or: [python, executable]
+
+      - id: shellcheck
+        name: shellcheck (shell lint)
+        entry: make lint-sh
+        language: system
+        pass_filenames: false
+        types_or: [shell, executable]
+
+      - id: bash-n
+        name: bash -n (shell syntax)
+        entry: make syntax-sh
+        language: system
+        pass_filenames: false
+        types_or: [shell, executable]
