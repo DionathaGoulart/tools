@@ -13,6 +13,7 @@ target-version = "py38"
 extend-include = [
     "dark/dark",
     "goodivers/goodivers",
+    "goodjob/goodjob",
     "goodvocab/goodvocab",
     "goodprof/goodprof",
     "goodbio/goodbio",

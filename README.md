@@ -16,6 +16,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [goodvocab](./goodvocab) | `goodvocab` | Uma palavra de inglês por dia, com revisão espaçada |
 | [goodzap](./goodzap) | `goodzap` | Retrô de uma conversa exportada do WhatsApp |
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
+| [goodjob](./goodjob) | `goodjob` | Copiloto de busca de emprego: radar de vagas ao vivo (Gupy, LinkedIn, Remotive, RemoteOK) + aderência, carta, CV e prep |
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
 | **Imagens** | | |
 | [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
@@ -43,6 +44,8 @@ bash ~/Desktop/tools/goodvocab/setup.sh
 bash ~/Desktop/tools/goodzap/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh
 bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude Code
+bash ~/Desktop/tools/goodjob/setup.sh
+bash ~/Desktop/tools/goodjob/setup.sh --skill     # skill /goodjob do Claude Code
 bash ~/Desktop/tools/images/goodpixel/setup.sh
 ```
 

@@ -1,0 +1,937 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+goodjob — copiloto de busca de emprego dentro do terminal (e do Claude Code).
+
+Puxa vagas AO VIVO de várias fontes (Gupy e LinkedIn no foco BR, + Remotive e
+RemoteOK pra remoto internacional), casa com o SEU perfil (cargo, stack,
+senioridade, local, remoto) e vira um radar rankeado. Em cima de cada vaga o
+modelo gera: análise de aderência (CV × vaga), carta de apresentação/mensagem
+pro recrutador, adaptação do CV pra passar no ATS e kit de preparação pra
+entrevista. Um tracker local segura o funil de candidaturas.
+
+A COLETA é 100% APIs/feeds públicos (sem LLM, sem login). O modelo entra só
+em `match`, `carta`, `cv` e `prep`. Dentro do Claude Code use o skill
+/goodjob (a geração é feita pelo Claude da sessão, sem OpenRouter).
+
+args: [radar|buscar "<termo>"|vagas|perfil|match <N>|carta <N>|cv <N>|
+       prep <N>|tracker [...]|temas] [-f] [--remoto] [--local "<cidade>"]
+
+Requer: Python 3. OPENROUTER_API_KEY só pros comandos de geração no CLI
+standalone (no skill /goodjob quem gera é o Claude, sem chave).
+"""
+
+import argparse
+import html
+import json
+import os
+import re
+import sys
+import textwrap
+import urllib.error
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro  # noqa: E402
+from llm import LLM, LLMError  # noqa: E402
+
+ui = Retro(env_prefix="GOODJOB")
+
+
+def carregar_dotenv():
+    """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
+    está exportado no shell (env real tem prioridade)."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        linhas = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+
+
+carregar_dotenv()
+
+BASE_DIR = Path(os.environ.get("GOODJOB_DIR", Path.home() / ".goodjob"))
+PERFIL_FILE = BASE_DIR / "perfil.json"     # perfil do candidato (cargo, stack, local…)
+RADAR_FILE = BASE_DIR / "radar.json"       # último snapshot de vagas (cache + índice)
+TRACKER_FILE = BASE_DIR / "tracker.json"   # funil de candidaturas
+CV_PADRAO = BASE_DIR / "cv.md"             # CV base (texto), se GOODJOB_CV não apontar
+
+DEFAULT_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+]
+
+# --- fontes de vaga (todas públicas, sem login) --------------------------------
+GUPY_URL = "https://employability-portal.gupy.io/api/v1/jobs"  # BR, JSON rico + total
+LINKEDIN_URL = ("https://www.linkedin.com/jobs-guest/jobs/api/"
+                "seeMoreJobPostings/search")                    # BR/global, cards HTML
+LINKEDIN_JD_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
+REMOTIVE_URL = "https://remotive.com/api/remote-jobs"           # remoto internacional
+REMOTEOK_URL = "https://remoteok.com/api"                       # remoto internacional
+UA_BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+
+CACHE_RADAR_HORAS = 6
+POR_FONTE = 12           # vagas puxadas por fonte
+ESTAGIOS = ["salvo", "aplicado", "entrevista", "oferta", "rejeitado"]
+
+
+# ---------------------------------------------------------------- util
+
+def die(msg):
+    linhas = str(msg).split("\n")
+    print(f"  {ui.ALERTA}[ ERRO ]{ui.RESET} {linhas[0]}", file=sys.stderr)
+    for extra in linhas[1:]:
+        print(f"          {ui.FG40}{extra.strip()}{ui.RESET}", file=sys.stderr)
+    sys.exit(1)
+
+
+def nota(texto):
+    print(f"  {ui.FG40}· {texto}{ui.RESET}", file=sys.stderr)
+
+
+def envolver(texto, cor=""):
+    larg = max(20, ui.cf)
+    return [f"{cor}{p}{ui.RESET}" if cor else p
+            for p in (textwrap.wrap(texto, larg) or [""])]
+
+
+def carregar_json(caminho, padrao):
+    if caminho.exists():
+        try:
+            return json.loads(caminho.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return padrao
+
+
+def salvar_json(caminho, obj):
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def agora_utc():
+    return datetime.now(timezone.utc)
+
+
+def parse_iso(s):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def idade_humana(iso):
+    dt = parse_iso(iso)
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    seg = (agora_utc() - dt).total_seconds()
+    if seg < 0:
+        return "agora"
+    if seg < 3600:
+        return f"{int(seg // 60)}min"
+    if seg < 86400:
+        return f"{int(seg // 3600)}h"
+    dias = int(seg // 86400)
+    return f"{dias}d" if dias < 30 else f"{dias // 30}mes"
+
+
+def dias_desde(iso):
+    dt = parse_iso(iso)
+    if not dt:
+        return 9999
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max(0, int((agora_utc() - dt).total_seconds() // 86400))
+
+
+def limpar_html(txt):
+    """HTML/entidades → texto puro (as descrições da Gupy/RemoteOK vêm em HTML)."""
+    if not txt:
+        return ""
+    txt = re.sub(r"(?i)<br\s*/?>", "\n", txt)
+    txt = re.sub(r"(?i)</(p|li|div|h[1-6])>", "\n", txt)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = html.unescape(txt).replace("\xa0", " ")
+    txt = re.sub(r"[ \t]+", " ", txt)
+    txt = re.sub(r"\n\s*\n\s*\n+", "\n\n", txt)
+    return txt.strip()
+
+
+def resumir(txt, n):
+    txt = re.sub(r"\s+", " ", (txt or "").strip())
+    return txt if len(txt) <= n else txt[: n - 1].rstrip() + "…"
+
+
+def normalizar(s):
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def marcar_radar():
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
+    (BASE_DIR / ".ultimo_radar").write_text(
+        datetime.now().date().isoformat(), encoding="utf-8")
+
+
+# ---------------------------------------------------------------- http
+
+def http_get(url, headers=None, timeout=15):
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": UA_BROWSER})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def http_json(url, headers=None, timeout=15):
+    return json.loads(http_get(url, headers, timeout).decode("utf-8"))
+
+
+# ---------------------------------------------------------------- perfil
+
+def carregar_perfil():
+    """Perfil do candidato: arquivo perfil.json com fallback pras envs. `query`
+    é o único obrigatório pro radar (o que você busca)."""
+    p = carregar_json(PERFIL_FILE, {}) or {}
+    p.setdefault("query", os.environ.get("GOODJOB_QUERY", "").strip())
+    p.setdefault("local", os.environ.get("GOODJOB_LOCAL", "Brasil").strip())
+    p.setdefault("stack", [])
+    p.setdefault("senioridade", "")
+    p.setdefault("remoto", False)
+    p.setdefault("salario_alvo", "")
+    p.setdefault("evitar", [])
+    return p
+
+
+def caminho_cv():
+    env = os.environ.get("GOODJOB_CV", "").strip()
+    return Path(env).expanduser() if env else CV_PADRAO
+
+
+def carregar_cv():
+    caminho = caminho_cv()
+    if caminho.exists():
+        try:
+            return caminho.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+    return ""
+
+
+def termos_perfil(perfil):
+    """Palavras que definem aderência: a query + a stack."""
+    bruto = " ".join([perfil.get("query", "")] + list(perfil.get("stack", [])))
+    termos = re.findall(r"[a-zà-ÿ0-9+#.]{2,}", bruto.lower())
+    stop = {"de", "da", "do", "para", "com", "sr", "jr", "pl", "e"}
+    return [t for t in dict.fromkeys(termos) if t not in stop]
+
+
+# ---------------------------------------------------------------- coleta de vagas
+
+def _vaga(fonte, sid, titulo, empresa, local, remoto, url, publicado,
+          salario="", tags=None, descricao=""):
+    return {
+        "fonte": fonte,
+        "sid": str(sid),
+        "titulo": (titulo or "").strip(),
+        "empresa": (empresa or "").strip(),
+        "local": (local or "").strip(),
+        "remoto": bool(remoto),
+        "url": (url or "").strip(),
+        "publicado": publicado or "",
+        "salario": (salario or "").strip(),
+        "tags": tags or [],
+        "descricao": resumir(limpar_html(descricao), 1400),
+    }
+
+
+def fetch_gupy(termo, limite=POR_FONTE):
+    q = urllib.parse.urlencode({"jobName": termo, "offset": 0, "limit": limite})
+    dados = http_json(f"{GUPY_URL}?{q}", timeout=20)
+    total = (dados.get("pagination") or {}).get("total")
+    out = []
+    for j in dados.get("data", []):
+        cidade = ", ".join(x for x in (j.get("city"), j.get("state")) if x)
+        out.append(_vaga(
+            "gupy", j.get("id"), j.get("name"), j.get("careerPageName"),
+            cidade or j.get("country") or "Brasil",
+            j.get("isRemoteWork") or j.get("workplaceType") == "remote",
+            j.get("jobUrl"), j.get("publishedDate"),
+            tags=[j.get("workplaceType")] if j.get("workplaceType") else [],
+            descricao=j.get("description", ""),
+        ))
+    return out, total
+
+
+def fetch_linkedin(termo, local="Brasil", limite=POR_FONTE):
+    q = urllib.parse.urlencode({"keywords": termo, "location": local, "start": 0})
+    hdr = {"User-Agent": UA_BROWSER, "Accept": "text/html"}
+    corpo = http_get(f"{LINKEDIN_URL}?{q}", hdr, timeout=15).decode("utf-8", "ignore")
+    cartoes = re.findall(r'<li>.*?</li>', corpo, re.S)
+    out = []
+    for c in cartoes[:limite]:
+        mid = re.search(r'urn:li:jobPosting:(\d+)', c)
+        tit = re.search(r'base-search-card__title">\s*(.*?)\s*</h3>', c, re.S)
+        emp = re.search(r'base-search-card__subtitle">\s*<a[^>]*>\s*(.*?)\s*</a>', c, re.S)
+        loc = re.search(r'job-search-card__location">\s*(.*?)\s*</span>', c, re.S)
+        url = re.search(r'href="(https://[a-z]{0,3}\.?linkedin\.com/jobs/view/[^"?]+)', c)
+        data = re.search(r'datetime="([0-9-]+)"', c)
+        if not (mid and tit):
+            continue
+        localv = html.unescape((loc.group(1) if loc else "").strip())
+        out.append(_vaga(
+            "linkedin", mid.group(1), html.unescape(tit.group(1).strip()),
+            html.unescape(emp.group(1).strip()) if emp else "",
+            localv, "remot" in localv.lower(),
+            url.group(1) if url else f"https://www.linkedin.com/jobs/view/{mid.group(1)}",
+            (data.group(1) if data else ""),
+        ))
+    return out
+
+
+def fetch_linkedin_jd(sid):
+    """Descrição completa de uma vaga do LinkedIn (o card da busca não traz)."""
+    try:
+        corpo = http_get(LINKEDIN_JD_URL.format(sid),
+                         {"User-Agent": UA_BROWSER}, timeout=15).decode("utf-8", "ignore")
+    except (urllib.error.URLError, OSError):
+        return ""
+    m = re.search(r'(?s)description__text.*?<span[^>]*>(.*?)</span>\s*</div>', corpo)
+    m = m or re.search(r'(?s)<div class="[^"]*show-more-less-html__markup[^"]*">(.*?)</div>', corpo)
+    return limpar_html(m.group(1)) if m else ""
+
+
+def fetch_remotive(termo, limite=POR_FONTE):
+    q = urllib.parse.urlencode({"search": termo, "limit": limite})
+    dados = http_json(f"{REMOTIVE_URL}?{q}", timeout=20)
+    out = []
+    for j in dados.get("jobs", [])[:limite]:
+        out.append(_vaga(
+            "remotive", j.get("id"), j.get("title"), j.get("company_name"),
+            j.get("candidate_required_location") or "Remoto", True,
+            j.get("url"), j.get("publication_date"),
+            salario=j.get("salary", ""), tags=j.get("tags", []),
+            descricao=j.get("description", ""),
+        ))
+    return out
+
+
+def fetch_remoteok(termo, limite=POR_FONTE):
+    # As tags do RemoteOK são palavras únicas em inglês ("python", "react") — um
+    # termo composto ("desenvolvedor python") como tag não casa. Então puxamos o
+    # feed geral e filtramos localmente por qualquer token do termo (position +
+    # tags), o que faz a fonte contribuir sempre que houver um tech em inglês.
+    tokens = [t for t in re.findall(r"[a-z0-9+#]{2,}", termo.lower())
+              if t not in ("desenvolvedor", "desenvolvedora", "pessoa", "vaga",
+                            "developer", "engineer", "programador", "sr", "jr", "pl")]
+    dados = http_json(REMOTEOK_URL, {"User-Agent": UA_BROWSER}, timeout=20)
+    out = []
+    for j in dados:
+        if not isinstance(j, dict) or not j.get("position"):
+            continue  # 1º item é aviso legal
+        pos = j.get("position", "")
+        if re.search(r"(?i)don'?t see an open position|see an open", pos):
+            continue  # posting-coringa do RemoteOK (taggeado com tudo)
+        palheiro = (pos + " " + " ".join(j.get("tags", []))).lower()
+        if tokens and not any(t in palheiro for t in tokens):
+            continue
+        smin, smax = j.get("salary_min") or 0, j.get("salary_max") or 0
+        sal = f"${smin // 1000}k–${smax // 1000}k" if smin and smax else ""
+        out.append(_vaga(
+            "remoteok", j.get("id"), j.get("position"), j.get("company"),
+            j.get("location") or "Remoto", True,
+            j.get("url") or j.get("apply_url"), j.get("date"),
+            salario=sal, tags=j.get("tags", []), descricao=j.get("description", ""),
+        ))
+        if len(out) >= limite:
+            break
+    return out
+
+
+def pontuar(v, termos, perfil):
+    """Score de aderência: keyword no título/descrição + frescor + remoto."""
+    tit, desc = v["titulo"].lower(), v["descricao"].lower()
+    score = sum(3 for t in termos if t in tit) + sum(1 for t in termos if t in desc)
+    d = dias_desde(v["publicado"])
+    score += 4 if d <= 7 else 2 if d <= 14 else 1 if d <= 30 else 0
+    if perfil.get("remoto") and v["remoto"]:
+        score += 2
+    for e in perfil.get("evitar", []):
+        if e and e.lower() in tit:
+            score -= 6
+    return score
+
+
+def coletar(termo, remoto=False, local="Brasil", force=False, perfil=None):
+    """Coleta paralela das 4 fontes, dedup, rankeia pelo perfil e cacheia 6h."""
+    perfil = perfil or {}
+    cache = carregar_json(RADAR_FILE, None)
+    chave = {"termo": termo, "remoto": remoto, "local": local}
+    if cache and not force and cache.get("filtros") == chave:
+        ts = parse_iso(cache.get("ts", ""))
+        if ts and (agora_utc() - ts).total_seconds() < CACHE_RADAR_HORAS * 3600:
+            return cache
+
+    nota(f"coletando vagas: “{termo}” — gupy, linkedin, remotive, remoteok…")
+    snapshot = {"ts": agora_utc().isoformat(), "termo": termo,
+                "filtros": chave, "falhas": [], "totais": {}}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        jobs = {
+            "gupy": ex.submit(fetch_gupy, termo),
+            "linkedin": ex.submit(fetch_linkedin, termo, local),
+            "remotive": ex.submit(fetch_remotive, termo),
+            "remoteok": ex.submit(fetch_remoteok, termo),
+        }
+        vagas, totais = [], {}
+        for nome, fut in jobs.items():
+            try:
+                res = fut.result()
+                lote, total = res if isinstance(res, tuple) else (res, None)
+                vagas += lote
+                totais[nome] = total if total is not None else len(lote)
+            except Exception as e:
+                snapshot["falhas"].append(f"{nome}: {type(e).__name__}")
+    snapshot["totais"] = totais
+
+    if remoto:
+        vagas = [v for v in vagas if v["remoto"]]
+
+    # dedup por (título, empresa) mantendo a 1ª ocorrência
+    vistos, unicas = set(), []
+    for v in vagas:
+        k = (normalizar(v["titulo"])[:60], normalizar(v["empresa"]))
+        if k in vistos:
+            continue
+        vistos.add(k)
+        unicas.append(v)
+
+    termos = termos_perfil(perfil) or termos_perfil({"query": termo})
+    for v in unicas:
+        v["score"] = pontuar(v, termos, perfil)
+    # score desc; empate → mais recente primeiro (menos dias desde a publicação)
+    unicas.sort(key=lambda v: (-v["score"], dias_desde(v["publicado"])))
+    for i, v in enumerate(unicas, 1):
+        v["n"] = i
+    snapshot["vagas"] = unicas
+
+    if not unicas and not snapshot["falhas"]:
+        snapshot["falhas"].append("nenhuma vaga casou com o termo")
+    salvar_json(RADAR_FILE, snapshot)
+    marcar_radar()
+    return snapshot
+
+
+# ---------------------------------------------------------------- render
+
+FONTE_CHIP = {"gupy": "GUPY", "linkedin": "LKDIN", "remotive": "RMTV", "remoteok": "RMOK"}
+
+
+def _render_lista(snapshot, titulo_mod):
+    vagas = snapshot.get("vagas", [])
+    termo = snapshot.get("termo", "")
+    ui.modulo(titulo_mod, f"termo: {resumir(termo, 28)}")
+    if not vagas:
+        ui.aviso("vazio", "nenhuma vaga encontrada pra esse termo/filtro.")
+        for f in snapshot.get("falhas", []):
+            ui.item("!", f)
+        ui.proximo('goodjob buscar "outro termo"', "tente:")
+        print()
+        return
+    remotas = sum(1 for v in vagas if v["remoto"])
+    ui.kv("VAGAS", f"{len(vagas)} (APOS DEDUP)")
+    ui.kv("REMOTAS", str(remotas))
+    tot = snapshot.get("totais", {})
+    ui.kv("POR FONTE", " · ".join(f"{FONTE_CHIP.get(k, k.upper())} {tot[k]}"
+                                  for k in ("gupy", "linkedin", "remotive", "remoteok")
+                                  if k in tot))
+    print()
+    ui.secao("vagas")
+    for v in vagas:
+        flag = f"{ui.OK}🌐{ui.RESET} " if v["remoto"] else ""
+        chip = ui.chip(FONTE_CHIP.get(v["fonte"], v["fonte"].upper()))
+        idade = idade_humana(v["publicado"])
+        meta = " · ".join(x for x in (
+            v["empresa"], v["local"], f"há {idade}" if idade else "",
+            v["salario"]) if x)
+        ui.item(str(v["n"]), f"{flag}{v['titulo']}  {chip}", f"— {meta}")
+    print()
+    for f in snapshot.get("falhas", []):
+        ui.item("!", f)
+    if snapshot.get("falhas"):
+        print()
+    ui.proximo("goodjob match <N>", "aderência CV × vaga:")
+    ui.proximo("goodjob carta <N>", "carta/mensagem:")
+    print()
+
+
+# ---------------------------------------------------------------- LLM (standalone)
+
+_llm = LLM("goodjob", DEFAULT_MODELS)
+
+
+def chamar_llm(messages, max_tokens=2200, temperature=0.7):
+    try:
+        return _llm.chat(messages, max_tokens=max_tokens, temperature=temperature)
+    except LLMError as e:
+        if e.kind == "no_key":
+            die("OPENROUTER_API_KEY não definida (necessária só pros comandos de "
+                "geração no CLI).\n"
+                "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
+                '  2. export OPENROUTER_API_KEY="sk-or-..."\n'
+                "  Ou use o skill /goodjob no Claude Code (geração sem chave).")
+        if e.kind == "auth":
+            die("OPENROUTER_API_KEY inválida (HTTP 401).")
+        die("Todos os modelos falharam:\n  " + "\n  ".join(e.errors))
+
+
+def listar_modelos_free():
+    try:
+        livres = _llm.free_models()
+    except LLMError as e:
+        die(e.message)
+    ui.modulo("free_models", "src: openrouter")
+    ui.kv("DISPONIVEIS", f"{len(livres)} MODELO(S)")
+    print()
+    ui.secao("modelos")
+    for m in livres:
+        ui.item("·", m)
+    print()
+    ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra trocar:")
+    print()
+
+
+def bloco_vaga(v):
+    linhas = [
+        f"Título: {v['titulo']}",
+        f"Empresa: {v['empresa']}",
+        f"Local: {v['local']} ({'remoto' if v['remoto'] else 'presencial/híbrido'})",
+        f"Fonte: {v['fonte']}  ·  Link: {v['url']}",
+    ]
+    if v.get("salario"):
+        linhas.append(f"Salário: {v['salario']}")
+    desc = v.get("descricao") or ""
+    if not desc and v["fonte"] == "linkedin":
+        desc = fetch_linkedin_jd(v["sid"])
+    linhas.append("Descrição da vaga:\n" + (desc or "(sem descrição disponível)"))
+    return "\n".join(linhas)
+
+
+def bloco_candidato(perfil, cv, exigir_cv=False):
+    partes = []
+    if perfil.get("senioridade") or perfil.get("stack"):
+        partes.append("Perfil: "
+                       + " · ".join(x for x in (
+                           perfil.get("senioridade", ""),
+                           ", ".join(perfil.get("stack", [])),
+                           f"alvo salarial {perfil['salario_alvo']}"
+                           if perfil.get("salario_alvo") else "") if x))
+    if cv:
+        partes.append("CV do candidato:\n" + cv)
+    elif exigir_cv:
+        die("nenhum CV encontrado.\n"
+            f"  Crie {caminho_cv()} (texto/markdown) ou aponte GOODJOB_CV pro seu CV.\n"
+            "  match e cv precisam do CV; carta e prep funcionam sem, mas ficam melhores com.")
+    ctx = os.environ.get("GOODJOB_CONTEXTO", "").strip()
+    if ctx:
+        partes.append("Contexto extra do candidato: " + ctx)
+    return "\n\n".join(partes) or "(candidato não forneceu perfil nem CV)"
+
+
+def _saida_texto(mod, meta, titulo_vaga, texto):
+    ui.modulo(mod, meta)
+    ui.kv("VAGA", resumir(titulo_vaga.upper(), 40))
+    print()
+    for bloco in texto.split("\n"):
+        print(f"  {bloco}" if bloco.strip() else "")
+    print()
+
+
+# --------- prompts de geração (CLI standalone; no skill quem gera é o Claude)
+
+def sys_match():
+    return ("Você é um coach de carreira tech brasileiro, direto e honesto. "
+            "Avalie a aderência entre o CV do candidato e a vaga. Responda em "
+            "PT-BR, markdown enxuto, nesta ordem: um **score de 0 a 100** com 1 "
+            "frase de justificativa; **✅ Pontos fortes** (o que casa, com "
+            "evidência do CV); **⚠ Gaps** (requisito da vaga que o CV não mostra "
+            "e o quanto pesa); **🚩 Red flags** do anúncio, se houver (vaga vaga, "
+            "pj disfarçado, exigência absurda pro nível); **🎯 Veredito** (aplicar "
+            "já / aplicar ajustando o CV / pular) em 1–2 frases. Não invente "
+            "experiência que não está no CV.")
+
+
+def sys_carta():
+    return ("Você escreve cartas de apresentação e mensagens curtas pra recrutador, "
+            "em PT-BR, tom profissional e humano (nada de robótico ou bajulador). "
+            "Entregue DUAS versões: **✉️ Carta** (3 parágrafos: gancho ligando "
+            "candidato↔vaga, prova com 1–2 conquistas concretas do CV, fechamento "
+            "com call-to-action) e **💬 Mensagem curta** (≤600 caracteres, pra "
+            "InMail/WhatsApp). Use só fatos do CV/perfil; se faltar dado, deixe um "
+            "[placeholder] explícito em vez de inventar.")
+
+
+def sys_cv():
+    return ("Você é especialista em CV tech e ATS. Adapte o CV do candidato pra "
+            "ESTA vaga, em PT-BR. Entregue: **🎯 Keywords do anúncio** que faltam "
+            "no CV (lista); **✏️ Resumo profissional reescrito** (2–3 linhas mirando "
+            "a vaga); **🔧 Bullets ajustados** — reescreva 4–6 bullets do CV pra "
+            "espelhar os requisitos, começando com verbo de ação e métrica quando "
+            "houver; **🗂 Ordem/corte** — o que subir e o que cortar. NUNCA invente "
+            "experiência, cargo ou número: só reformula o que já existe no CV.")
+
+
+def sys_prep():
+    return ("Você prepara candidatos pra entrevista técnica e comportamental, em "
+            "PT-BR. Com base na vaga e no CV, entregue: **🧠 Perguntas técnicas "
+            "prováveis** (5–7, ligadas à stack da vaga) com 1 linha do que a "
+            "resposta deve cobrir; **🗣 Comportamentais** (3, formato STAR) já "
+            "rascunhadas com conquistas do CV; **🕳 Seu ponto fraco provável** "
+            "(gap CV×vaga) e como responder se perguntarem; **❓ Perguntas pra "
+            "VOCÊ fazer** (4, que mostram senioridade). Direto e específico pra "
+            "esta vaga, sem genérico.")
+
+
+def vaga_por_n(alvo):
+    """Resolve 'match 3' → vaga #3 do último radar. Aceita também um número puro."""
+    snap = carregar_json(RADAR_FILE, None)
+    if not snap or not snap.get("vagas"):
+        die("nenhum radar salvo. Rode `goodjob radar` ou `goodjob buscar \"termo\"` antes.")
+    alvo = (alvo or "").strip()
+    if not alvo.isdigit():
+        die("informe o número da vaga. Ex.: `goodjob match 3` (veja `goodjob vagas`).")
+    n = int(alvo)
+    for v in snap["vagas"]:
+        if v.get("n") == n:
+            return v
+    die(f"vaga {n} não existe no radar atual ({len(snap['vagas'])} vagas). "
+        "Rode `goodjob vagas`.")
+
+
+def gerar_sobre_vaga(alvo, mod, system, exigir_cv=False, temperatura=0.7):
+    v = vaga_por_n(alvo)
+    perfil, cv = carregar_perfil(), carregar_cv()
+    user = (bloco_candidato(perfil, cv, exigir_cv=exigir_cv)
+            + "\n\n=== VAGA ===\n" + bloco_vaga(v))
+    nota(f"gerando ({mod}) pra vaga #{v['n']}: {resumir(v['titulo'], 40)}…")
+    texto, model = chamar_llm(
+        [{"role": "system", "content": system},
+         {"role": "user", "content": user}],
+        max_tokens=2400, temperature=temperatura)
+    _saida_texto(mod, f"model: {model}", v["titulo"], texto)
+    ui.proximo(f"goodjob tracker add {v['n']}", "salvar no funil:")
+    print()
+
+
+# ---------------------------------------------------------------- tracker
+
+def carregar_tracker():
+    return carregar_json(TRACKER_FILE, {"itens": []}) or {"itens": []}
+
+
+def tracker_add(alvo):
+    v = vaga_por_n(alvo)
+    t = carregar_tracker()
+    for it in t["itens"]:
+        if it["sid"] == v["sid"] and it["fonte"] == v["fonte"]:
+            ui.aviso("já existe", f"{v['titulo']} já está no funil ({it['estagio']}).")
+            return
+    t["itens"].append({
+        "fonte": v["fonte"], "sid": v["sid"], "titulo": v["titulo"],
+        "empresa": v["empresa"], "url": v["url"], "estagio": "salvo",
+        "desde": agora_utc().isoformat(), "nota": "",
+    })
+    salvar_json(TRACKER_FILE, t)
+    ui.modulo("tracker", "add")
+    ui.ok(f"salvo no funil: {v['titulo']} — {v['empresa']}")
+    ui.proximo("goodjob tracker", "ver funil:")
+    print()
+
+
+def _achar_item(t, ref):
+    ref = normalizar(ref)
+    for it in t["itens"]:
+        if it["sid"] == ref or ref in normalizar(it["empresa"]) or ref in normalizar(it["titulo"]):
+            return it
+    return None
+
+
+def tracker_mv(ref, estagio):
+    estagio = normalizar(estagio)
+    if estagio not in ESTAGIOS:
+        die(f"estágio inválido. Use um de: {', '.join(ESTAGIOS)}")
+    t = carregar_tracker()
+    it = _achar_item(t, ref)
+    if not it:
+        die(f"não achei '{ref}' no funil. Veja `goodjob tracker`.")
+    it["estagio"] = estagio
+    it["desde"] = agora_utc().isoformat()
+    salvar_json(TRACKER_FILE, t)
+    ui.modulo("tracker", "mv")
+    ui.ok(f"{it['titulo']} → {estagio.upper()}")
+    print()
+
+
+def tracker_nota(ref, texto):
+    t = carregar_tracker()
+    it = _achar_item(t, ref)
+    if not it:
+        die(f"não achei '{ref}' no funil. Veja `goodjob tracker`.")
+    it["nota"] = texto.strip()
+    salvar_json(TRACKER_FILE, t)
+    ui.modulo("tracker", "nota")
+    ui.ok(f"nota salva em {it['titulo']}")
+    print()
+
+
+def tracker_ls(como_json=False):
+    t = carregar_tracker()
+    if como_json:
+        print(json.dumps(t, ensure_ascii=False, indent=2))
+        return
+    ui.modulo("tracker", f"itens: {len(t['itens'])}")
+    if not t["itens"]:
+        ui.aviso("vazio", "nenhuma candidatura no funil.")
+        ui.proximo("goodjob tracker add <N>", "adicione do radar:")
+        print()
+        return
+    for est in ESTAGIOS:
+        grupo = [it for it in t["itens"] if it["estagio"] == est]
+        if not grupo:
+            continue
+        ui.secao(est)
+        for it in grupo:
+            idade = idade_humana(it["desde"])
+            alerta = ""
+            if it["estagio"] in ("aplicado", "entrevista") and dias_desde(it["desde"]) >= 7:
+                alerta = f"  {ui.ALERTA}⏰ follow-up{ui.RESET}"
+            meta = f"— {it['empresa']} · há {idade}{alerta}"
+            ui.item("·", it["titulo"], meta)
+            if it.get("nota"):
+                print(f"      {ui.FG40}“{resumir(it['nota'], 70)}”{ui.RESET}")
+    print()
+
+
+def cmd_tracker(resto, como_json=False):
+    if not resto:
+        tracker_ls(como_json)
+        return
+    sub, args = resto[0], resto[1:]
+    if sub == "add":
+        tracker_add(" ".join(args))
+    elif sub in ("mv", "mover"):
+        if len(args) < 2:
+            die('uso: goodjob tracker mv <empresa|sid> <estagio>  '
+                f"({', '.join(ESTAGIOS)})")
+        tracker_mv(args[0], args[-1])
+    elif sub in ("nota", "note"):
+        if len(args) < 2:
+            die('uso: goodjob tracker nota <empresa|sid> "texto"')
+        tracker_nota(args[0], " ".join(args[1:]))
+    elif sub in ("ls", "lista"):
+        tracker_ls(como_json)
+    else:
+        die(f"subcomando '{sub}' desconhecido. Use: add, mv, nota, ls.")
+
+
+# ---------------------------------------------------------------- perfil (comando)
+
+def cmd_perfil(como_json=False):
+    perfil, cv = carregar_perfil(), carregar_cv()
+    if como_json:
+        print(json.dumps({
+            "perfil": perfil,
+            "cv_path": str(caminho_cv()),
+            "cv_present": bool(cv),
+            "cv_preview": resumir(cv, 400),
+        }, ensure_ascii=False, indent=2))
+        return
+    ui.modulo("perfil", "src: perfil.json + env")
+    ui.kv("QUERY", perfil.get("query") or "(vazio — defina!)")
+    ui.kv("STACK", ", ".join(perfil.get("stack", [])) or "—")
+    ui.kv("SENIORIDADE", perfil.get("senioridade") or "—")
+    ui.kv("LOCAL", perfil.get("local") or "—")
+    ui.kv("REMOTO", "sim" if perfil.get("remoto") else "não")
+    ui.kv("SALARIO ALVO", perfil.get("salario_alvo") or "—")
+    ui.kv("CV", str(caminho_cv()) + ("" if cv else "  (ausente)"))
+    print()
+    if not perfil.get("query"):
+        ui.secao("como configurar")
+        ui.item("1", f"crie {PERFIL_FILE}", "— JSON com query, stack, senioridade…")
+        ui.item("2", 'ou: export GOODJOB_QUERY="desenvolvedor python"')
+        ui.item("3", f"cole seu CV em {caminho_cv()}")
+        print()
+    ui.proximo("goodjob radar", "buscar com esse perfil:")
+    print()
+
+
+# ---------------------------------------------------------------- comandos radar/buscar
+
+def cmd_radar(fresh, remoto, local, como_json):
+    perfil = carregar_perfil()
+    termo = perfil.get("query", "").strip()
+    if not termo:
+        if como_json:
+            print(json.dumps({"erro": "perfil sem query",
+                              "dica": "defina GOODJOB_QUERY ou perfil.json"},
+                             ensure_ascii=False))
+            return
+        ui.modulo("radar", "perfil incompleto")
+        ui.aviso("sem query", "seu perfil não tem o que buscar.")
+        ui.proximo("goodjob perfil", "configure:")
+        ui.proximo('goodjob buscar "desenvolvedor python"', "ou busque direto:")
+        print()
+        return
+    snap = coletar(termo, remoto or perfil.get("remoto", False),
+                   local or perfil.get("local", "Brasil"), force=fresh, perfil=perfil)
+    if como_json:
+        print(json.dumps(snap, ensure_ascii=False, indent=2))
+        return
+    _render_lista(snap, "radar")
+
+
+def cmd_buscar(termo, fresh, remoto, local, como_json):
+    if not termo:
+        die('informe o termo. Ex.: goodjob buscar "desenvolvedor react" --remoto')
+    perfil = carregar_perfil()
+    snap = coletar(termo, remoto, local or perfil.get("local", "Brasil"),
+                   force=fresh, perfil=perfil)
+    if como_json:
+        print(json.dumps(snap, ensure_ascii=False, indent=2))
+        return
+    _render_lista(snap, "busca")
+
+
+def cmd_vagas(como_json):
+    snap = carregar_json(RADAR_FILE, None)
+    if not snap:
+        die("nenhum radar salvo. Rode `goodjob radar` ou `goodjob buscar \"termo\"`.")
+    if como_json:
+        print(json.dumps(snap, ensure_ascii=False, indent=2))
+        return
+    _render_lista(snap, "vagas")
+
+
+# ---------------------------------------------------------------- main
+
+def uso():
+    ui.modulo("goodjob_help")
+    ui.secao("comandos")
+    ui.kv("goodjob", "RADAR: VAGAS DO SEU PERFIL, RANKEADAS")
+    ui.kv('goodjob buscar "<termo>"', "BUSCA AVULSA NAS 4 FONTES")
+    ui.kv("goodjob vagas", "REMOSTRA O ULTIMO RADAR (INDICE)")
+    ui.kv("goodjob perfil", "MOSTRA/CONFIGURA SEU PERFIL")
+    ui.kv("goodjob match <N>", "ADERENCIA CV X VAGA + VEREDITO")
+    ui.kv("goodjob carta <N>", "CARTA + MENSAGEM PRO RECRUTADOR")
+    ui.kv("goodjob cv <N>", "ADAPTA O CV PRA VAGA (ATS)")
+    ui.kv("goodjob prep <N>", "KIT DE ENTREVISTA")
+    ui.kv("goodjob tracker", "FUNIL DE CANDIDATURAS")
+    ui.kv("goodjob tracker add <N>", "SALVA VAGA DO RADAR NO FUNIL")
+    ui.kv("goodjob tracker mv <x> <est>", "MOVE DE ESTAGIO")
+    ui.kv('goodjob tracker nota <x> "…"', "ANOTA NA CANDIDATURA")
+    ui.kv("goodjob temas", "PALETAS")
+    print()
+    ui.secao("flags")
+    ui.kv("-f, --fresh", "IGNORA O CACHE (6H) E RECOLETA")
+    ui.kv("--remoto", "SO VAGAS REMOTAS")
+    ui.kv('--local "<cidade>"', "LOCAL DA BUSCA (LINKEDIN)")
+    ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
+    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, VAGAS, PERFIL, TRACKER)")
+    ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
+    print()
+    ui.secao("env")
+    ui.kv("OPENROUTER_API_KEY", "SO PRA GERACAO NO CLI (MATCH/CARTA/CV/PREP)")
+    ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("GOODJOB_QUERY", "O QUE BUSCAR (FALLBACK DO PERFIL)")
+    ui.kv("GOODJOB_LOCAL", "LOCAL PADRAO DA BUSCA")
+    ui.kv("GOODJOB_CV", "CAMINHO DO SEU CV (PADRAO ~/.goodjob/cv.md)")
+    ui.kv("GOODJOB_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
+    ui.kv("GOODJOB_DIR", str(BASE_DIR))
+    ui.kv("GOODJOB_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "DESLIGA AS CORES")
+    print()
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="goodjob",
+        description="Copiloto de busca de emprego: radar de vagas ao vivo (Gupy, "
+                    "LinkedIn, Remotive, RemoteOK) + aderência, carta, CV e prep.",
+        epilog='exemplos:  goodjob   ·   goodjob buscar "dev python" --remoto   ·   '
+               'goodjob match 3   ·   goodjob carta 3   ·   goodjob tracker',
+        add_help=False,
+    )
+    ap.add_argument("comando", nargs="?", default="radar",
+                    choices=["radar", "buscar", "vagas", "perfil", "match", "carta",
+                             "cv", "prep", "tracker", "temas"],
+                    help="radar (padrão): vagas do seu perfil · buscar: busca avulsa · "
+                         "vagas: reexibe o radar · perfil: seu perfil · match/carta/cv/"
+                         "prep <N>: geração sobre a vaga N · tracker: funil · temas: paletas")
+    ap.add_argument("resto", nargs="*", help="argumento do comando (N, termo, sub…)")
+    ap.add_argument("-f", "--fresh", action="store_true",
+                    help="ignora o cache de 6h e recoleta agora")
+    ap.add_argument("--remoto", action="store_true", help="só vagas remotas")
+    ap.add_argument("--local", default="", help="local da busca (LinkedIn)")
+    ap.add_argument("-m", "--modelos", action="store_true",
+                    help="lista modelos :free disponíveis")
+    ap.add_argument("--json", action="store_true", dest="como_json",
+                    help="saída JSON crua (coleta e leitura) — pro skill /goodjob")
+    ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
+    args = ap.parse_args()
+
+    if args.help:
+        uso()
+        return
+
+    if args.como_json and args.comando in ("match", "carta", "cv", "prep"):
+        die("--json é só pra coleta/leitura (radar, buscar, vagas, perfil, tracker). "
+            "Geração com o Claude: skill /goodjob no Claude Code.")
+
+    alvo = " ".join(args.resto).strip()
+    if args.modelos:
+        listar_modelos_free()
+    elif args.comando == "radar":
+        cmd_radar(args.fresh, args.remoto, args.local, args.como_json)
+    elif args.comando == "buscar":
+        cmd_buscar(alvo, args.fresh, args.remoto, args.local, args.como_json)
+    elif args.comando == "vagas":
+        cmd_vagas(args.como_json)
+    elif args.comando == "perfil":
+        cmd_perfil(args.como_json)
+    elif args.comando == "match":
+        gerar_sobre_vaga(alvo, "match", sys_match(), exigir_cv=True, temperatura=0.5)
+    elif args.comando == "carta":
+        gerar_sobre_vaga(alvo, "carta", sys_carta(), temperatura=0.75)
+    elif args.comando == "cv":
+        gerar_sobre_vaga(alvo, "cv", sys_cv(), exigir_cv=True, temperatura=0.5)
+    elif args.comando == "prep":
+        gerar_sobre_vaga(alvo, "prep", sys_prep(), temperatura=0.6)
+    elif args.comando == "tracker":
+        cmd_tracker(args.resto, args.como_json)
+    elif args.comando == "temas":
+        ui.catalogo_temas()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        ui.aviso("interrompido")
+        print()
+        sys.exit(130)

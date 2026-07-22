@@ -17,6 +17,7 @@ PY_TOOLS = [
     "lib/retro.py",
     "dark/dark",
     "goodivers/goodivers",
+    "goodjob/goodjob",
     "goodvocab/goodvocab",
     "goodprof/goodprof",
     "goodbio/goodbio",
