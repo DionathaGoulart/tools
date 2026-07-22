@@ -146,6 +146,10 @@ LLM**). Mostra views, idade, duração, canal e título de até 15 resultados.
 | `--br` | busca como o público BR vê (gl=BR, hl=pt) | medir concorrência PT-BR |
 | (sem flags) | busca gringa, sem filtro de data | validar demanda evergreen |
 
+Cada busca é cacheada por **6h** (`~/.goodivers/busca.json`, chave =
+`termo + -s + --br`), então repetir a mesma busca é instantâneo e o `inspirar`
+(que dispara 3 buscas fixas) reusa o cache. `-f` fura e recoleta.
+
 Exemplos:
 
 ```bash

@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import textwrap
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -106,6 +107,7 @@ SEED_CANAIS = [
 ]
 
 CACHE_RADAR_HORAS = 6
+CACHE_BUSCA_HORAS = 6  # cache de buscas do YouTube (mesma janela do radar)
 OUTLIER_RATIO = 2.0  # views/dia ≥ 2x a mediana do próprio canal = [OUTLIER]
 
 
@@ -384,6 +386,35 @@ def fetch_busca(termo, semana=False, br=False):
             "duracao": (vr.get("lengthText") or {}).get("simpleText", ""),
         })
     return out[:20]
+
+
+_busca_lock = threading.Lock()
+
+
+def _chave_busca(termo, semana, br):
+    return f"{termo.strip().lower()}|{int(bool(semana))}|{int(bool(br))}"
+
+
+def busca_cacheada(termo, semana=False, br=False, fresh=False):
+    """fetch_busca com cache por (termo, semana, br), TTL de CACHE_BUSCA_HORAS.
+    Thread-safe (o `inspirar` roda 3 buscas em paralelo): a rede fica FORA do
+    lock; só a leitura/escrita do arquivo é serializada e recarregada antes de
+    gravar, pra não sobrescrever a entrada de outra thread. `fresh` ignora o
+    cache e recoleta."""
+    chave = _chave_busca(termo, semana, br)
+    if not fresh:
+        with _busca_lock:
+            entrada = carregar_json(BUSCA_FILE, {}).get(chave)
+        if entrada:
+            ts = parse_iso(entrada.get("ts", ""))
+            if ts and (agora_utc() - ts).total_seconds() < CACHE_BUSCA_HORAS * 3600:
+                return entrada.get("vids", [])
+    vids = fetch_busca(termo, semana=semana, br=br)   # rede fora do lock
+    with _busca_lock:
+        cache = carregar_json(BUSCA_FILE, {})          # recarrega pra não clobber
+        cache[chave] = {"ts": agora_utc().isoformat(), "vids": vids}
+        salvar_json(BUSCA_FILE, cache)
+    return vids
 
 
 def marcar_outliers(canal):
@@ -1035,13 +1066,13 @@ def render_busca(vids, limite=15):
                 f"{resumir(v['canal'], 20)} · {v['quando'] or '?'}{dur}")
 
 
-def cmd_buscar(termo, semana, br, como_json=False):
+def cmd_buscar(termo, semana, br, como_json=False, fresh=False):
     if not termo:
         die('faltou o termo.  Ex.:  goodivers buscar "helldivers 2 leaks" --semana')
     onde = "BR·pt" if br else "US·en"
     filtro = ", esta semana" if semana else ""
     nota(f"buscando no YouTube ({onde}{filtro})…")
-    vids = fetch_busca(termo, semana=semana, br=br)
+    vids = busca_cacheada(termo, semana=semana, br=br, fresh=fresh)
     if not vids:
         die("nenhum resultado (YouTube pode ter mudado o HTML — me avise).")
     if como_json:
@@ -1061,9 +1092,9 @@ def cmd_inspirar(fresh):
     s = coletar_radar(force=fresh)
     nota("varrendo o nicho gringo + o que já existe em PT-BR…")
     with ThreadPoolExecutor(max_workers=3) as ex:
-        f_semana = ex.submit(fetch_busca, "helldivers 2", True, False)
-        f_leaks = ex.submit(fetch_busca, "helldivers 2 leaks", True, False)
-        f_br = ex.submit(fetch_busca, "helldivers 2", True, True)
+        f_semana = ex.submit(busca_cacheada, "helldivers 2", True, False, fresh)
+        f_leaks = ex.submit(busca_cacheada, "helldivers 2 leaks", True, False, fresh)
+        f_br = ex.submit(busca_cacheada, "helldivers 2", True, True, fresh)
     gringos, br, falhas = [], [], []
     for nome, fut in (("busca EN", f_semana), ("busca leaks", f_leaks)):
         try:
@@ -1268,7 +1299,7 @@ def main():
                          "(GOODIVERS_TEMA / RETRO_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
     ap.add_argument("-f", "--fresh", action="store_true",
-                    help="ignora o cache e recoleta o radar agora")
+                    help="ignora o cache e recoleta agora (radar e buscas)")
     ap.add_argument("-s", "--semana", action="store_true",
                     help="(buscar) só vídeos desta semana")
     ap.add_argument("--br", action="store_true",
@@ -1313,7 +1344,8 @@ def main():
     elif args.comando == "titulos":
         cmd_titulos(" ".join(args.resto).strip(), args.fresh)
     elif args.comando == "buscar":
-        cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br, args.como_json)
+        cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br,
+                   args.como_json, fresh=args.fresh)
     elif args.comando == "canais":
         cmd_canais(args.resto, args.como_json)
     elif args.comando == "temas":
