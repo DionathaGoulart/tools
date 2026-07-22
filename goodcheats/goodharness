@@ -298,7 +298,7 @@ cmd_copy() {
   # já existe? (bundle ou file)
   if resolve_preset "$nome"; then
     [ "$force" -eq 0 ] && die "preset \"$nome\" ja existe — use --force"
-    rm -rf "$GUIDES_DIR/$nome" "$GUIDES_DIR/$nome.md"
+    rm -rf "$GUIDES_DIR/${nome:?}" "$GUIDES_DIR/${nome:?}.md"
   fi
   mkdir -p "$GUIDES_DIR"
 
