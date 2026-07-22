@@ -272,7 +272,11 @@ tools/
     retro.py           ← tema compartilhado das ferramentas em python
     llm.py             ← cliente OpenRouter compartilhado (ferramentas de IA)
   tests/             ← suíte unittest (stdlib) de lib/ + guard de compilação
-  .github/workflows/ ← CI: testes + pyflakes + bash -n + shellcheck
+  Makefile           ← atalhos de dev (make check roda tudo que o CI roda)
+  ruff.toml          ← config do ruff (lint python, inclui entrypoints sem .py)
+  .shellcheckrc      ← config do shellcheck (desliga ruído SC2034/SC1090)
+  .pre-commit-config.yaml ← hooks opcionais que espelham o CI
+  .github/workflows/ ← CI: testes + ruff + bash -n + shellcheck
   goodcheats/        ← kit de utilidades da família good
     setup.sh           ← adiciona ao PATH (instala todos os comandos)
     good               ← fetch de sistema com logo (+ dispatcher good <sub>)
@@ -334,8 +338,24 @@ a biblioteca padrão do Python/bash). O código compartilhado mora em `lib/`:
 
 - `lib/retro.py` · `lib/retro.sh` — tema retrô do terminal (python e bash)
 - `lib/llm.py` — cliente OpenRouter compartilhado pelas ferramentas de IA:
-  chave, fallback entre modelos, timeout, tratamento de 401 e parse de JSON num
-  lugar só (antes era copiado em cada tool)
+  chave, fallback entre modelos, timeout, tratamento de 401, parse de JSON e
+  **cache de respostas** num lugar só (antes era copiado em cada tool)
+
+### Atalho: `make`
+
+Um `Makefile` na raiz roda tudo que o CI roda. Precisa de `ruff` e `shellcheck`
+no PATH (`brew install ruff shellcheck`):
+
+```bash
+make check      # test + lint (ruff + shellcheck) + bash -n — o pacote todo
+make test       # só os testes
+make lint       # só ruff + shellcheck
+make fix        # aplica o que o ruff consegue consertar sozinho
+```
+
+Opcional, pra rodar os linters a cada commit: `pip install pre-commit &&
+pre-commit install` (a config em `.pre-commit-config.yaml` chama os mesmos
+alvos do `make`).
 
 ### Testes
 
@@ -345,16 +365,32 @@ Suíte em `tests/`, usando o `unittest` da stdlib (nada de pytest):
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Cobre `lib/llm.py` (fallback de modelo, erro sem chave, extração de JSON,
-modelos `:free`), `lib/retro.py` (largura ANSI/caracteres largos, mix de cor,
-temas) e um guard que compila todos os CLIs python.
+Cobre `lib/llm.py` (fallback de modelo, erro sem chave, extração de JSON, cache
+de respostas, modelos `:free`), `lib/retro.py` (largura ANSI/caracteres largos,
+mix de cor, temas) e um guard que compila todos os CLIs python.
 
-### CI
+### Cache de LLM
+
+`lib/llm.py` guarda respostas em disco por prompt idêntico — economiza cota
+`:free` e serve **offline** num acerto. Desligado por padrão; liga por chamada
+(`chat(..., cache_ttl=3600)`) ou global:
+
+```bash
+export GOODTOOLS_LLM_CACHE_TTL=21600      # TTL em segundos (6h); 0/vazio desliga
+export GOODTOOLS_CACHE_DIR=~/.cache/goodtools   # opcional; este é o default
+```
+
+A chave inclui título, lista de modelos e parâmetros — trocar `OPENROUTER_MODEL`
+ou o prompt invalida o cache.
+
+### CI e lint
 
 `.github/workflows/ci.yml` roda em todo push/PR:
 
-- **python** — testes + `pyflakes` (imports mortos) em cada entrypoint
-- **shell** — `bash -n` (sintaxe) + `shellcheck -S error` em todo script bash
+- **python** — testes (3 OSes) + `ruff` (imports/nomes mortos + bugs óbvios)
+- **shell** — `bash -n` (sintaxe, 3 OSes) + `shellcheck --severity=warning` +
+  smoke test do goodharness
 
-Antes de abrir PR, o mesmo local: `python3 -m unittest discover -s tests` (a
-suíte já recompila cada tool).
+Config dos linters: `ruff.toml` (inclui os entrypoints sem extensão) e
+`.shellcheckrc` (desliga SC2034/SC1090, ruído pro estilo desses scripts). Antes
+de abrir PR: `make check`.
