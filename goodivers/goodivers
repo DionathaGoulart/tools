@@ -11,15 +11,18 @@ vídeo-outlier) — e injeta tudo isso no modelo pra gerar ideias de vídeo,
 títulos, conceitos de thumbnail, descrição e roteiro pensados pro algoritmo
 do YouTube em canal pequeno.
 
-Radar é 100% sem LLM (só APIs públicas). O modelo entra em `ideias`,
-`pacote` e `titulos`.
+A COLETA do radar é 100% sem LLM (só APIs públicas); por padrão o radar é
+exibido traduzido pra PT-BR por uma chamada de LLM (use --original pra ver o
+dado cru em inglês, sem LLM). O modelo também entra em `ideias`, `pacote`,
+`titulos` e `inspirar`.
 
 args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
-       buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [-f]
+       buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [-f] [--original]
 
   temas — lista as paletas do tema retro (GOODIVERS_TEMA / RETRO_TEMA).
 
-Requer: Python 3 e OPENROUTER_API_KEY (só pros comandos com geração).
+Requer: Python 3 e OPENROUTER_API_KEY (pros comandos com geração e pra tradução
+do radar; sem a chave, o radar cai pro inglês automaticamente).
 """
 
 import argparse
@@ -469,14 +472,15 @@ def janela_guerra(s):
     linhas = []
     if ordens:
         o = ordens[0]
+        titulo = str(o.get("titulo_pt") or o["titulo"])
         linhas.append(f"{ui.ACC}{ui.BOLD}"
-                      f"{resumir(str(o['titulo']).upper(), ui.cf)}{ui.RESET}")
+                      f"{resumir(titulo.upper(), ui.cf)}{ui.RESET}")
         detalhe = " · ".join(x for x in (
             f"EXPIRA EM {str(o['restante']).upper()}" if o.get("restante") else "",
             f"{o['medalhas']} MEDALHAS" if o.get("medalhas") else "") if x)
         if detalhe:
             linhas.append(f"{ui.ACC30}{detalhe}{ui.RESET}")
-        briefing = resumir(o.get("briefing") or "", 300)
+        briefing = resumir(o.get("briefing_pt") or o.get("briefing") or "", 300)
         if briefing:
             linhas.append("")
             for parte in textwrap.wrap(briefing, ui.cf):
@@ -499,26 +503,27 @@ def render_radar(s):
     janela_guerra(s)
 
     for o in (s.get("ordem") or [])[1:]:
-        ui.secao(str(o["titulo"]))
-        corpo(resumir(o.get("briefing") or "", 300), recuo=2)
+        ui.secao(str(o.get("titulo_pt") or o["titulo"]))
+        corpo(resumir(o.get("briefing_pt") or o.get("briefing") or "", 300), recuo=2)
 
     if s.get("despachos"):
         print()
         ui.secao("despachos da super terra")
         for d in s["despachos"][:3]:
-            ui.item(f"{idade_humana(d['quando']):>8}", resumir(d["texto"], 180))
+            ui.item(f"{idade_humana(d['quando']):>8}",
+                    resumir(d.get("texto_pt") or d["texto"], 180))
 
     if s.get("patches"):
         print()
         ui.secao("oficial · steam")
         for p in s["patches"]:
-            ui.item(f"{idade_humana(p['quando']):>8}", p["titulo"])
+            ui.item(f"{idade_humana(p['quando']):>8}", p.get("titulo_pt") or p["titulo"])
 
     if s.get("reddit"):
         print()
         ui.secao("quente no r/helldivers")
         for p in s["reddit"]:
-            texto = resumir(p["titulo"], 90)
+            texto = resumir(p.get("titulo_pt") or p["titulo"], 90)
             if p["flair"]:
                 texto += " " + ui.chip(p["flair"]) + ui.FG70
             ui.item(f"↑{p['score']:>5}", texto)
@@ -534,6 +539,8 @@ def render_radar(s):
                     texto += " " + ui.chip("outlier") + ui.FG70
                 ui.item(f"{fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}",
                         texto)
+                if v.get("titulo_pt"):
+                    print(f"      {ui.apagado('↳ ' + resumir(v['titulo_pt'], 68))}")
 
     if s.get("meu_canal") and s["meu_canal"]["videos"]:
         print()
@@ -591,6 +598,88 @@ def listar_modelos_free():
     print()
     ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra usar outros:")
     print()
+
+
+# ---------------------------------------------------------------- tradução do radar
+
+def _slots_traduziveis(s):
+    """(dict, campo_origem, campo_destino) de tudo que aparece no radar em inglês.
+    Grava em *_pt (nunca destrói o original). Títulos de vídeo dos canais ganham
+    o par pra render mostrar original + PT."""
+    slots = []
+    for o in s.get("ordem") or []:
+        slots.append((o, "titulo", "titulo_pt"))
+        slots.append((o, "briefing", "briefing_pt"))
+    for d in (s.get("despachos") or [])[:3]:
+        slots.append((d, "texto", "texto_pt"))
+    for p in s.get("patches") or []:
+        slots.append((p, "titulo", "titulo_pt"))
+    for p in s.get("reddit") or []:
+        slots.append((p, "titulo", "titulo_pt"))
+    for c in s.get("canais") or []:
+        for v in c.get("videos", [])[:3]:
+            slots.append((v, "titulo", "titulo_pt"))
+    return slots
+
+
+def _traduzir_lista(textos):
+    """Traduz uma lista de strings EN->PT-BR numa única chamada. Devolve
+    {origem: traducao}, ou None se falhar (já imprimiu o aviso)."""
+    nota(f"traduzindo {len(textos)} trechos pra PT-BR…")
+    prompt = (
+        "Traduza para português do Brasil cada item da LISTA. Mantenha em inglês os "
+        "nomes próprios de Helldivers 2 (facções Automaton/Terminid/Illuminate, "
+        "planetas, armas, stratagems, warbonds, siglas como DSS/SEAF/AMA, 'Major "
+        "Order'). Tradução natural, sem explicar, sem numerar.\n"
+        f"Devolva SOMENTE um array JSON com EXATAMENTE {len(textos)} objetos, na MESMA "
+        'ORDEM da LISTA, cada objeto no formato {"pt": "<tradução>"}.\n\n'
+        "LISTA:\n" + json.dumps(textos, ensure_ascii=False)
+    )
+    try:
+        parsed, _ = _llm.chat(
+            [{"role": "system",
+              "content": "Você traduz conteúdo de Helldivers 2 de inglês pra PT-BR."},
+             {"role": "user", "content": prompt}],
+            max_tokens=3500, temperature=0.3, json_tipo="array")
+    except LLMError as e:
+        motivo = {"no_key": "sem OPENROUTER_API_KEY",
+                  "auth": "OPENROUTER_API_KEY inválida"}.get(e.kind, "LLM falhou")
+        ui.aviso("traducao", f"{motivo}; radar em inglês")
+        return None
+    if not isinstance(parsed, list) or len(parsed) != len(textos):
+        ui.aviso("traducao", "resposta inesperada; radar em inglês")
+        return None
+    out = {}
+    for src, item in zip(textos, parsed):
+        pt = str((item or {}).get("pt") or "").strip()
+        if pt:
+            out[src] = pt
+    return out
+
+
+def traduzir_radar(s):
+    """Preenche campos *_pt no snapshot pra render em PT-BR. Cacheia a tradução
+    por `ts` do snapshot em radar_pt.json: 1 chamada LLM por coleta, reusada nas
+    6h seguintes. Sem key ou erro de rede: avisa e mantém o inglês (nunca quebra)."""
+    pares = [(obj, dst, txt) for obj, src, dst in _slots_traduziveis(s)
+             if (txt := str(obj.get(src) or "").strip())]
+    if not pares:
+        return
+
+    cache = carregar_json(RADAR_PT_FILE, {})
+    mapa = dict(cache.get("mapa", {})) if cache.get("ts") == s.get("ts") else {}
+
+    faltando = sorted({txt for _, _, txt in pares if txt not in mapa})
+    if faltando:
+        novos = _traduzir_lista(faltando)
+        if novos is None:
+            return                                  # falhou; mantém inglês
+        mapa.update(novos)
+        salvar_json(RADAR_PT_FILE, {"ts": s.get("ts"), "mapa": mapa})
+
+    for obj, dst, txt in pares:
+        if mapa.get(txt):
+            obj[dst] = mapa[txt]
 
 
 # ---------------------------------------------------------------- contexto do estrategista
@@ -676,9 +765,11 @@ def imprimir_json(obj):
 def cmd_radar(fresh, como_json=False):
     s = coletar_radar(force=fresh)
     if como_json:
-        imprimir_json(s)
-    else:
-        render_radar(s)
+        imprimir_json(s)          # --json é sempre cru (coletor pro skill/scripts)
+        return
+    if not original:
+        traduzir_radar(s)         # PT-BR é o padrão; --original pula a LLM
+    render_radar(s)
 
 
 def cmd_ideias(fresh):
@@ -1023,6 +1114,7 @@ def uso():
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("GOODIVERS_ORIGINAL", "RADAR CRU EM INGLES POR PADRAO (1)")
     ui.kv("GOODIVERS_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
     ui.kv("GOODIVERS_DIR", str(BASE_DIR))
     ui.kv("GOODIVERS_TEMA / RETRO_TEMA", ui.tema.upper())
@@ -1072,10 +1164,12 @@ def main():
         die("--json é só pra coleta (radar, buscar, canais). Geração com o Claude: "
             "skill /goodivers no Claude Code.")
 
+    original = args.original or bool(os.environ.get("GOODIVERS_ORIGINAL", "").strip())
+
     if args.modelos:
         listar_modelos_free()
     elif args.comando == "radar":
-        cmd_radar(args.fresh, args.como_json)
+        cmd_radar(args.fresh, args.como_json, original=original)
     elif args.comando == "ideias":
         cmd_ideias(args.fresh)
     elif args.comando == "inspirar":

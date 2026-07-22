@@ -89,7 +89,16 @@ Sem argumento = `radar`.
    Steam · 👽 r/Helldivers (top posts com ↑score) · 📺 Canais do nicho (3
    vídeos por canal: views, idade, 🔥 se outlier) · 🎬 Seu canal ·
    `falhas` do snapshot, se houver.
-3. Feche com 1–2 frases suas: onde está a janela de conteúdo de hoje.
+3. **Traduza pra PT-BR** as mensagens que vêm em inglês do jogo: título e
+   briefing da Ordem Maior, despachos, e títulos dos anúncios do Steam.
+   Traduza de forma natural, mantendo os nomes próprios do jogo em inglês
+   (facções, armas, stratagems, warbonds, Malevelon Creek etc.). Os **títulos
+   de vídeo dos canais do nicho** são identificadores reais: mostre o título
+   ORIGINAL e, embaixo, uma tradução PT-BR curta (igual ao CLI, que exibe o
+   original + linha `↳ <PT-BR>`). Os posts do r/Helldivers pode traduzir.
+   Nunca invente conteúdo pra caber na tradução; se um termo for ambíguo,
+   mantenha o original.
+4. Feche com 1-2 frases suas: onde está a janela de conteúdo de hoje.
 
 ### ideias
 

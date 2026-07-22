@@ -35,7 +35,7 @@ goodivers temas                 # paletas do tema retro do terminal
 
 ### `goodivers` — o radar (padrão)
 
-Fotografia do momento, coletada em paralelo, **sem LLM e sem chave**:
+Fotografia do momento, coletada em paralelo (**a coleta é sem LLM e sem chave**):
 
 | Seção | O que mostra | Fonte |
 |---|---|---|
@@ -51,6 +51,12 @@ mediana do próprio canal = formato que o algoritmo está empurrando **agora**.
 
 Detalhes de comportamento:
 
+- **Tradução PT-BR é o padrão:** o radar é exibido em português via uma chamada
+  de LLM (mensagens do jogo traduzidas; títulos dos canais mostram o original +
+  linha `↳ <PT-BR>`). Use **`--original`** pra ver o dado cru em inglês, sem
+  LLM. `GOODIVERS_ORIGINAL=1` deixa o cru como padrão. Sem `OPENROUTER_API_KEY`
+  o radar cai pro inglês automaticamente (avisa e segue). A **coleta** e o
+  cache continuam crus; `--json` nunca traduz.
 - O snapshot fica em cache por **6 horas** (`~/.goodivers/radar.json`) — os
   outros comandos reaproveitam sem recoletar. `-f` força recoleta.
 - Fonte fora do ar? O radar reaproveita a última coleta boa daquela seção e
@@ -185,7 +191,8 @@ saída redirecionada (pipe, arquivo), a cor some e o layout continua legível.
 
 | Flag | Faz |
 |---|---|
-| `-f` / `--fresh` | ignora o cache de 6h e recoleta o radar agora |
+| `-f` / `--fresh` | ignora o cache de 6h e recoleta agora (radar e buscas) |
+| `--original` | (radar) não traduz, mostra o dado cru em inglês, sem LLM (`GOODIVERS_ORIGINAL=1` liga por padrão) |
 | `-m` / `--modelos` | lista os modelos `:free` disponíveis na OpenRouter agora |
 | `--json` | saída JSON crua de `radar`, `buscar` e `canais` — pra scripts e pro skill `/goodivers` |
 
@@ -261,6 +268,7 @@ export GOODIVERS_LEMBRETE=1
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
 | `GOODIVERS_CONTEXTO` | contexto extra do canal injetado em toda geração (equipamento, estilo de edição, tempo disponível…) | nenhum |
 | `GOODIVERS_DIR` | onde salvar cache e config | `~/.goodivers` |
+| `GOODIVERS_ORIGINAL` | `1` mostra o radar cru em inglês por padrão (sem tradução/LLM) | desligado |
 | `GOODIVERS_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
 | `GOODIVERS_TEMA` | paleta do terminal só pro goodivers (`goodivers temas` lista) | `vault-gold` |
 | `RETRO_TEMA` | paleta padrão de todas as ferramentas do repo (fallback) | `vault-gold` |

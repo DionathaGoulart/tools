@@ -168,11 +168,14 @@ goodzap conversa.txt --html retro.html  # retrô visual
 ```
 
 ### [goodivers](./goodivers)
-Copiloto de conteúdo do canal Goodivers (Helldivers 2). O radar puxa o estado ao vivo do jogo (Ordem Maior, patch notes, r/Helldivers) e dos canais gringos do nicho (RSS do YouTube com detecção de vídeo-outlier 🔥); `inspirar` cruza o que performa lá fora com o buraco de conteúdo PT-BR e devolve planos de adaptação. Tudo on-demand (zero cron); radar e busca sem chave, só a geração usa LLM — via OpenRouter no terminal **ou** via skill `/goodivers` no Claude Code (o Claude da sessão gera; sem chave).
+Copiloto de conteúdo do canal Goodivers (Helldivers 2). O radar puxa o estado ao vivo do jogo (Ordem Maior, patch notes, r/Helldivers) e dos canais gringos do nicho (RSS do YouTube com detecção de vídeo-outlier 🔥); `inspirar` cruza o que performa lá fora com o buraco de conteúdo PT-BR e devolve planos de adaptação. Tudo on-demand (zero cron). A coleta do radar e as buscas do YouTube são sem chave e cacheadas (6h); por padrão o radar é **exibido traduzido em PT-BR** por uma chamada de LLM (`--original` mostra o dado cru em inglês, sem chave/LLM). A geração usa LLM, via OpenRouter no terminal **ou** via skill `/goodivers` no Claude Code (o Claude da sessão gera; sem chave).
 
 ```bash
-goodivers                # radar do jogo e do nicho
-goodivers ideias         # 10 ideias rankeadas
+goodivers                # radar do jogo e do nicho (traduzido PT-BR)
+goodivers --original     # radar cru em inglês, sem LLM
+goodivers ideias         # 10 ideias rankeadas (com link do vídeo nas adaptações)
+goodivers ideias --ver   # revê a última leva salva, sem regerar
+goodivers ideias --hist  # histórico de levas (--hist N abre uma antiga)
 goodivers inspirar       # vídeos gringos performando → plano de adaptação PT-BR
 goodivers pacote 3       # títulos + thumbs + descrição + hook + roteiro
 goodivers buscar "x" -s  # busca no YouTube (semana; --br = como o público BR vê)
@@ -231,7 +234,7 @@ uma abre a ajuda completa; `<tool> temas` lista as paletas do terminal.
 | goodbio | `goodbio` | (pergunta do dia) · `-f` follow-up · `-x` extra · `-l` respostas · `capitulo` · `perguntas` · `-m` · `temas` |
 | goodvocab | `goodvocab` | (revisão + palavra) · `palavras` reabastece · `-q` quiz · `-x` extra · `-l` baralho · `-m` · `temas` |
 | goodzap | `goodzap` | `<arquivo.txt>` · `--roast` · `--reais` · `--html ARQ` · `-m` · `temas` |
-| goodivers | `goodivers` | (radar) · `ideias` · `inspirar` · `pacote <N\|"ideia">` · `titulos "<tema>"` · `buscar "<termo>"` · `canais` · `temas` |
+| goodivers | `goodivers` | (radar, PT-BR) · `--original` cru · `ideias` · `ideias --ver/--hist` · `inspirar` · `pacote <N\|"ideia">` · `titulos "<tema>"` · `buscar "<termo>"` · `canais` · `temas` |
 | dark | `dark` | (radar) · `ideias` · `pacote <N\|"ideia">` · `legendas "<tema>"` · `stories` · `buscar "<termo>"` · `refs` · `temas` |
 
 Comuns às de IA: `-m` (modelos `:free` no ar), env `OPENROUTER_API_KEY` /
