@@ -256,14 +256,14 @@ class Retro:
     def janela(self, titulo: str, linhas: list[str], meta: str = "", rodape: str = "") -> None:
         """Full terminal window: chrome + body + optional status bar + shadow."""
         if not self.caixa:
-            for l in linhas:
-                print(f"  {l}")
+            for ln in linhas:
+                print(f"  {ln}")
             return
         self.topo()
         self.chrome(titulo, meta)
         self.sep()
-        for l in linhas:
-            self.linha(l)
+        for ln in linhas:
+            self.linha(ln)
         if rodape:
             self.sep()
             self.status(rodape)

@@ -200,8 +200,8 @@ def parse_array_json(texto):
         except json.JSONDecodeError:
             pass
     # fallback: uma pergunta por linha
-    linhas = [l.strip(" -0123456789.\t\"") for l in texto.splitlines()]
-    return [l for l in linhas if l.endswith("?")]
+    linhas = [ln.strip(" -0123456789.\t\"") for ln in texto.splitlines()]
+    return [ln for ln in linhas if ln.endswith("?")]
 
 
 def respostas_existentes():
