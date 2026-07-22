@@ -381,7 +381,7 @@ cmd_install() {
   mkdir -p "$harness_dir"
   clean_broken_symlinks "$harness_dir"
 
-  local MODE=copy; [ "$LINK" -eq 1 ] && MODE=link
+  local MODE="copy"; [ "$LINK" -eq 1 ] && MODE="link"
   retro_modulo "harness_install" "preset: $nome · $MODE"
 
   if [ "$PRESET_KIND" = "file" ]; then

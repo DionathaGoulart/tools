@@ -87,7 +87,7 @@ _beat() { # a "pause for effect", multiple of tick
 # ---------- randomness ----------
 _rnd()  { echo $(( RANDOM % ${1:-100} )); }
 _pick() { local a=("$@"); echo "${a[$((RANDOM % $#))]}"; }
-_hex()  { local n="${1:-8}" s= h=0123456789abcdef; while [ "$n" -gt 0 ]; do s="$s${h:$((RANDOM % 16)):1}"; n=$((n - 1)); done; echo "$s"; }
+_hex()  { local n="${1:-8}" s='' h=0123456789abcdef; while [ "$n" -gt 0 ]; do s="$s${h:$((RANDOM % 16)):1}"; n=$((n - 1)); done; echo "$s"; }
 _ip()   { echo "$((RANDOM % 223 + 1)).$((RANDOM % 256)).$((RANDOM % 256)).$((RANDOM % 256))"; }
 _mac()  { printf '%02x:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)); }
 
@@ -145,7 +145,8 @@ _spinner() { # $1 label, $2 ticks   — pulsing accent head (no jumpy spinner)
 
 # ---------- framed banners ----------
 banner() { # $1 = big word, $2 = subtitle
-  local word="$(retro_upper "$1")" sub="${2:-}"
+  local word sub="${2:-}"
+  word="$(retro_upper "$1")"
   echo
   retro_topo
   retro_chrome "root@0day: ~/${3:-op}" "$(date '+%H:%M:%S')"
@@ -175,7 +176,7 @@ _no_tty_show() {
 # =====================================================================
 # SCENE: matrix rain
 # =====================================================================
-GLYPHS=(ﾊ ﾋ ﾌ ﾍ ﾎ ﾑ ﾒ ﾓ ﾔ ﾕ ﾗ ﾘ ﾜ ﾝ ｦ ｱ ｳ ｴ ｵ ｶ ｷ ｹ ｻ ｼ ｽ ｾ ｿ ﾀ ﾂ ﾃ ﾅ ﾆ ﾇ ﾈ 0 1 2 3 4 5 6 7 8 9 A Z '#' '$' % @ = + - ¥ ﾞ ﾟ)
+GLYPHS=(ﾊ ﾋ ﾌ ﾍ ﾎ ﾑ ﾒ ﾓ ﾔ ﾕ ﾗ ﾘ ﾜ ﾝ ｦ ｱ ｳ ｴ ｵ ｶ ｷ ｹ ｻ ｼ ｽ ｾ ｿ ﾀ ﾂ ﾃ ﾅ ﾆ ﾇ ﾈ 0 1 2 3 4 5 6 7 8 9 A Z '#' '$' % @ '=' + - ¥ ﾞ ﾟ)
 GN=${#GLYPHS[@]}
 
 _put() { printf '\033[%d;%dH%s%s%s' "$1" "$2" "$3" "$4" "$RESET"; }
@@ -233,7 +234,8 @@ scene_matrix() { # $1 = frame count (-1/empty = run until keypress)
 scene_scan() {
   [ "$DESENHA" -eq 1 ] || _no_tty_show
   _hide_cursor
-  local target="$(_ip)"
+  local target
+  target="$(_ip)"
   header "recon" "target: $target"
   _info "resolving target vector $target"
   _spinner "handshake with gateway $(_ip)" 10

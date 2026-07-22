@@ -196,8 +196,15 @@ show() {
   retro_modulo "cheat_sheet" "src: $1"
   retro_erro "colinha \"$1\" nao encontrada."
   echo
-  local matches
-  matches="$(ls "$SHEET_DIR" 2>/dev/null | grep -i -- "$1")"
+  local matches="" f
+  shopt -s nocasematch
+  for f in "$SHEET_DIR"/*; do
+    [ -e "$f" ] || continue
+    f="${f##*/}"
+    case "$f" in *"$1"*) matches="${matches}${f}"$'\n' ;; esac
+  done
+  shopt -u nocasematch
+  matches="${matches%$'\n'}"
   if [ -n "$matches" ]; then
     retro_secao "voce quis dizer"
     local m
