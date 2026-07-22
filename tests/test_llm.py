@@ -150,7 +150,8 @@ class TestCache(unittest.TestCase):
                 v2, m2 = llm.chat(msgs, cache_ttl=3600)
             self.assertEqual((v2, m2), ("cacheado", "m:free"))
 
-    def test_ttl_expirado_e_um_miss(self):
+    def test_ttl_zero_nunca_e_hit(self):
+        # ttl<=0 = cache desligado: miss determinístico, sem olhar o relógio
         llm = LLM("t", ["m:free"])
         msgs = [{"role": "user", "content": "oi"}]
         with tempfile.TemporaryDirectory() as d, \
@@ -158,9 +159,29 @@ class TestCache(unittest.TestCase):
                                              "OPENROUTER_API_KEY": "sk-or-x"}, clear=False):
             with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(self._ok())):
                 llm.chat(msgs, cache_ttl=3600)
-            # ttl=0 nunca é hit; a entrada existe mas está "vencida"
             key = llm._cache_key(msgs, 3000, 0.8, None)
             self.assertIsNone(llm._cache_get(key, 0))
+
+    def test_ttl_expirado_e_um_miss(self):
+        # entrada mais velha que o ttl -> miss. Envelhecemos o ts gravado em vez
+        # de dormir, então é determinístico e independe da resolução do relógio.
+        llm = LLM("t", ["m:free"])
+        msgs = [{"role": "user", "content": "oi"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {"GOODTOOLS_CACHE_DIR": d,
+                                             "OPENROUTER_API_KEY": "sk-or-x"}, clear=False):
+            with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(self._ok())):
+                llm.chat(msgs, cache_ttl=3600)
+            key = llm._cache_key(msgs, 3000, 0.8, None)
+            path = os.path.join(d, key + ".json")
+            with open(path, encoding="utf-8") as fh:
+                rec = json.load(fh)
+            rec["ts"] -= 100_000  # muito além de qualquer ttl razoável
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(rec, fh)
+            self.assertIsNone(llm._cache_get(key, 10))   # idade 100000s > 10s
+            # e ainda é hit com um ttl que cobre a idade forjada
+            self.assertIsNotNone(llm._cache_get(key, 200_000))
 
     def test_env_liga_o_cache(self):
         llm = LLM("t", ["m:free"])

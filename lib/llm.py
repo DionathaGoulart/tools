@@ -145,6 +145,8 @@ class LLM:
     def _cache_get(self, key: str, ttl: int):
         """Return ``(value, model)`` on a fresh hit, else ``None``. Never raises —
         a corrupt or unreadable entry is treated as a miss."""
+        if ttl <= 0:  # cache disabled — never a hit (independent of the clock)
+            return None
         path = os.path.join(self._cache_root(), key + ".json")
         try:
             with open(path, "r", encoding="utf-8") as fh:
