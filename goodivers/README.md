@@ -8,7 +8,7 @@ thumbnails e roteiro pensados pro algoritmo do YouTube em canal pequeno.
 
 **Nada roda sozinho**: zero monitoramento em background, zero cron. Toda
 coleta e toda chamada de modelo acontecem só quando você digita um comando.
-`radar` e `buscar` nem usam LLM (APIs públicas, sem chave); o modelo
+`radar`, `buscar` e `patch` nem usam LLM (APIs públicas, sem chave); o modelo
 (OpenRouter `:free`) só entra em `ideias`, `inspirar`, `pacote` e `titulos`.
 
 Dois jeitos de usar a parte com IA — mesmos comandos nos dois:
@@ -25,6 +25,8 @@ goodivers inspirar              # vídeos gringos performando → plano de adapt
 goodivers pacote 3              # pacote de produção completo da ideia 3
 goodivers titulos "farm de sc"  # 8 variações de título pra teste A/B
 goodivers buscar "hd2 leaks" -s # busca no YouTube (-s semana · --br como o público BR)
+goodivers patch                 # lista os patch notes oficiais (Steam)
+goodivers patch 2               # corpo completo de um patch (resumo pro vídeo é no skill)
 goodivers canais                # gerencia os canais monitorados
 goodivers temas                 # paletas do tema retro do terminal
 ```
@@ -158,6 +160,27 @@ goodivers buscar "helldivers 2 dicas" --br    # o que o BR encontra ao buscar is
 goodivers buscar "helldivers 2 solo build"    # tem demanda? quem já cobriu?
 ```
 
+### `goodivers patch [<N | url>]`
+
+Patch notes oficiais da Arrowhead direto do Steam (**sem chave, sem LLM** — é
+coletor). Sem argumento, lista os anúncios recentes numerados (mais novo
+primeiro) com título e idade. Com um número (`1` = mais recente) ou a URL do
+anúncio colada, baixa o **corpo inteiro** daquele patch — listas de buff/nerf
+e cabeçalhos preservados — pronto pra ler no terminal.
+
+O **resumo estruturado pro vídeo de atualização** (TL;DR, buffs, nerfs, novo
+conteúdo, fixes que importam, ângulo de título/thumb) é gerado pelo Claude via
+skill: `/goodivers patch <N>`. O `--json` expõe a lista e o corpo crus.
+
+Cacheado por **6h** (`~/.goodivers/patch.json`) — patch não sai todo dia, e a
+mesma coleta serve a lista e o corpo de qualquer patch. `-f` fura e recoleta.
+
+```bash
+goodivers patch            # lista os patch notes oficiais recentes
+goodivers patch 2          # corpo completo do 2º da lista
+goodivers patch <url>      # ou cole a URL do anúncio do Steam
+```
+
 ### `goodivers canais [add <x> | rm <x>]`
 
 Gerencia os canais que o radar e o `inspirar` monitoram via RSS.
@@ -205,7 +228,7 @@ saída redirecionada (pipe, arquivo), a cor some e o layout continua legível.
 | `-f` / `--fresh` | ignora o cache de 6h e recoleta agora (radar e buscas) |
 | `--original` | (radar) não traduz, mostra o dado cru em inglês, sem LLM (`GOODIVERS_ORIGINAL=1` liga por padrão) |
 | `-m` / `--modelos` | lista os modelos `:free` disponíveis na OpenRouter agora |
-| `--json` | saída JSON crua de `radar`, `buscar` e `canais` — pra scripts e pro skill `/goodivers` |
+| `--json` | saída JSON crua de `radar`, `buscar`, `patch` e `canais` — pra scripts e pro skill `/goodivers` |
 
 ## Skill do Claude Code: `/goodivers`
 

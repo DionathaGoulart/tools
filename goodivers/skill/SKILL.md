@@ -1,6 +1,6 @@
 ---
 name: goodivers
-description: "Copiloto do canal Goodivers (Helldivers 2) dentro do Claude Code: radar ao vivo do jogo + geração de ideias, pacotes de produção, títulos e adaptações — a geração usa o modelo desta sessão (Claude), sem OpenRouter. Args: [radar|ideias|inspirar|pacote <N|\"ideia\">|titulos \"<tema>\"|buscar \"<termo>\" [-s] [--br]|canais ...] [-f]"
+description: "Copiloto do canal Goodivers (Helldivers 2) dentro do Claude Code: radar ao vivo do jogo + geração de ideias, pacotes de produção, títulos, adaptações e resumo de patch notes — a geração usa o modelo desta sessão (Claude), sem OpenRouter. Args: [radar|ideias|inspirar|pacote <N|\"ideia\">|titulos \"<tema>\"|buscar \"<termo>\" [-s] [--br]|patch [<N|url>]|canais ...] [-f]"
 user_invocable: true
 ---
 
@@ -177,6 +177,69 @@ palavras.
 Rode `goodivers buscar "<termo>" --json` com as flags pedidas e renderize
 tabela: views · idade · duração · canal · título. Sem análise longa — é
 ferramenta de validação rápida.
+
+### patch `[<N | url>]`
+
+Resumo de patch notes oficiais da Arrowhead pra roteirizar vídeo de
+atualização. O CLI coleta (lista + corpo completo do Steam); VOCÊ resume.
+
+**Sem argumento — listar:**
+
+1. `goodivers patch --json` → array de anúncios oficiais (mais recente
+   primeiro), cada um com `n`, `titulo`, `quando`, `url`, `gid`, `previa`
+   (prévia curta do corpo). Cache de 6h; `-f` fura e recoleta.
+2. Renderize a lista numerada: `N` · idade (`idade_humana`) · **título
+   original** e, embaixo, tradução PT-BR curta (mesma regra do radar: nomes
+   próprios do jogo em inglês). Marque qual parece patch de balanço de verdade
+   (título com número de versão tipo `6.3.1`) vs. post de comunidade/despacho.
+3. Feche pedindo: `/goodivers patch <N>` (ou cole a URL do anúncio).
+
+**Com argumento — resumir 1 patch:**
+
+1. `goodivers patch <N|url> --json` → objeto `{titulo, quando, url, conteudo}`
+   com o **corpo INTEIRO** do patch (sem corte, listas e cabeçalhos
+   preservados). É a fonte da verdade — resuma SÓ o que está ali, nunca
+   invente número, arma ou mudança que não esteja no corpo.
+2. Coleta falhou? Avise e pare (regra geral da ferramenta).
+3. Gere o resumo em PT-BR, traduzindo natural mas mantendo **em inglês** os
+   nomes próprios (armas, stratagems, warbonds, facções, inimigos, missões) e
+   os **números exatos** (dano, cooldown, %, munição).
+
+   **Deixe MASTIGADO** — o público não decora sigla nem sabe inglês técnico:
+   - Na **1ª vez** que uma sigla do jogo aparecer, abra por extenso entre
+     parênteses: `FRV (Fast Recon Vehicle, o quadriciclo)`, `TCS+
+     (Terminid Control System)`, `DSS (Democracy Space Station)`, `MG
+     (metralhadora)`, `AC (Autocannon)`. Depois pode usar só a sigla.
+   - Termo em inglês que muda o entendimento → tradução curta entre
+     parênteses: `ragdoll (aquele tranco que joga o boneco longe)`,
+     `stagger (interrupção)`, `cooldown (tempo de recarga do stratagem)`,
+     `penetration (perfuração de armadura)`. Nome de arma/stratagem/warbond
+     NÃO traduz (é como o BR pesquisa), mas explica o efeito em PT-BR.
+   - Objetivo: quem assiste entende **o que mudou e por que importa** sem
+     pausar o vídeo pra pesquisar. Se você mesmo não sabe o que a sigla
+     significa, joga pro ⚠ **Checar antes de gravar** em vez de inventar.
+
+   Formato:
+   - 🧾 **TL;DR** — 1–2 frases: o que esse patch muda no geral.
+   - 🆕 **Novo conteúdo** — warbond, armas, stratagems, inimigos, missões,
+     eventos. *Só inclua a seção se houver; senão omita.*
+   - 🔺 **Buffs** — o que ficou mais forte (item + o número/efeito).
+   - 🔻 **Nerfs** — o que ficou mais fraco (item + o número/efeito).
+   - ⚖️ **Ajustes de balanço** — mudanças neutras de meta que não são
+     claramente buff nem nerf.
+   - 🐛 **Fixes que o público sente** — só os relevantes (crash famoso, bug
+     conhecido, exploit). NÃO liste os 40 fixes internos; agrupe o resto em
+     1 linha ("+N correções menores de crash/UI").
+   - 🎬 **Ângulo pro vídeo** — qual a manchete (a mudança mais polêmica/
+     impactante puxa o clique), 1 **título pronto ≤60 chars** com keyword na
+     frente, e 1 ideia de thumbnail (≤4 palavras + foco).
+   - ⚠️ **Checar antes de gravar** — o que confirmar in-game (algo ambíguo no
+     texto, ou que dependa de teste pra não falar besteira no vídeo).
+4. Se o anúncio **não** for patch de balanço (ex.: post de comunidade,
+   teaser, aviso de manutenção), não force o formato: diga em 1 linha o que é,
+   resuma o essencial, e avalie se rende vídeo (e qual ângulo) ou se é pular.
+5. Feche com: `/goodivers pacote "<titulo escolhido>"` pra virar pacote de
+   produção completo.
 
 ### canais `[add <x> | rm <x>]`
 

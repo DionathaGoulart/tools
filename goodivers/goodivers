@@ -72,6 +72,7 @@ CONFIG_FILE = BASE_DIR / "config.json"   # canais monitorados
 RADAR_FILE = BASE_DIR / "radar.json"     # último snapshot do radar (cache)
 RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # cache de tradução do radar (por ts)
 BUSCA_FILE = BASE_DIR / "busca.json"     # cache de buscas do YouTube (por termo+flags)
+PATCH_FILE = BASE_DIR / "patch.json"     # cache dos patch notes oficiais (Steam)
 IDEIAS_FILE = BASE_DIR / "ideias.json"   # última leva de ideias (pra `pacote N`)
 IDEIAS_HIST_FILE = BASE_DIR / "ideias_hist.jsonl"  # histórico de levas (1 por linha)
 
@@ -108,6 +109,7 @@ SEED_CANAIS = [
 
 CACHE_RADAR_HORAS = 6
 CACHE_BUSCA_HORAS = 6  # cache de buscas do YouTube (mesma janela do radar)
+CACHE_PATCH_HORAS = 6  # cache dos patch notes (patch não sai todo dia)
 OUTLIER_RATIO = 2.0  # views/dia ≥ 2x a mediana do próprio canal = [OUTLIER]
 
 
@@ -211,6 +213,23 @@ def resumir(txt, n):
     return txt if len(txt) <= n else txt[: n - 1].rstrip() + "…"
 
 
+def steam_para_texto(txt):
+    """bbcode/HTML do Steam → texto legível preservando a estrutura de patch
+    note (títulos e listas de buff/nerf). Ao contrário de `limpar_marcacao`,
+    que achata tudo, aqui os itens de lista viram '- ' e os cabeçalhos viram
+    quebra de linha — é o corpo que o skill resume pro vídeo."""
+    txt = html.unescape(txt or "")
+    txt = re.sub(r"\[/?h\d\]", "\n", txt, flags=re.I)          # cabeçalhos
+    txt = re.sub(r"\[\*\]", "\n- ", txt)                       # itens de lista
+    txt = re.sub(r"\[/?(list|olist|table|tr|td)\]", "\n", txt, flags=re.I)
+    txt = re.sub(r"<[^>]+>", "", txt)                          # tags HTML
+    txt = re.sub(r"\[/?[^\]]+\]", "", txt)                     # bbcode restante
+    txt = re.sub(r"[ \t]+", " ", txt)
+    txt = re.sub(r" *\n *", "\n", txt)
+    txt = re.sub(r"\n{3,}", "\n\n", txt)
+    return txt.strip()
+
+
 def parse_views_txt(txt):
     """'1.2M views', '12 mil visualizações', '1,2 mi de visualizações' → int."""
     t = (txt or "").lower().replace("\xa0", " ").strip()
@@ -294,6 +313,59 @@ def fetch_patches():
             "resumo": resumir(limpar_marcacao(n.get("contents") or ""), 240),
         })
     return out[:5]
+
+
+def fetch_patch_news():
+    """Anúncios oficiais da Arrowhead no Steam com o corpo INTEIRO
+    (maxlength=0). Uma coleta só serve tanto a lista quanto o resumo de um
+    patch específico — por isso sempre traz o corpo completo (fica em cache)."""
+    url = ("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
+           "?appid=553850&count=15&maxlength=0&format=json"
+           "&feeds=steam_community_announcements")
+    dados = http_json(url, timeout=25)
+    out = []
+    for n in dados.get("appnews", {}).get("newsitems", []):
+        if n.get("feedname") != "steam_community_announcements":
+            continue
+        dt = datetime.fromtimestamp(n.get("date", 0), tz=timezone.utc)
+        out.append({
+            "gid": str(n.get("gid") or ""),
+            "url": n.get("url") or "",
+            "titulo": limpar_marcacao(n.get("title") or ""),
+            "quando": dt.isoformat(),
+            "conteudo": steam_para_texto(n.get("contents") or ""),
+        })
+    return out
+
+
+def patches_cacheados(fresh=False):
+    """fetch_patch_news com cache em disco (TTL CACHE_PATCH_HORAS). Patch note
+    não muda toda hora, então a mesma coleta serve `patch` (lista) e
+    `patch N` (corpo) sem bater no Steam de novo. `fresh`/`-f` fura o cache."""
+    if not fresh:
+        entrada = carregar_json(PATCH_FILE, None)
+        if entrada:
+            ts = parse_iso(entrada.get("ts", ""))
+            if ts and (agora_utc() - ts).total_seconds() < CACHE_PATCH_HORAS * 3600:
+                return entrada.get("itens", [])
+    itens = fetch_patch_news()
+    salvar_json(PATCH_FILE, {"ts": agora_utc().isoformat(), "itens": itens})
+    return itens
+
+
+def escolher_patch(itens, alvo):
+    """Casa o alvo do usuário com um anúncio: número (1 = mais recente),
+    gid, ou URL colada do anúncio."""
+    alvo = (alvo or "").strip()
+    if alvo.isdigit():
+        i = int(alvo)
+        return itens[i - 1] if 1 <= i <= len(itens) else None
+    for p in itens:
+        if alvo and (alvo == p.get("gid")
+                     or alvo in (p.get("url") or "")
+                     or (p.get("gid") and p["gid"] in alvo)):
+            return p
+    return None
 
 
 def fetch_reddit():
@@ -1088,6 +1160,59 @@ def cmd_buscar(termo, semana, br, como_json=False, fresh=False):
     print()
 
 
+def cmd_patch(alvo, como_json=False, fresh=False):
+    """Coletor de patch notes oficiais (Steam). Sem alvo lista os anúncios
+    recentes; com um alvo (número/URL) baixa o corpo INTEIRO daquele patch.
+    O resumo pro vídeo é gerado pelo Claude no skill /goodivers patch."""
+    alvo = (alvo or "").strip()
+
+    if not alvo:
+        nota("coletando anúncios oficiais (Steam)…")
+        try:
+            itens = patches_cacheados(fresh=fresh)
+        except Exception as e:
+            die(f"falha ao buscar patches no Steam ({type(e).__name__}). Sem internet?")
+        if not itens:
+            die("nenhum anúncio oficial encontrado (Steam pode estar fora do ar).")
+        if como_json:
+            imprimir_json([{"n": i, "gid": p["gid"], "url": p["url"],
+                            "titulo": p["titulo"], "quando": p["quando"],
+                            "previa": resumir(p["conteudo"], 200)}
+                           for i, p in enumerate(itens, 1)])
+            return
+        ui.modulo("patch", "src: steam · oficial arrowhead")
+        print()
+        for i, p in enumerate(itens, 1):
+            ui.item(f"{i:>2}.", resumir(p["titulo"], 58), idade_humana(p["quando"]))
+        print()
+        ui.proximo("goodivers patch <N>", "corpo do patch:")
+        print()
+        return
+
+    nota("carregando conteúdo completo do patch…")
+    try:
+        itens = patches_cacheados(fresh=fresh)
+    except Exception as e:
+        die(f"falha ao buscar o patch no Steam ({type(e).__name__}). Sem internet?")
+    escolhido = escolher_patch(itens, alvo)
+    if not escolhido:
+        die(f'patch não encontrado pra "{alvo}".\n'
+            "Use um número da lista (rode `goodivers patch`) ou cole a URL do anúncio.")
+    if como_json:
+        imprimir_json(escolhido)
+        return
+    ui.modulo("patch", "src: steam · oficial arrowhead")
+    ui.kv("PATCH", resumir(escolhido["titulo"], 46).upper())
+    ui.kv("QUANDO", idade_humana(escolhido["quando"]))
+    if escolhido.get("url"):
+        ui.kv("URL", escolhido["url"])
+    print()
+    print(escolhido["conteudo"])
+    print()
+    ui.proximo("/goodivers patch <N>", "resumo pro video (skill):")
+    print()
+
+
 def cmd_inspirar(fresh):
     s = coletar_radar(force=fresh)
     nota("varrendo o nicho gringo + o que já existe em PT-BR…")
@@ -1251,6 +1376,8 @@ def uso():
     ui.kv('goodivers pacote <N|"ideia">', "TITULOS+THUMB+DESCRICAO+ROTEIRO")
     ui.kv('goodivers titulos "<tema>"', "VARIACOES A/B")
     ui.kv('goodivers buscar "<termo>"', "BUSCA NO YOUTUBE")
+    ui.kv("goodivers patch", "PATCH NOTES OFICIAIS (LISTA)")
+    ui.kv("goodivers patch <N|url>", "CORPO COMPLETO DE UM PATCH")
     ui.kv("goodivers canais", "CANAIS MONITORADOS")
     ui.kv("goodivers canais add <canal>", "ADICIONA (HANDLE, URL OU ID)")
     ui.kv("goodivers canais rm <nome>", "REMOVE CANAL")
@@ -1264,7 +1391,7 @@ def uso():
     ui.kv("-s, --semana", "(BUSCAR) SO VIDEOS DESTA SEMANA")
     ui.kv("--br", "(BUSCAR) PUBLICO BR (GL=BR, HL=PT)")
     ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
-    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, CANAIS)")
+    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, PATCH, CANAIS)")
     ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
     print()
     ui.secao("env")
@@ -1290,13 +1417,14 @@ def main():
     )
     ap.add_argument("comando", nargs="?", default="radar",
                     choices=["radar", "ideias", "inspirar", "pacote", "titulos",
-                             "buscar", "canais", "temas"],
+                             "buscar", "patch", "canais", "temas"],
                     help="radar (padrão): estado do jogo e do nicho · ideias: 10 ideias "
                          "rankeadas · inspirar: vídeos gringos performando → plano de "
                          "adaptação PT-BR · pacote: títulos+thumb+descrição+roteiro · "
-                         "titulos: variações A/B · buscar: busca no YouTube · canais: "
-                         "gerencia canais monitorados · temas: paletas do tema retro "
-                         "(GOODIVERS_TEMA / RETRO_TEMA)")
+                         "titulos: variações A/B · buscar: busca no YouTube · patch: "
+                         "patch notes oficiais (lista, ou o corpo de um pra resumir) · "
+                         "canais: gerencia canais monitorados · temas: paletas do tema "
+                         "retro (GOODIVERS_TEMA / RETRO_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
     ap.add_argument("-f", "--fresh", action="store_true",
                     help="ignora o cache e recoleta agora (radar e buscas)")
@@ -1324,8 +1452,8 @@ def main():
         uso()
         return
 
-    if args.como_json and args.comando not in ("radar", "buscar", "canais"):
-        die("--json é só pra coleta (radar, buscar, canais). Geração com o Claude: "
+    if args.como_json and args.comando not in ("radar", "buscar", "patch", "canais"):
+        die("--json é só pra coleta (radar, buscar, patch, canais). Geração com o Claude: "
             "skill /goodivers no Claude Code.")
 
     original = args.original or bool(os.environ.get("GOODIVERS_ORIGINAL", "").strip())
@@ -1346,6 +1474,8 @@ def main():
     elif args.comando == "buscar":
         cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br,
                    args.como_json, fresh=args.fresh)
+    elif args.comando == "patch":
+        cmd_patch(" ".join(args.resto).strip(), args.como_json, fresh=args.fresh)
     elif args.comando == "canais":
         cmd_canais(args.resto, args.como_json)
     elif args.comando == "temas":
