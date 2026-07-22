@@ -1,0 +1,23 @@
+# Ruff config for the good* tools. Ruff is a dev/CI-only linter — the tools
+# themselves stay dependency-free at runtime (stdlib only).
+#
+# Default lint select is E4, E7, E9, F: same coverage as the old pyflakes gate
+# (F = unused imports/names, undefined names) plus real-bug checks from
+# pycodestyle E. `ruff check .` from the repo root lints everything.
+target-version = "py38"
+
+# The AI tools ship as extensionless executables (shebang, no .py). Ruff only
+# discovers *.py by default, so name the Python entrypoints here. The bash
+# entrypoints (goodcheats/good, goodnerd/goodnerd, goodpomo/goodpomo, ...) are
+# deliberately absent — they are linted by ShellCheck, not Ruff.
+extend-include = [
+    "dark/dark",
+    "goodivers/goodivers",
+    "goodvocab/goodvocab",
+    "goodprof/goodprof",
+    "goodbio/goodbio",
+    "goodzap/goodzap",
+    "images/goodpixel/goodpixel",
+]
+
+extend-exclude = ["**/__pycache__", "goodpen/standalone/dist"]

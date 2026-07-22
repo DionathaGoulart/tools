@@ -1,0 +1,10 @@
+# ShellCheck config for the good* tools (see Makefile / CI `shell` job).
+# Gate runs at --severity=warning; these two checks are disabled on purpose:
+#
+#   SC2034  "appears unused" — the tools define palette/theme/config vars that
+#           are consumed by sourced code (retro.sh, setup.sh helpers) that
+#           ShellCheck can't follow. Too noisy to be useful here.
+#   SC1090  "can't follow non-constant source" — every setup.sh sources a path
+#           built at runtime ($ROOT/...). That indirection is intentional.
+disable=SC2034
+disable=SC1090
