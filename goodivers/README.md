@@ -78,6 +78,7 @@ Cada ideia traz:
 - **por que agora** — amarrado aos dados ao vivo (patch, Ordem, outlier…)
 - **esforço** de produção e **potencial** (baixo/médio/alto)
 - **termos de busca** (em chips) — como o brasileiro pesquisaria isso
+- **link** do vídeo original (só nas ideias de adaptação de vídeo gringo)
 
 As ideias ficam salvas: `goodivers pacote N` puxa a ideia N direto.
 

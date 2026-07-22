@@ -111,7 +111,10 @@ Sem argumento = `radar`.
    ("vídeo"|"short"), **angulo** (1 frase: o que entrega e por que
    clicariam), **por_que_agora** (1 frase amarrada aos dados ao vivo),
    **esforco** e **potencial** (baixo|médio|alto), **busca** (2–3 termos como
-   o BR pesquisaria).
+   o BR pesquisaria), e, **só nas ideias de adaptação de vídeo gringo**,
+   **link** (URL do vídeo original: `https://youtube.com/watch?v=<id>`, montada
+   com o `id` que está no JSON do radar em `canais[].videos[].id`; use o id
+   EXATO, nunca invente). Nas outras ideias, `link` fica `""`.
 4. **Salve** em `~/.goodivers/ideias.json` no schema
    `{"quando": "<UTC ISO 8601>", "ideias": [...]}` com as chaves acima —
    é o que faz `pacote N` funcionar aqui E no CLI. Pegue o timestamp com
@@ -157,10 +160,12 @@ palavras.
    encaixe na linha do canal, demanda comprovada lá fora, buraco na
    cobertura BR, esforço de produção. Adaptar = re-roteirizar com gameplay
    própria e contexto BR — NUNCA tradução 1:1 (reused content mata canal).
-4. Pra cada um: **original** (título + canal + views), **por que performa**
-   (o gatilho), **título PT-BR pronto** ≤60 chars, **adaptação** (o que
-   mudar/cortar/adicionar pro BR), **⚠ checar antes** (o que validar no
-   jogo/patch pra não sair desatualizado).
+4. Pra cada um: **original** (título + canal + views), **link** (URL do vídeo
+   original `https://youtube.com/watch?v=<id>`, montada com o `id` do
+   candidato no JSON; use o id EXATO), **por que performa** (o gatilho),
+   **título PT-BR pronto** ≤60 chars, **adaptação** (o que mudar/cortar/
+   adicionar pro BR), **⚠ checar antes** (o que validar no jogo/patch pra não
+   sair desatualizado).
 5. Feche com: `/goodivers pacote "<titulo_ptbr escolhido>"`.
 
 ### buscar `"<termo>" [-s] [--br]`

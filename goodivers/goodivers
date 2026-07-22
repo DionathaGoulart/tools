@@ -762,7 +762,23 @@ def imprimir_json(obj):
     print(json.dumps(obj, ensure_ascii=False, indent=2))
 
 
-def cmd_radar(fresh, como_json=False):
+def link_youtube(vid):
+    return f"https://youtube.com/watch?v={vid}"
+
+
+def outliers_com_id(s):
+    """Vídeos outlier dos canais do nicho, com id, pra amarrar link
+    determinístico nas ideias de adaptação (o modelo devolve só o id)."""
+    out = []
+    for c in s.get("canais") or []:
+        for v in c.get("videos", []):
+            if v.get("outlier") and v.get("id"):
+                out.append({"id": v["id"], "titulo": v["titulo"],
+                            "canal": c["nome"], "views": v.get("views", 0)})
+    return sorted(out, key=lambda x: -x["views"])
+
+
+def cmd_radar(fresh, como_json=False, original=False):
     s = coletar_radar(force=fresh)
     if como_json:
         imprimir_json(s)          # --json é sempre cru (coletor pro skill/scripts)
@@ -774,6 +790,15 @@ def cmd_radar(fresh, como_json=False):
 
 def cmd_ideias(fresh):
     s = coletar_radar(force=fresh)
+    refs = outliers_com_id(s)
+    bloco_refs = ""
+    if refs:
+        bloco_refs = (
+            "\n\nVÍDEOS GRINGOS OUTLIER DISPONÍVEIS (use o id EXATO nas ideias de "
+            "adaptação, pra eu montar o link):\n"
+            + "\n".join(
+                f'- [id={v["id"]}] "{v["titulo"]}" ({v["canal"]}, '
+                f'{fmt_views(v["views"])} views)' for v in refs[:12]))
     prompt = (
         "Gere exatamente 10 ideias de vídeo pro canal, DA MELHOR PRA PIOR, usando os "
         "dados ao vivo (Ordem Maior, patches, reddit, outliers dos canais do nicho). "
@@ -785,15 +810,24 @@ def cmd_ideias(fresh):
         '"formato" ("vídeo" ou "short"), '
         '"angulo" (1 frase: o que o vídeo entrega e por que clicariam), '
         '"por_que_agora" (1 frase ligada aos dados ao vivo), '
+        '"origem_id" (SÓ nas ideias de adaptação: o id EXATO de um vídeo da lista '
+        'abaixo que você está adaptando; nas outras ideias, use ""), '
         '"esforco" ("baixo"|"médio"|"alto"), '
         '"potencial" ("baixo"|"médio"|"alto"), '
         '"busca" (array com 2-3 termos que o BR pesquisaria).'
+        + bloco_refs
     )
     nota("gerando ideias com os dados ao vivo…")
     ideias, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
-    salvar_json(IDEIAS_FILE, {"quando": agora_utc().isoformat(), "ideias": ideias})
+    by_id = {v["id"]: v for v in refs}
+    for d in ideias:
+        oid = str(d.get("origem_id") or "").strip()
+        d["link"] = link_youtube(oid) if oid in by_id else ""
+    quando = agora_utc().isoformat()
+    salvar_json(IDEIAS_FILE, {"quando": quando, "ideias": ideias})
+    gravar_hist_ideias(quando, ideias)
 
     ui.modulo("ideias", f"model: {model}")
     ui.kv("IDEIAS GERADAS", str(len(ideias)))
@@ -976,8 +1010,8 @@ def cmd_inspirar(fresh):
         die("nenhum candidato coletado — sem internet? " + "; ".join(falhas))
 
     linhas_en = "\n".join(
-        f"- \"{v['titulo']}\" — canal {v['canal']}, {fmt_views(v['views'])} views, "
-        f"{v['quando']}" for v in candidatos[:18])
+        f"- [id={v['id']}] \"{v['titulo']}\", canal {v['canal']}, "
+        f"{fmt_views(v['views'])} views, {v['quando']}" for v in candidatos[:18])
     linhas_br = "\n".join(
         f"- \"{v['titulo']}\" — {v['canal']}, {fmt_views(v['views'])} views, {v['quando']}"
         for v in br[:8]) or "(quase nada — o nicho PT-BR está vazio)"
@@ -991,6 +1025,7 @@ def cmd_inspirar(fresh):
         "gameplay própria e contexto BR, NUNCA traduzir/copiar (reused content mata canal).\n"
         "Devolva SOMENTE um array JSON onde cada item tem:\n"
         '  "original" (título do vídeo gringo), "canal" (de quem é), '
+        '"origem_id" (o id EXATO do vídeo gringo da lista que você está adaptando), '
         '"por_que_performa" (1 frase: o gatilho que fez esse vídeo andar), '
         '"titulo_ptbr" (título pronto ≤60 chars pro seu vídeo), '
         '"adaptacao" (1-2 frases: o que mudar/cortar/adicionar pro público BR), '
@@ -999,6 +1034,10 @@ def cmd_inspirar(fresh):
     planos, model = chamar_llm(
         [{"role": "system", "content": system_estrategista(s)},
          {"role": "user", "content": prompt}], max_tokens=6000, json_tipo="array")
+    by_id = {v["id"]: v for v in candidatos}
+    for p in planos:
+        oid = str(p.get("origem_id") or "").strip()
+        p["link"] = link_youtube(oid) if oid in by_id else ""
 
     ui.modulo("inspirar", f"model: {model}")
     ui.kv("ADAPTACOES PT-BR", str(len(planos)))
@@ -1007,6 +1046,8 @@ def cmd_inspirar(fresh):
         ui.item(f"{i:>2}.", str(p.get("titulo_ptbr", "?")), ui.chip("pt-br"))
         print(f"      {ui.apagado('ORIGINAL: ' + str(p.get('original', '?')))}"
               f" {ui.chip(resumir(str(p.get('canal', '?')), 20))}")
+        if p.get("link"):
+            print(f"      {ui.apagado('LINK: ' + str(p['link']))}")
         if p.get("por_que_performa"):
             print(f"      {ui.apagado('POR QUE PERFORMA: ' + str(p['por_que_performa']))}")
         corpo(f"ADAPTACAO: {p.get('adaptacao', '')}", recuo=6)
