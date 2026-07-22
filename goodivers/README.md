@@ -80,7 +80,13 @@ Cada ideia traz:
 - **termos de busca** (em chips) — como o brasileiro pesquisaria isso
 - **link** do vídeo original (só nas ideias de adaptação de vídeo gringo)
 
-As ideias ficam salvas: `goodivers pacote N` puxa a ideia N direto.
+A última leva fica salva (`~/.goodivers/ideias.json`) e `goodivers pacote N`
+puxa a ideia N direto. Toda leva também é arquivada no histórico
+(`~/.goodivers/ideias_hist.jsonl`):
+
+- `goodivers ideias --ver`: mostra a **última leva** sem regerar (0 LLM)
+- `goodivers ideias --hist`: lista as levas anteriores (datadas)
+- `goodivers ideias --hist N`: abre a leva N do histórico
 
 ### `goodivers inspirar`
 

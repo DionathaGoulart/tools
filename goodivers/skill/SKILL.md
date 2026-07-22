@@ -118,7 +118,11 @@ Sem argumento = `radar`.
 4. **Salve** em `~/.goodivers/ideias.json` no schema
    `{"quando": "<UTC ISO 8601>", "ideias": [...]}` com as chaves acima —
    é o que faz `pacote N` funcionar aqui E no CLI. Pegue o timestamp com
-   `date -u +%Y-%m-%dT%H:%M:%S+00:00`.
+   `date -u +%Y-%m-%dT%H:%M:%S+00:00`. **Também anexe** essa mesma leva (o
+   objeto `{"quando","ideias"}` inteiro, em UMA linha JSON) ao histórico
+   `~/.goodivers/ideias_hist.jsonl` (append `>>`, nunca sobrescreve); é daí
+   que o CLI `goodivers ideias --ver` (última leva) e `--hist [N]` (levas
+   anteriores) leem pra rever ideias depois sem regerar.
 5. Renderize a lista numerada (1 = melhor) com todos os campos e feche
    lembrando: `/goodivers pacote N`.
 

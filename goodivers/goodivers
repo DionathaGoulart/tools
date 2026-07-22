@@ -69,7 +69,10 @@ carregar_dotenv()
 BASE_DIR = Path(os.environ.get("GOODIVERS_DIR", Path.home() / ".goodivers"))
 CONFIG_FILE = BASE_DIR / "config.json"   # canais monitorados
 RADAR_FILE = BASE_DIR / "radar.json"     # último snapshot do radar (cache)
-IDEIAS_FILE = BASE_DIR / "ideias.json"   # últimas ideias geradas (pra `pacote N`)
+RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # cache de tradução do radar (por ts)
+BUSCA_FILE = BASE_DIR / "busca.json"     # cache de buscas do YouTube (por termo+flags)
+IDEIAS_FILE = BASE_DIR / "ideias.json"   # última leva de ideias (pra `pacote N`)
+IDEIAS_HIST_FILE = BASE_DIR / "ideias_hist.jsonl"  # histórico de levas (1 por linha)
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -788,7 +791,97 @@ def cmd_radar(fresh, como_json=False, original=False):
     render_radar(s)
 
 
-def cmd_ideias(fresh):
+def _render_ideias(ideias, quando, origem):
+    """Renderiza uma leva de ideias já pronta (sem gerar nada)."""
+    ui.modulo("ideias", origem)
+    if quando:
+        ui.kv("GERADA", idade_humana(quando).upper())
+    ui.kv("IDEIAS", str(len(ideias)))
+    for i, d in enumerate(ideias, 1):
+        print()
+        formato = "short" if not str(d.get("formato", "")).startswith("v") else "video"
+        ui.item(f"{i:>2}.", str(d.get("titulo", "?")), ui.chip(formato))
+        corpo(str(d.get("angulo", "")), recuo=6)
+        if d.get("por_que_agora"):
+            print(f"      {ui.apagado('POR QUE AGORA: ' + str(d['por_que_agora']))}")
+        if d.get("link"):
+            print(f"      {ui.apagado('LINK: ' + str(d['link']))}")
+        print(f"      {ui.FG40}ESFORCO{ui.RESET} {badge(d.get('esforco', '?'))}"
+              f"  {ui.FG40}·  POTENCIAL{ui.RESET} {badge(d.get('potencial', '?'))}")
+        if d.get("busca"):
+            chips(d["busca"], recuo=6)
+    print()
+
+
+def gravar_hist_ideias(quando, ideias):
+    """Anexa a leva ao histórico (JSONL: 1 leva por linha, nunca sobrescreve)."""
+    IDEIAS_HIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    linha = json.dumps({"quando": quando, "ideias": ideias}, ensure_ascii=False)
+    with IDEIAS_HIST_FILE.open("a", encoding="utf-8") as f:
+        f.write(linha + "\n")
+
+
+def ler_hist_ideias():
+    """Levas do histórico, da mais recente pra mais antiga."""
+    if not IDEIAS_HIST_FILE.exists():
+        return []
+    levas = []
+    for linha in IDEIAS_HIST_FILE.read_text(encoding="utf-8").splitlines():
+        linha = linha.strip()
+        if linha:
+            try:
+                levas.append(json.loads(linha))
+            except json.JSONDecodeError:
+                pass
+    levas.reverse()
+    return levas
+
+
+def ver_ideias_salvas():
+    d = carregar_json(IDEIAS_FILE, {})
+    ideias = d.get("ideias", [])
+    if not ideias:
+        die("nenhuma leva salva. Rode `goodivers ideias` primeiro.")
+    _render_ideias(ideias, d.get("quando"), "salvas · sem gerar")
+    ui.proximo("goodivers ideias --hist", "levas anteriores:")
+    ui.proximo("goodivers pacote 3", "pacote completo:  ")
+    print()
+
+
+def ver_ideias_hist(alvo):
+    levas = ler_hist_ideias()
+    if not levas:
+        die("histórico vazio. Rode `goodivers ideias` pra criar a primeira leva.")
+    if alvo:
+        if not alvo.isdigit():
+            die('use um número.  Ex.:  goodivers ideias --hist 2')
+        n = int(alvo)
+        if not (1 <= n <= len(levas)):
+            die(f"leva {n} não existe (histórico tem {len(levas)}).")
+        leva = levas[n - 1]
+        _render_ideias(leva.get("ideias", []), leva.get("quando"), f"histórico · leva {n}")
+        ui.proximo('goodivers pacote "<titulo dessa leva>"', "pacote de uma ideia:")
+        print()
+        return
+    ui.modulo("ideias", f"histórico · {len(levas)} leva(s)")
+    print()
+    for i, leva in enumerate(levas, 1):
+        ideias = leva.get("ideias", [])
+        topo = ideias[0].get("titulo", "?") if ideias else "(vazia)"
+        ui.item(f"{i:>2}.", resumir(topo, 52),
+                f"{idade_humana(leva.get('quando', '')):>8} · {len(ideias)} ideias")
+    print()
+    ui.proximo("goodivers ideias --hist 2", "abrir uma leva:")
+    print()
+
+
+def cmd_ideias(fresh, ver=False, hist=False, alvo=""):
+    if hist:
+        ver_ideias_hist(alvo)
+        return
+    if ver:
+        ver_ideias_salvas()
+        return
     s = coletar_radar(force=fresh)
     refs = outliers_com_id(s)
     bloco_refs = ""
@@ -829,22 +922,10 @@ def cmd_ideias(fresh):
     salvar_json(IDEIAS_FILE, {"quando": quando, "ideias": ideias})
     gravar_hist_ideias(quando, ideias)
 
-    ui.modulo("ideias", f"model: {model}")
-    ui.kv("IDEIAS GERADAS", str(len(ideias)))
-    for i, d in enumerate(ideias, 1):
-        print()
-        formato = "short" if not str(d.get("formato", "")).startswith("v") else "video"
-        ui.item(f"{i:>2}.", str(d.get("titulo", "?")), ui.chip(formato))
-        corpo(str(d.get("angulo", "")), recuo=6)
-        if d.get("por_que_agora"):
-            print(f"      {ui.apagado('POR QUE AGORA: ' + str(d['por_que_agora']))}")
-        print(f"      {ui.FG40}ESFORCO{ui.RESET} {badge(d.get('esforco', '?'))}"
-              f"  {ui.FG40}·  POTENCIAL{ui.RESET} {badge(d.get('potencial', '?'))}")
-        if d.get("busca"):
-            chips(d["busca"], recuo=6)
-    print()
+    _render_ideias(ideias, quando, f"model: {model}")
     ui.proximo("goodivers pacote 3", "pacote completo:")
     ui.proximo('goodivers pacote "sua ideia"', "ou texto livre: ")
+    ui.proximo("goodivers ideias --ver", "rever depois:   ")
     print()
 
 
@@ -1146,6 +1227,9 @@ def uso():
     print()
     ui.secao("flags")
     ui.kv("-f, --fresh", "IGNORA O CACHE E RECOLETA AGORA")
+    ui.kv("--original", "(RADAR) DADO CRU EM INGLES, SEM LLM")
+    ui.kv("--ver", "(IDEIAS) MOSTRA A ULTIMA LEVA SALVA")
+    ui.kv("--hist [N]", "(IDEIAS) HISTORICO DE LEVAS")
     ui.kv("-s, --semana", "(BUSCAR) SO VIDEOS DESTA SEMANA")
     ui.kv("--br", "(BUSCAR) PUBLICO BR (GL=BR, HL=PT)")
     ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
@@ -1189,6 +1273,14 @@ def main():
                     help="(buscar) só vídeos desta semana")
     ap.add_argument("--br", action="store_true",
                     help="(buscar) busca como o público BR (gl=BR, hl=pt)")
+    ap.add_argument("--original", action="store_true",
+                    help="(radar) não traduz, mostra o dado cru em inglês, sem LLM "
+                         "(GOODIVERS_ORIGINAL=1 liga por padrão)")
+    ap.add_argument("--ver", action="store_true",
+                    help="(ideias) mostra a última leva salva, sem gerar de novo")
+    ap.add_argument("--hist", action="store_true",
+                    help="(ideias) lista o histórico de levas; com número (ideias "
+                         "--hist 2) abre aquela leva")
     ap.add_argument("-m", "--modelos", action="store_true",
                     help="lista modelos :free disponíveis")
     ap.add_argument("--json", action="store_true", dest="como_json",
@@ -1212,7 +1304,8 @@ def main():
     elif args.comando == "radar":
         cmd_radar(args.fresh, args.como_json, original=original)
     elif args.comando == "ideias":
-        cmd_ideias(args.fresh)
+        cmd_ideias(args.fresh, ver=args.ver, hist=args.hist,
+                   alvo=" ".join(args.resto).strip())
     elif args.comando == "inspirar":
         cmd_inspirar(args.fresh)
     elif args.comando == "pacote":
