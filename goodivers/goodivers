@@ -616,8 +616,12 @@ def render_radar(s):
         print()
         ui.secao("despachos da super terra")
         for d in s["despachos"][:3]:
-            ui.item(f"{idade_humana(d['quando']):>8}",
-                    resumir(d.get("texto_pt") or d["texto"], 180))
+            texto = d.get("texto_pt") or d["texto"]
+            larg = max(40, min(ui.cols - 13, 92))
+            linhas = textwrap.wrap(texto, larg) or [""]
+            ui.item(f"{idade_humana(d['quando']):>8}", linhas[0])
+            for extra in linhas[1:]:
+                print(f"{' ' * 11}{ui.FG70}{extra}{ui.RESET}")
 
     if s.get("patches"):
         print()
