@@ -11,10 +11,11 @@ vídeo-outlier) — e injeta tudo isso no modelo pra gerar ideias de vídeo,
 títulos, conceitos de thumbnail, descrição e roteiro pensados pro algoritmo
 do YouTube em canal pequeno.
 
-A COLETA do radar é 100% sem LLM (só APIs públicas); por padrão o radar é
-exibido traduzido pra PT-BR por uma chamada de LLM (use --original pra ver o
-dado cru em inglês, sem LLM). O modelo também entra em `ideias`, `pacote`,
-`titulos` e `inspirar`.
+A COLETA do radar é 100% sem LLM (só APIs públicas); por padrão o radar e o
+corpo de `patch <N>` são exibidos traduzidos pra PT-BR por uma chamada de LLM
+(use --original pra ver o dado cru em inglês, sem LLM; a tradução de patch
+fica em cache permanente — patch note publicado não muda). O modelo também
+entra em `ideias`, `pacote`, `titulos` e `inspirar`.
 
 args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
        buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [-f] [--original]
@@ -26,6 +27,7 @@ do radar; sem a chave, o radar cai pro inglês automaticamente).
 """
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -73,6 +75,7 @@ RADAR_FILE = BASE_DIR / "radar.json"     # último snapshot do radar (cache)
 RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # cache de tradução do radar (por ts)
 BUSCA_FILE = BASE_DIR / "busca.json"     # cache de buscas do YouTube (por termo+flags)
 PATCH_FILE = BASE_DIR / "patch.json"     # cache dos patch notes oficiais (Steam)
+PATCH_PT_FILE = BASE_DIR / "patch_pt.json"  # tradução de patch por gid (permanente)
 IDEIAS_FILE = BASE_DIR / "ideias.json"   # última leva de ideias (pra `pacote N`)
 IDEIAS_HIST_FILE = BASE_DIR / "ideias_hist.jsonl"  # histórico de levas (1 por linha)
 
@@ -792,6 +795,54 @@ def traduzir_radar(s):
             obj[dst] = mapa[txt]
 
 
+def traduzir_patch(escolhido):
+    """Corpo de um patch note em PT-BR. Cache PERMANENTE por gid em
+    patch_pt.json: anúncio publicado não muda (mudança vem em patch novo),
+    então a tradução vale pra sempre — o hash do conteúdo só invalida se a
+    Arrowhead editar o anúncio na Steam. Sem key ou erro de LLM: avisa e
+    devolve None (o chamador mostra o inglês, nunca quebra)."""
+    texto = (escolhido.get("conteudo") or "").strip()
+    if not texto:
+        return None
+    gid = escolhido.get("gid") or ""
+    digest = hashlib.sha1(texto.encode("utf-8")).hexdigest()
+    cache = carregar_json(PATCH_PT_FILE, {})
+    rec = cache.get(gid) if gid else None
+    if rec and rec.get("hash") == digest and (rec.get("conteudo_pt") or "").strip():
+        return rec["conteudo_pt"]
+
+    nota("traduzindo o patch pra PT-BR (1ª vez; depois sai do cache)…")
+    prompt = (
+        "Traduza para português do Brasil o patch note de Helldivers 2 abaixo. "
+        "PRESERVE a estrutura exatamente: mesmas linhas, quebras, títulos de "
+        "seção e marcadores. Mantenha em inglês os nomes próprios do jogo "
+        "(facções Automaton/Terminid/Illuminate, planetas, armas, stratagems, "
+        "warbonds, siglas como DSS/SEAF) e números/valores de balanço. "
+        "Devolva SOMENTE o texto traduzido, sem comentários.\n\n"
+        "PATCH NOTE:\n" + texto
+    )
+    try:
+        pt, _ = _llm.chat(
+            [{"role": "system",
+              "content": "Você traduz patch notes de Helldivers 2 de inglês pra PT-BR."},
+             {"role": "user", "content": prompt}],
+            max_tokens=min(9000, max(3000, len(texto) // 2)), temperature=0.3)
+    except LLMError as e:
+        motivo = {"no_key": "sem OPENROUTER_API_KEY",
+                  "auth": "OPENROUTER_API_KEY inválida"}.get(e.kind, "LLM falhou")
+        ui.aviso("traducao", f"{motivo}; patch em inglês")
+        return None
+    pt = (pt or "").strip()
+    if len(pt) < len(texto) * 0.4:  # truncada/vazia: melhor o original inteiro
+        ui.aviso("traducao", "resposta truncada; patch em inglês")
+        return None
+    if gid:
+        cache[gid] = {"hash": digest, "quando": escolhido.get("quando", ""),
+                      "conteudo_pt": pt}
+        salvar_json(PATCH_PT_FILE, cache)
+    return pt
+
+
 # ---------------------------------------------------------------- contexto do estrategista
 
 def bloco_dados_vivos(s):
@@ -1164,10 +1215,12 @@ def cmd_buscar(termo, semana, br, como_json=False, fresh=False):
     print()
 
 
-def cmd_patch(alvo, como_json=False, fresh=False):
+def cmd_patch(alvo, como_json=False, fresh=False, original=False):
     """Coletor de patch notes oficiais (Steam). Sem alvo lista os anúncios
-    recentes; com um alvo (número/URL) baixa o corpo INTEIRO daquele patch.
-    O resumo pro vídeo é gerado pelo Claude no skill /goodivers patch."""
+    recentes; com um alvo (número/URL) baixa o corpo INTEIRO daquele patch,
+    traduzido pra PT-BR por padrão (--original mostra o cru; --json também é
+    sempre cru, é entrada do skill). O resumo pro vídeo é gerado pelo Claude
+    no skill /goodivers patch."""
     alvo = (alvo or "").strip()
 
     if not alvo:
@@ -1205,13 +1258,21 @@ def cmd_patch(alvo, como_json=False, fresh=False):
     if como_json:
         imprimir_json(escolhido)
         return
+    conteudo = escolhido["conteudo"]
+    idioma = "EN (CRU)"
+    if not original:
+        pt = traduzir_patch(escolhido)
+        if pt:
+            conteudo = pt
+            idioma = "PT-BR (--ORIGINAL PRO TEXTO CRU)"
     ui.modulo("patch", "src: steam · oficial arrowhead")
     ui.kv("PATCH", resumir(escolhido["titulo"], 46).upper())
     ui.kv("QUANDO", idade_humana(escolhido["quando"]))
     if escolhido.get("url"):
         ui.kv("URL", escolhido["url"])
+    ui.kv("IDIOMA", idioma)
     print()
-    print(escolhido["conteudo"])
+    print(conteudo)
     print()
     ui.proximo("/goodivers patch <N>", "resumo pro video (skill):")
     print()
@@ -1381,7 +1442,7 @@ def uso():
     ui.kv('goodivers titulos "<tema>"', "VARIACOES A/B")
     ui.kv('goodivers buscar "<termo>"', "BUSCA NO YOUTUBE")
     ui.kv("goodivers patch", "PATCH NOTES OFICIAIS (LISTA)")
-    ui.kv("goodivers patch <N|url>", "CORPO COMPLETO DE UM PATCH")
+    ui.kv("goodivers patch <N|url>", "CORPO COMPLETO DE UM PATCH (PT-BR)")
     ui.kv("goodivers canais", "CANAIS MONITORADOS")
     ui.kv("goodivers canais add <canal>", "ADICIONA (HANDLE, URL OU ID)")
     ui.kv("goodivers canais rm <nome>", "REMOVE CANAL")
@@ -1389,7 +1450,7 @@ def uso():
     print()
     ui.secao("flags")
     ui.kv("-f, --fresh", "IGNORA O CACHE E RECOLETA AGORA")
-    ui.kv("--original", "(RADAR) DADO CRU EM INGLES, SEM LLM")
+    ui.kv("--original", "(RADAR, PATCH) DADO CRU EM INGLES, SEM LLM")
     ui.kv("--ver", "(IDEIAS) MOSTRA A ULTIMA LEVA SALVA")
     ui.kv("--hist [N]", "(IDEIAS) HISTORICO DE LEVAS")
     ui.kv("-s, --semana", "(BUSCAR) SO VIDEOS DESTA SEMANA")
@@ -1401,7 +1462,7 @@ def uso():
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
-    ui.kv("GOODIVERS_ORIGINAL", "RADAR CRU EM INGLES POR PADRAO (1)")
+    ui.kv("GOODIVERS_ORIGINAL", "RADAR/PATCH CRU EM INGLES POR PADRAO (1)")
     ui.kv("GOODIVERS_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
     ui.kv("GOODIVERS_DIR", str(BASE_DIR))
     ui.kv("GOODIVERS_TEMA / RETRO_TEMA", ui.tema.upper())
@@ -1437,8 +1498,8 @@ def main():
     ap.add_argument("--br", action="store_true",
                     help="(buscar) busca como o público BR (gl=BR, hl=pt)")
     ap.add_argument("--original", action="store_true",
-                    help="(radar) não traduz, mostra o dado cru em inglês, sem LLM "
-                         "(GOODIVERS_ORIGINAL=1 liga por padrão)")
+                    help="(radar, patch) não traduz, mostra o dado cru em inglês, sem "
+                         "LLM (GOODIVERS_ORIGINAL=1 liga por padrão)")
     ap.add_argument("--ver", action="store_true",
                     help="(ideias) mostra a última leva salva, sem gerar de novo")
     ap.add_argument("--hist", action="store_true",
@@ -1479,7 +1540,8 @@ def main():
         cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br,
                    args.como_json, fresh=args.fresh)
     elif args.comando == "patch":
-        cmd_patch(" ".join(args.resto).strip(), args.como_json, fresh=args.fresh)
+        cmd_patch(" ".join(args.resto).strip(), args.como_json, fresh=args.fresh,
+                  original=original)
     elif args.comando == "canais":
         cmd_canais(args.resto, args.como_json)
     elif args.comando == "temas":

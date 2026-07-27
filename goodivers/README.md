@@ -8,8 +8,10 @@ thumbnails e roteiro pensados pro algoritmo do YouTube em canal pequeno.
 
 **Nada roda sozinho**: zero monitoramento em background, zero cron. Toda
 coleta e toda chamada de modelo acontecem só quando você digita um comando.
-`radar`, `buscar` e `patch` nem usam LLM (APIs públicas, sem chave); o modelo
-(OpenRouter `:free`) só entra em `ideias`, `inspirar`, `pacote` e `titulos`.
+A coleta de `radar`, `buscar` e `patch` não usa LLM (APIs públicas, sem
+chave); o modelo (OpenRouter `:free`) entra em `ideias`, `inspirar`, `pacote`,
+`titulos` — e numa chamada de tradução pra exibir radar e patch em PT-BR
+(`--original` pula).
 
 Dois jeitos de usar a parte com IA — mesmos comandos nos dois:
 
@@ -26,7 +28,7 @@ goodivers pacote 3              # pacote de produção completo da ideia 3
 goodivers titulos "farm de sc"  # 8 variações de título pra teste A/B
 goodivers buscar "hd2 leaks" -s # busca no YouTube (-s semana · --br como o público BR)
 goodivers patch                 # lista os patch notes oficiais (Steam)
-goodivers patch 2               # corpo completo de um patch (resumo pro vídeo é no skill)
+goodivers patch 2               # corpo completo de um patch em PT-BR (--original: cru)
 goodivers canais                # gerencia os canais monitorados
 goodivers temas                 # paletas do tema retro do terminal
 ```
@@ -162,22 +164,28 @@ goodivers buscar "helldivers 2 solo build"    # tem demanda? quem já cobriu?
 
 ### `goodivers patch [<N | url>]`
 
-Patch notes oficiais da Arrowhead direto do Steam (**sem chave, sem LLM** — é
-coletor). Sem argumento, lista os anúncios recentes numerados (mais novo
-primeiro) com título e idade. Com um número (`1` = mais recente) ou a URL do
-anúncio colada, baixa o **corpo inteiro** daquele patch — listas de buff/nerf
-e cabeçalhos preservados — pronto pra ler no terminal.
+Patch notes oficiais da Arrowhead direto do Steam. Sem argumento, lista os
+anúncios recentes numerados (mais novo primeiro) com título e idade — coleta
+pura, sem LLM. Com um número (`1` = mais recente) ou a URL do anúncio colada,
+baixa o **corpo inteiro** daquele patch — listas de buff/nerf e cabeçalhos
+preservados — e exibe **traduzido pra PT-BR** (uma chamada de LLM; nomes
+próprios do jogo ficam em inglês). `--original` mostra o texto cru em inglês,
+sem LLM; sem `OPENROUTER_API_KEY` cai pro inglês sozinho, nunca quebra.
 
 O **resumo estruturado pro vídeo de atualização** (TL;DR, buffs, nerfs, novo
 conteúdo, fixes que importam, ângulo de título/thumb) é gerado pelo Claude via
 skill: `/goodivers patch <N>`. O `--json` expõe a lista e o corpo crus.
 
-Cacheado por **6h** (`~/.goodivers/patch.json`) — patch não sai todo dia, e a
-mesma coleta serve a lista e o corpo de qualquer patch. `-f` fura e recoleta.
+A coleta é cacheada por **6h** (`~/.goodivers/patch.json`) — patch não sai
+todo dia, e a mesma coleta serve a lista e o corpo de qualquer patch; `-f`
+fura e recoleta. A **tradução** fica em cache **permanente** por anúncio
+(`~/.goodivers/patch_pt.json`): patch note publicado não muda — mudança vem em
+patch novo — então cada patch é traduzido uma única vez.
 
 ```bash
 goodivers patch            # lista os patch notes oficiais recentes
-goodivers patch 2          # corpo completo do 2º da lista
+goodivers patch 2          # corpo completo do 2º da lista, em PT-BR
+goodivers patch 2 --original   # o mesmo, cru em inglês (sem LLM)
 goodivers patch <url>      # ou cole a URL do anúncio do Steam
 ```
 
