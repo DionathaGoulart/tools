@@ -1,0 +1,1579 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+goodhunter — detect and optionally neutralize Windows monitoring software.
+
+Modes:
+  normal     broad PowerShell enumeration (transparent, for personal machines)
+  --stealth  targeted .NET checks only, no broad enumeration, no disk writes
+  --neutralize  kill processes, stop services, block C2 domains of what's found
+  --portable generate a standalone .ps1 to run from USB on a machine without Python
+
+Usage:
+  goodhunter                  normal scan (transparent)
+  goodhunter --stealth        stealth scan (targeted, minimal footprint)
+  goodhunter --neutralize     scan + disable what's found
+  goodhunter --stealth --neutralize  stealth scan + disable
+  goodhunter list             list all tools in the database
+  goodhunter scan             normal scan only (no report save)
+  goodhunter report           show last scan report
+  goodhunter cat <name>       show details of a specific tool
+  goodhunter --portable       generate stealth .ps1 to a USB directory
+  goodhunter --json           output in JSON format
+  goodhunter --help
+"""
+
+import argparse
+import base64
+import json
+import os
+import subprocess
+import sys
+from collections import defaultdict
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro
+
+ui = Retro(env_prefix="GOODHUNTER")
+
+DB_PATH = Path(os.environ.get("GOODHUNTER_DB", Path.home() / ".goodhunter"))
+REPORT_FILE = DB_PATH / "last_scan.json"
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolSignature:
+    name: str
+    aliases: list[str] = field(default_factory=list)
+    category: str = ""
+    description: str = ""
+    risk: str = ""
+    processes: list[str] = field(default_factory=list)
+    services: list[str] = field(default_factory=list)
+    registry: list[str] = field(default_factory=list)
+    install_dirs: list[str] = field(default_factory=list)
+    startup_entries: list[str] = field(default_factory=list)
+    urls: list[str] = field(default_factory=list)
+    notes: str = ""
+    captures_screen: str = ""
+    captures_keystrokes: str = ""
+    captures_audio: str = ""
+    captures_webcam: str = ""
+    captures_apps: str = ""
+    captures_web: str = ""
+    captures_email: str = ""
+    captures_chat: str = ""
+    captures_clipboard: str = ""
+    captures_files: str = ""
+    captures_gps: str = ""
+    has_watchdog: bool = False
+    detectable_kill: bool = True
+
+
+DATABASE: list[ToolSignature] = [
+    ToolSignature(name="Teramind", category="corporate", risk="high",
+        description="Employee monitoring with screen recording, keystroke logging, live view",
+        processes=["teramind.exe","teramindagent.exe","tmmonitor.exe","tmsrv.exe","tmcmd.exe"],
+        services=["Teramind","TeramindAgent","TMService"],
+        registry=[r"SOFTWARE\Teramind",r"SOFTWARE\WOW6432Node\Teramind"],
+        install_dirs=[r"C:\Program Files\Teramind",r"C:\Program Files (x86)\Teramind"],
+        startup_entries=["Teramind"], urls=["teramind.co"],
+        captures_screen="screen recording (continuous)", captures_keystrokes="all keystrokes",
+        captures_apps="app usage + window titles", captures_web="all URLs visited",
+        captures_email="email content", captures_chat="chat/IM messages",
+        captures_clipboard="clipboard content", captures_files="file operations",
+        has_watchdog=True, detectable_kill=True),
+    ToolSignature(name="ActivTrak", category="corporate", risk="high",
+        description="Cloud-based employee monitoring with screen captures, productivity tracking",
+        processes=["activtrak.exe","activtrakagent.exe","atrack.exe","ActivityTracker.exe"],
+        services=["ActivTrak","ActivTrakAgent"],
+        registry=[r"SOFTWARE\ActivTrak",r"SOFTWARE\WOW6432Node\ActivTrak"],
+        install_dirs=[r"C:\Program Files\ActivTrak"], urls=["activtrak.com"],
+        captures_screen="screenshots every 10-60s", captures_apps="app usage",
+        captures_web="URLs visited", detectable_kill=True),
+    ToolSignature(name="Hubstaff", category="corporate", risk="medium",
+        description="Time tracking with screenshot capture, activity monitoring, GPS tracking",
+        processes=["hubstaff.exe","hubstaffagent.exe","HubstaffClient.exe"],
+        services=["Hubstaff"], install_dirs=[r"C:\Program Files\Hubstaff"],
+        urls=["hubstaff.com"],
+        captures_screen="screenshots every 10min", captures_apps="app usage",
+        captures_web="URLs visited", captures_gps="GPS tracking in mobile",
+        detectable_kill=True),
+    ToolSignature(name="Time Doctor", category="corporate", risk="medium",
+        description="Time tracking and productivity monitoring with screen captures",
+        processes=["timedoctor.exe","timedoctoragent.exe","TD.exe","TDService.exe"],
+        services=["TimeDoctor","TDService"], install_dirs=[r"C:\Program Files\TimeDoctor"],
+        urls=["timedoctor.com"]),
+    ToolSignature(name="InterGuard", category="corporate", risk="high",
+        description="Employee surveillance with screen recording, keystroke logging, email/chat",
+        processes=["interguard.exe","igclient.exe","iguard.exe","igservice.exe","AuditWizard.exe"],
+        services=["InterGuard","IGService"], registry=[r"SOFTWARE\InterGuard"],
+        install_dirs=[r"C:\Program Files\InterGuard",r"C:\Program Files (x86)\InterGuard"],
+        urls=["interguard.com"],
+        captures_screen="screen recording (continuous)", captures_keystrokes="all keystrokes",
+        captures_apps="app usage", captures_web="URLs visited",
+        captures_email="email content", captures_chat="chat messages",
+        has_watchdog=True, detectable_kill=True),
+    ToolSignature(name="Veriato (Vision/360)", category="corporate", risk="high",
+        description="User behavior analytics with keystroke recording and screen capture",
+        processes=["veriato.exe","veriatoagent.exe","vision.exe","vrservice.exe","cerebro.exe"],
+        services=["Veriato","VeriatoAgent","Cerebro"],
+        registry=[r"SOFTWARE\Veriato"],
+        install_dirs=[r"C:\Program Files\Veriato",r"C:\Program Files (x86)\Veriato"],
+        urls=["veriato.com"],
+        captures_screen="screen recording (continuous)", captures_keystrokes="all keystrokes",
+        captures_apps="app usage", captures_web="URLs visited",
+        captures_email="email content", captures_chat="chat messages",
+        has_watchdog=True, detectable_kill=True),
+    ToolSignature(name="StaffCop", category="corporate", risk="high",
+        description="Employee monitoring with screen recording, app usage, web tracking",
+        processes=["staffcop.exe","staffcopagent.exe","scservice.exe","SCAgent.exe"],
+        services=["StaffCop","SCService"], registry=[r"SOFTWARE\StaffCop"],
+        install_dirs=[r"C:\Program Files\StaffCop",r"C:\Program Files (x86)\StaffCop"],
+        urls=["staffcop.com"],
+        captures_screen="screenshots every 5-30s", captures_keystrokes="all keystrokes",
+        captures_apps="app usage", captures_web="URLs visited",
+        has_watchdog=True, detectable_kill=True),
+    ToolSignature(name="Controlio", category="corporate", risk="high",
+        description="Cloud employee monitoring with screen recording, keystroke logging",
+        processes=["controlio.exe","controlioagent.exe"], services=["Controlio"],
+        install_dirs=[r"C:\Program Files\Controlio"], urls=["controlio.com"]),
+    ToolSignature(name="WorkTime", category="corporate", risk="medium",
+        description="Employee monitoring and time tracking with screen captures",
+        processes=["worktime.exe","wtmonitor.exe","wtService.exe"],
+        services=["WorkTime","WTService"], install_dirs=[r"C:\Program Files\WorkTime"],
+        urls=["worktime.com"]),
+    ToolSignature(name="DeskTime", category="corporate", risk="medium",
+        description="Automatic time tracking with screenshots and activity monitoring",
+        processes=["desktime.exe","DeskTimeTracker.exe"], services=["DeskTime"],
+        install_dirs=[r"C:\Program Files\DeskTime"], urls=["desktime.com"]),
+    ToolSignature(name="FlexiSPY", category="stalkerware", risk="critical",
+        description="Commercial spyware: calls, SMS, GPS, social media, keylogging, ambient recording",
+        processes=["flexispy.exe","fsagent.exe","fsclient.exe","fsservice.exe"],
+        services=["FlexiSPY","FSService"], registry=[r"SOFTWARE\FlexiSPY"],
+        install_dirs=[r"C:\Program Files\FlexiSPY"], urls=["flexispy.com"],
+        notes="Often sold as a phone tracker but can be installed on desktops",
+        captures_screen="screen recording", captures_keystrokes="all keystrokes",
+        captures_audio="ambient audio recording", captures_apps="app usage",
+        captures_web="URLs visited", captures_email="email content",
+        captures_chat="IM/chat messages", captures_clipboard="clipboard content",
+        captures_gps="GPS location", has_watchdog=True, detectable_kill=True),
+    ToolSignature(name="mSpy", category="stalkerware", risk="critical",
+        description="Commercial stalkerware: social media, calls, GPS, keylogging, screen recording",
+        processes=["mspy.exe","mspyagent.exe","mspyclient.exe"], services=["mSpy"],
+        registry=[r"SOFTWARE\mSpy"],         urls=["mspy.com"],
+        captures_screen="screen recording", captures_keystrokes="all keystrokes",
+        captures_audio="ambient audio", captures_webcam="webcam snapshots",
+        captures_chat="IM/chat", captures_gps="GPS location",
+        has_watchdog=True, detectable_kill=True),
+    ToolSignature(name="Spyrix", category="stalkerware", risk="critical",
+        description="Keylogger with screen capture, webcam snapshots, social media monitoring",
+        processes=["spyrix.exe","spyrixagent.exe","spyrixservice.exe","SpyrixPersonalMonitor.exe"],
+        services=["Spyrix","SpyrixService"], registry=[r"SOFTWARE\Spyrix"],
+        install_dirs=[r"C:\Program Files\Spyrix"], urls=["spyrix.com"]),
+    ToolSignature(name="SentryPC", category="corporate", risk="high",
+        description="Cloud-based monitoring with screen recording, app blocking, keystroke logging",
+        processes=["sentrypc.exe","sentrypcagent.exe","spcservice.exe"],
+        services=["SentryPC","SPCService"], install_dirs=[r"C:\Program Files\SentryPC"],
+        urls=["sentrypc.com"]),
+    ToolSignature(name="PC Tattletale", category="stalkerware", risk="critical",
+        description="Keylogger with screen recording, social media tracking, email logging",
+        processes=["pctattletale.exe","pctagent.exe","tattletale.exe"],
+        services=["PCTattletale"], install_dirs=[r"C:\Program Files\PC Tattletale"],
+        urls=["pctattletale.com"]),
+    ToolSignature(name="Refog", category="stalkerware", risk="high",
+        description="Keylogger with screen captures, application monitoring, web tracking",
+        processes=["refog.exe","refogagent.exe","refogservice.exe"],
+        services=["Refog","RefogService"], registry=[r"SOFTWARE\Refog"],
+        install_dirs=[r"C:\Program Files\Refog"], urls=["refog.com"]),
+    ToolSignature(name="Spytech (SpyAgent)", category="stalkerware", risk="critical",
+        description="Keylogger with screen recording, webcam, chat logging",
+        processes=["spyagent.exe","spytech.exe","spytechservice.exe","sasservice.exe"],
+        services=["Spytech","SASService"], registry=[r"SOFTWARE\Spytech"],
+        install_dirs=[r"C:\Program Files\Spytech"], urls=["spytech-web.com"]),
+    ToolSignature(name="Elite Keylogger", category="stalkerware", risk="high",
+        description="Stealth keylogger with screenshot capture and email delivery",
+        processes=["elitekeylogger.exe","ekl.exe","EliteLogger.exe","eklservice.exe"],
+        services=["EliteKeylogger"], install_dirs=[r"C:\Program Files\Elite Keylogger"]),
+    ToolSignature(name="Ardamax Keylogger", category="stalkerware", risk="high",
+        description="Keystroke recorder with screen captures and stealth mode",
+        processes=["ardamax.exe","akl.exe","ardamaxservice.exe"],
+        services=["Ardamax"], install_dirs=[r"C:\Program Files\Ardamax"], urls=["ardamax.com"]),
+    ToolSignature(name="Actual Keylogger", category="stalkerware", risk="high",
+        description="Keylogger with screen recording, webcam capture, remote delivery",
+        processes=["actualkeylogger.exe","actual.exe","akservice.exe"],
+        services=["ActualKeylogger"], install_dirs=[r"C:\Program Files\Actual Keylogger"]),
+    ToolSignature(name="Revealer Keylogger", category="stalkerware", risk="high",
+        description="Stealth keylogger with remote installation and screen captures",
+        processes=["revealer.exe","rkl.exe","revealerservice.exe"],
+        services=["Revealer"], install_dirs=[r"C:\Program Files\Revealer Keylogger"]),
+    ToolSignature(name="KidLogger", category="parental", risk="medium",
+        description="Parental control: keystroke logging, app tracking, web filtering",
+        processes=["kidlogger.exe","kl.exe","klservice.exe","klagent.exe"],
+        services=["KidLogger"], install_dirs=[r"C:\Program Files\KidLogger"],
+        urls=["kidlogger.net"]),
+    ToolSignature(name="iKeyMonitor", category="stalkerware", risk="high",
+        description="Keylogger with screen recording, social media, GPS tracking",
+        processes=["ikeymonitor.exe","ikm.exe","ikmservice.exe"],
+        services=["iKeyMonitor"], urls=["ikeymonitor.com"]),
+    ToolSignature(name="XNSPY", category="stalkerware", risk="critical",
+        description="Mobile/desktop monitoring: calls, social media, GPS, keylogging, ambient",
+        processes=["xnspy.exe","xnsagent.exe"], services=["XNSPY"], urls=["xnspy.com"]),
+    ToolSignature(name="Hoverwatch", category="stalkerware", risk="critical",
+        description="Surveillance with screen recording, social media, calls, ambient recording",
+        processes=["hoverwatch.exe","hwagent.exe"], services=["Hoverwatch"],
+        urls=["hoverwatch.com"]),
+    ToolSignature(name="Cocospy", category="stalkerware", risk="critical",
+        description="Phone/desktop monitoring: social media, GPS, calls, keylogging",
+        processes=["cocospy.exe"], urls=["cocospy.com"]),
+    ToolSignature(name="EyeZy", category="stalkerware", risk="critical",
+        description="Monitoring: social media, calls, GPS, screen recording, keylogging",
+        processes=["eyezy.exe"], urls=["eyezy.com"]),
+    ToolSignature(name="Minspy", category="stalkerware", risk="critical",
+        description="Stealth phone/desktop monitoring with keylogging and social media",
+        processes=["minspy.exe"], urls=["minspy.com"]),
+    ToolSignature(name="PanSpy", category="stalkerware", risk="critical",
+        description="Spyware for social media, GPS, calls, and screen recording",
+        processes=["panspy.exe"], urls=["panspy.com"]),
+    ToolSignature(name="OgyMogy", category="stalkerware", risk="critical",
+        description="Monitoring: social media, calls, GPS, ambient, screen recording",
+        processes=["ogymogy.exe"], urls=["ogymogy.com"]),
+    ToolSignature(name="TheTruthSpy", category="stalkerware", risk="critical",
+        description="Stalkerware: call logs, SMS, GPS, social media, keylogging",
+        processes=["thetruthspy.exe"], urls=["thetruthspy.com"]),
+    ToolSignature(name="Auto Forward", category="stalkerware", risk="critical",
+        description="Spyware: call forwarding, SMS, GPS, ambient, social media",
+        processes=["autoforward.exe"], urls=["autoforward.com"]),
+    ToolSignature(name="Surepoint (Desk Copilot)", category="corporate", risk="high",
+        description="Brazilian employee monitoring with screen recording, app usage, productivity",
+        processes=["surepoint.exe","deskcopilot.exe","dcagent.exe","dctray.exe"],
+        services=["Surepoint","DeskCopilot"],
+        install_dirs=[r"C:\Program Files\Surepoint",r"C:\Program Files\Desk Copilot"],
+        urls=["surepoint.com.br"], notes="Common in Brazilian companies",
+        captures_screen="screenshots periodic", captures_apps="app usage",
+        captures_web="URLs visited", detectable_kill=True),
+    ToolSignature(name="Tecnicon (DDS)", category="corporate", risk="high",
+        description="Brazilian employee monitoring with point tracking and screen monitoring",
+        processes=["dds.exe","tecservice.exe","ddstray.exe"], services=["DDS"],
+        urls=["tecnicon.com.br"], notes="Common in Brazilian companies",
+        captures_apps="app usage", captures_web="URLs visited",
+        detectable_kill=True),
+    ToolSignature(name="Intelipos", category="corporate", risk="medium",
+        description="Time tracking and employee monitoring with screen capture",
+        processes=["intelipos.exe","ipagent.exe"], services=["Intelipos"],
+        urls=["intelipos.com.br"]),
+    ToolSignature(name="PontoTel", category="corporate", risk="medium",
+        description="Brazilian time tracking and productivity monitoring",
+        processes=["pontotel.exe","ptagent.exe"], services=["PontoTel"],
+        urls=["pontotel.com.br"]),
+    ToolSignature(name="Windows Telemetry (DiagTrack)", category="os", risk="low",
+        description="Built-in Windows telemetry and diagnostics",
+        processes=["diagtrack.exe","utcsvc.exe","ConnectedUserExperience.exe","telemetry.exe"],
+        services=["DiagTrack","dmwappushservice","DiagnosticExecution"],
+        notes="Built into Windows — not third-party spyware",
+        captures_apps="app usage", captures_web="URLs visited (Edge)",
+        detectable_kill=False),
+    ToolSignature(name="Windows Activity History", category="os", risk="low",
+        description="Windows timeline and activity history tracking",
+        processes=["timeline.exe","ActivityHistory.exe"], services=["ActivityHistory"]),
+    ToolSignature(name="Microsoft 365 (Office Telemetry)", category="corporate", risk="low",
+        description="Office telemetry data sent to Microsoft",
+        processes=["officec2rclient.exe","telemetryclient.exe","appvshnotify.exe"]),
+    ToolSignature(name="CrowdStrike Falcon", category="security", risk="low",
+        description="Next-gen antivirus and EDR with process monitoring",
+        processes=["csfalcon.exe","csagent.exe","csenrollment.exe"],
+        services=["CrowdStrike","CSFalcon"], install_dirs=[r"C:\Program Files\CrowdStrike"],
+        notes="Legitimate security software"),
+    ToolSignature(name="SentinelOne", category="security", risk="low",
+        description="EDR with endpoint monitoring",
+        processes=["sentinelone.exe","sentinelagent.exe","s1agent.exe"],
+        services=["SentinelOne"], install_dirs=[r"C:\Program Files\SentinelOne"]),
+    ToolSignature(name="Carbon Black (VMware)", category="security", risk="low",
+        description="EDR with endpoint visibility and process recording",
+        processes=["carbonblack.exe","cb.exe","cbagent.exe"], services=["CarbonBlack"],
+        install_dirs=[r"C:\Program Files\Carbon Black"]),
+    ToolSignature(name="Microsoft Defender for Endpoint", category="security", risk="low",
+        description="Built-in EDR for enterprise with process/network monitoring",
+        processes=["mssense.exe","mdefender.exe","sense.exe"],
+        services=["Sense","WinDefend"]),
+    ToolSignature(name="Cylance (BlackBerry)", category="security", risk="low",
+        description="AI-powered endpoint protection with process monitoring",
+        processes=["cylance.exe","cylanceagent.exe"], services=["Cylance"],
+        install_dirs=[r"C:\Program Files\Cylance"]),
+    ToolSignature(name="Tanium", category="corporate", risk="medium",
+        description="Endpoint management platform that can report software/processes to IT",
+        processes=["tanium.exe","taniumclient.exe","tanbox.exe"],
+        services=["Tanium"], install_dirs=[r"C:\Program Files\Tanium"]),
+    ToolSignature(name="TeamViewer", category="remote", risk="medium",
+        description="Remote desktop — can be used to view screens without consent",
+        processes=["teamviewer.exe","teamviewer_service.exe","tv_w32.exe","tv_x64.exe"],
+        services=["TeamViewer"], install_dirs=[r"C:\Program Files\TeamViewer"]),
+    ToolSignature(name="AnyDesk", category="remote", risk="medium",
+        description="Remote desktop — can be misused for unauthorized screen viewing",
+        processes=["anydesk.exe","anydeskservice.exe"], services=["AnyDesk"],
+        install_dirs=[r"C:\Program Files\AnyDesk"]),
+    ToolSignature(name="VNC (RealVNC/TightVNC)", category="remote", risk="medium",
+        description="Remote screen sharing — can be installed surreptitiously",
+        processes=["vncserver.exe","vncservice.exe","winvnc.exe"], services=["VNC"],
+        install_dirs=[r"C:\Program Files\RealVNC",r"C:\Program Files\TightVNC"]),
+    ToolSignature(name="LogMeIn", category="remote", risk="medium",
+        description="Remote access software — can be used for unauthorized monitoring",
+        processes=["logmein.exe","lmig.exe","lm_service.exe"], services=["LogMeIn"]),
+    ToolSignature(name="GoToAssist / GoToMyPC", category="remote", risk="medium",
+        description="Remote support and desktop access",
+        processes=["gotoassist.exe","gotomypc.exe","g2ax.exe"]),
+    ToolSignature(name="Splashtop", category="remote", risk="medium",
+        description="Remote desktop used in corporate and education settings",
+        processes=["splashtop.exe","splashtopservice.exe","srservice.exe"],
+        services=["Splashtop"]),
+    ToolSignature(name="Chrome Remote Desktop", category="remote", risk="low",
+        description="Remote desktop via Chrome",
+        processes=["chromoting.exe","remoting_desktop.exe"],
+        services=["ChromeRemoteDesktop"]),
+    ToolSignature(name="KeyBase Keylogger", category="stalkerware", risk="high",
+        description="Keylogger with USB delivery and stealth mode",
+        processes=["keybase.exe","kblogger.exe"], startup_entries=["KeyBase"]),
+    ToolSignature(name="Best Free Keylogger", category="stalkerware", risk="high",
+        description="Free keylogger with screen captures and stealth mode",
+        processes=["bfk.exe","bestkeylogger.exe","bfkservice.exe"]),
+    ToolSignature(name="PyKeylogger", category="stalkerware", risk="high",
+        description="Python-based keylogger — often custom, harder to detect",
+        processes=["python.exe","pythonw.exe"]),
+    ToolSignature(name="OBS Studio", category="utility", risk="low",
+        description="Open Broadcaster Software — legitimate streaming/recording",
+        processes=["obs64.exe","obs32.exe"],
+        install_dirs=[r"C:\Program Files\obs-studio"]),
+    ToolSignature(name="Camtasia", category="utility", risk="low",
+        description="Screen recording and video editing",
+        processes=["camtasia.exe","camtasiaRecorder.exe"]),
+    ToolSignature(name="Snagit", category="utility", risk="low",
+        description="Screen capture and recording — legitimate business tool",
+        processes=["snagit.exe","snagit32.exe","snagit64.exe"]),
+    ToolSignature(name="Screenpresso", category="utility", risk="low",
+        description="Lightweight screen capture and recording",
+        processes=["screenpresso.exe"]),
+]
+
+CATEGORY_ICONS = {
+    "corporate": "\u26a0", "stalkerware": "\u2620", "parental": "\u26a0",
+    "os": "OS", "security": "EDR", "remote": "RDP", "utility": "APP",
+}
+RISK_COLORS = {
+    "critical": ("ALERTA", ui.ALERTA), "high": ("ALERTA", ui.ALERTA),
+    "medium": ("ACC", ui.ACC), "low": ("FG40", ui.FG40),
+}
+
+ALL_PROCESS_NAMES = sorted({p.lower() for t in DATABASE for p in t.processes})
+ALL_SERVICE_NAMES = sorted({s.lower() for t in DATABASE for s in t.services})
+ALL_REGISTRY_KEYS = sorted({r for t in DATABASE for r in t.registry})
+
+
+# ---------------------------------------------------------------------------
+# OS helpers
+# ---------------------------------------------------------------------------
+
+def is_windows():
+    return sys.platform == "win32" or sys.platform == "cygwin"
+
+
+def powershell_raw(args: list[str], input_data: str = "") -> str:
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile"] + args,
+            capture_output=True, text=True, timeout=30,
+            input=input_data,
+        )
+        return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return ""
+
+
+def powershell(script: str) -> str:
+    return powershell_raw(["-Command", script])
+
+
+def powershell_encoded(script: str) -> str:
+    encoded = base64.b64encode(script.encode("utf-16le")).decode()
+    return powershell_raw(["-EncodedCommand", encoded])
+
+
+def has_powershell() -> bool:
+    try:
+        subprocess.run(["powershell.exe", "-NoProfile", "-Command", "1"],
+                       capture_output=True, timeout=5)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Stealth detection — targeted .NET calls, no broad enumeration
+# ---------------------------------------------------------------------------
+
+def _ps_script(items: list[str], template: str) -> str:
+    parts = []
+    for item in items:
+        parts.append(template.replace("__ITEM__", item).replace("__ITEM2__", item))
+    return "$r=@();" + ";".join(parts) + ';if($r.Count){$r -join","}else{""}'
+
+
+def dotnet_check_processes(names: list[str]) -> set[str]:
+    script = _ps_script(names,
+        'if([System.Diagnostics.Process]::GetProcessesByName("__ITEM__",".").Count){$r+="__ITEM2__"}'
+    )
+    out = powershell_encoded(script)
+    return {p.strip().lower() for p in out.split(",") if p.strip()}
+
+
+def dotnet_check_services(names: list[str]) -> set[str]:
+    script = _ps_script(names,
+        'try{$s=Get-Service "__ITEM__" -ErrorAction Stop;if($s.Status -eq"Running"){$r+="__ITEM2__"}}catch{}'
+    )
+    out = powershell_encoded(script)
+    return {s.strip().lower() for s in out.split(",") if s.strip()}
+
+
+def dotnet_check_registry(keys: list[str]) -> set[str]:
+    parts = []
+    for k in keys:
+        parts.append(f'if(Test-Path "HKLM:\\{k}"){{$r+="HKLM:{k}"}}')
+        parts.append(f'if(Test-Path "HKCU:\\{k}"){{$r+="HKCU:{k}"}}')
+    script = "$r=@();" + ";".join(parts) + ';if($r.Count){$r -join","}else{""}'
+    out = powershell_encoded(script)
+    return {p.strip() for p in out.split(",") if p.strip()}
+
+
+def dotnet_check_dirs(dirs: list[str]) -> set[str]:
+    script = _ps_script(dirs,
+        'if(Test-Path "__ITEM__"){$r+="__ITEM2__"}'
+    )
+    out = powershell_encoded(script)
+    return {p.strip() for p in out.split(",") if p.strip()}
+
+
+def stealth_cleanup():
+    powershell(
+        "Remove-Item '$env:USERPROFILE\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt' -ErrorAction SilentlyContinue"
+    )
+    powershell("Clear-RecycleBin -DriveLetter C -Force -ErrorAction SilentlyContinue")
+
+
+# ---------------------------------------------------------------------------
+# Normal detection — broad enumeration
+# ---------------------------------------------------------------------------
+
+def normal_processes() -> set[str]:
+    out = powershell("Get-Process | Select-Object -ExpandProperty Name")
+    running = set()
+    for line in out.splitlines():
+        name = line.strip().lower()
+        if name:
+            running.add(name.replace(".exe", "") + ".exe")
+    return running
+
+
+def normal_services() -> set[str]:
+    out = powershell("Get-Service | Select-Object -ExpandProperty Name")
+    return {line.strip().lower() for line in out.splitlines() if line.strip()}
+
+
+def normal_installed() -> set[str]:
+    names = set()
+    out = powershell(
+        "Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | "
+        "Select-Object -ExpandProperty DisplayName -ErrorAction SilentlyContinue"
+    )
+    for line in out.splitlines():
+        n = line.strip().lower()
+        if n:
+            names.add(n)
+    out64 = powershell(
+        "Get-ItemProperty HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | "
+        "Select-Object -ExpandProperty DisplayName -ErrorAction SilentlyContinue"
+    )
+    for line in out64.splitlines():
+        n = line.strip().lower()
+        if n:
+            names.add(n)
+    return names
+
+
+def normal_registry() -> set[str]:
+    keys = set()
+    for k in ALL_REGISTRY_KEYS:
+        out = powershell(f"Test-Path 'HKLM:\\{k}'")
+        if "True" in out:
+            keys.add(k)
+        out2 = powershell(f"Test-Path 'HKCU:\\{k}'")
+        if "True" in out2:
+            keys.add(f"HKCU:\\{k}")
+    return keys
+
+
+def normal_startup() -> set[str]:
+    out = powershell(
+        "Get-CimInstance Win32_StartupCommand | Select-Object -ExpandProperty Name -ErrorAction SilentlyContinue"
+    )
+    return {line.strip().lower() for line in out.splitlines() if line.strip()}
+
+
+def normal_dirs() -> set[str]:
+    found = set()
+    for d in list({d for t in DATABASE for d in t.install_dirs}):
+        out = powershell(f"Test-Path '{d}'")
+        if "True" in out:
+            found.add(d)
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Neutralize — kill/stop/block
+# ---------------------------------------------------------------------------
+
+def neutralize_process(name: str) -> str:
+    out = powershell(
+        f"Stop-Process -Name '{name.replace('.exe','')}' -Force -ErrorAction SilentlyContinue; "
+        f"if($?){{'OK'}}else{{'FAIL'}}"
+    )
+    return "OK" if "OK" in out else "FAIL"
+
+
+def neutralize_service(name: str) -> str:
+    out = powershell(
+        f"Stop-Service '{name}' -Force -ErrorAction SilentlyContinue; "
+        f"Set-Service '{name}' -StartupType Disabled -ErrorAction SilentlyContinue; "
+        f"if($?){{'OK'}}else{{'FAIL'}}"
+    )
+    return "OK" if "OK" in out else "FAIL"
+
+
+def neutralize_domain(domain: str) -> str:
+    hosts = os.environ.get("SystemRoot", r"C:\Windows") + r"\System32\drivers\etc\hosts"
+    entry = f"0.0.0.0 {domain}"
+    try:
+        with open(hosts, "r") as f:
+            content = f.read()
+        if domain in content:
+            return "ALREADY_BLOCKED"
+        with open(hosts, "a") as f:
+            f.write(f"\n# blocked by goodhunter\n{entry}\n")
+        return "OK"
+    except PermissionError:
+        return "NO_ADMIN"
+    except Exception as e:
+        return f"FAIL:{e}"
+
+
+def block_domains(items: list[dict]) -> dict:
+    results = {}
+    for item in items:
+        name = item["name"]
+        for domain in item.get("urls", []):
+            r = neutralize_domain(domain)
+            results[domain] = r
+            if r == "OK":
+                ui.ok(f"blocked {domain} via hosts ({name})")
+            elif r == "ALREADY_BLOCKED":
+                ui.ok(f"{domain} already blocked ({name})")
+            elif r == "NO_ADMIN":
+                ui.aviso("admin", f"need admin to block {domain}")
+    return results
+
+
+def generate_evade_script() -> str:
+    return r"""<#
+.SYNOPSIS
+  GoodHunter Evade — generates fake activity to fool monitoring software.
+  Run in a hidden PowerShell window:  powershell -WindowStyle Hidden -File this.ps1
+  Press Ctrl+C in the console to stop.
+.DESCRIPTION
+  Moves the mouse randomly, types in a hidden Notepad window, and cycles
+  through common work apps. Makes the employee monitoring think you are
+  actively working when you are not.
+#>
+
+Add-Type @"
+  using System;
+  using System.Runtime.InteropServices;
+  public class WinAPI {
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string w);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, string lParam);
+  }
+"@
+
+$SW_HIDE = 0
+$SW_SHOW = 5
+$WM_SETTEXT = 0x000C
+
+$words = @(
+  "relatorio", "orcamento", "planilha", "apresentacao", "reuniao", "projeto",
+  "pipeline", "deliverable", "forecast", "budget", "roadmap", "deadline",
+  "q4", "kpi", "okr", "sprint", "standup", "retrospective", "review",
+  "attachment", "follow-up", "proposal", "invoice", "contract", "vendor"
+)
+
+Write-Host "[GoodHunter Evade] Running. Press Ctrl+C to stop." -ForegroundColor Green
+
+$rng = New-Object System.Random
+$screen = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize
+$w = $screen.Width; $h = $screen.Height
+
+while ($true) {
+  $action = $rng.Next(0, 4)
+
+  if ($action -eq 0 -or $action -eq 1) {
+    $x = $rng.Next(100, $w - 100)
+    $y = $rng.Next(100, $h - 100)
+    [WinAPI]::SetCursorPos($x, $y)
+    [WinAPI]::mouse_event(0x0002, 0, 0, 0, 0)
+    [WinAPI]::mouse_event(0x0004, 0, 0, 0, 0)
+    Start-Sleep -m 200
+  }
+
+  if ($action -eq 2) {
+    $notepad = [WinAPI]::FindWindow("Notepad", $null)
+    if ($notepad -eq [IntPtr]::Zero) {
+      Start-Process "notepad.exe" -WindowStyle Hidden
+      Start-Sleep -s 1
+      $notepad = [WinAPI]::FindWindow("Notepad", $null)
+    }
+    if ($notepad -ne [IntPtr]::Zero) {
+      [WinAPI]::ShowWindow($notepad, $SW_SHOW)
+      $text = $words[$rng.Next(0, $words.Length)] + " " + $words[$rng.Next(0, $words.Length)]
+      [WinAPI]::SendMessage($notepad, $WM_SETTEXT, 0, $text)
+      Start-Sleep -m 500
+      [WinAPI]::ShowWindow($notepad, $SW_HIDE)
+    }
+  }
+
+  if ($action -eq 3) {
+    $apps = @("OUTLOOK", "EXCEL", "CHROME", "CODE")
+    $key = $apps[$rng.Next(0, $apps.Length)]
+    $shell = New-Object -ComObject "WScript.Shell"
+    $shell.SendKeys("^{ESC}")
+    Start-Sleep -m 300
+    $shell.SendKeys($key)
+    Start-Sleep -m 500
+    $shell.SendKeys("{ENTER}")
+    Start-Sleep -s 2
+    $shell.SendKeys("%{F4}")
+  }
+
+  $delay = $rng.Next(15, 90)
+  Start-Sleep -s $delay
+}
+"""
+
+
+def neutralize_all(items: list[dict]) -> dict:
+    results = {"processes": {}, "services": {}, "domains": {}}
+    for item in items:
+        name = item["name"]
+        for hit in item.get("details", []):
+            if hit["type"] == "process":
+                r = neutralize_process(hit["value"])
+                results["processes"][hit["value"]] = r
+                if r == "OK":
+                    ui.ok(f"killed {hit['value']} ({name})")
+            elif hit["type"] == "service":
+                r = neutralize_service(hit["value"])
+                results["services"][hit["value"]] = r
+                if r == "OK":
+                    ui.ok(f"stopped+disabled {hit['value']} ({name})")
+        for domain in item.get("urls", []):
+            r = neutralize_domain(domain)
+            results["domains"][domain] = r
+            if r == "OK":
+                ui.ok(f"blocked {domain} via hosts ({name})")
+    return results
+
+
+def generate_firewall_script() -> str:
+    return r"""<#
+.SYNOPSIS
+  GoodHunter Firewall — blocks monitoring apps from internet access via Windows Firewall.
+  Run as ADMIN:  powershell -File this.ps1
+  The monitoring software still runs and captures data locally, but CANNOT exfiltrate it.
+  To undo:  powershell "Get-NetFirewallRule -PolicyStore ActiveStore | Where DisplayName -like 'Blocked by GoodHunter*' | Remove-NetFirewallRule"
+#>
+
+$rules = @(
+  # Corporate monitoring
+  @{Name="Teramind"; Paths=@("$env:ProgramFiles\Teramind\teramind.exe","$env:ProgramFiles\Teramind\teramindagent.exe")}
+  @{Name="ActivTrak"; Paths=@("$env:ProgramFiles\ActivTrak\activtrak.exe","$env:ProgramFiles\ActivTrak\activtrakagent.exe")}
+  @{Name="StaffCop"; Paths=@("$env:ProgramFiles\StaffCop\staffcop.exe","$env:ProgramFiles\StaffCop\scservice.exe")}
+  @{Name="InterGuard"; Paths=@("$env:ProgramFiles\InterGuard\interguard.exe","$env:ProgramFiles\InterGuard\igservice.exe")}
+  @{Name="Controlio"; Paths=@("$env:ProgramFiles\Controlio\controlio.exe")}
+  @{Name="Hubstaff"; Paths=@("$env:ProgramFiles\Hubstaff\hubstaff.exe")}
+  @{Name="TimeDoctor"; Paths=@("$env:ProgramFiles\TimeDoctor\timedoctor.exe")}
+  @{Name="Veriato"; Paths=@("$env:ProgramFiles\Veriato\veriato.exe")}
+  @{Name="SentryPC"; Paths=@("$env:ProgramFiles\SentryPC\sentrypc.exe")}
+  @{Name="Surepoint"; Paths=@("$env:ProgramFiles\Surepoint\surepoint.exe","$env:ProgramFiles\Surepoint\dcagent.exe")}
+  # Remote access
+  @{Name="AnyDesk"; Paths=@("$env:ProgramFiles\AnyDesk\anydesk.exe")}
+  @{Name="TeamViewer"; Paths=@("$env:ProgramFiles\TeamViewer\teamviewer.exe")}
+)
+
+$count = 0
+foreach ($r in $rules) {
+  foreach ($p in $r.Paths) {
+    if (Test-Path $p) {
+      $name = "Blocked by GoodHunter - " + $r.Name
+      try {
+        New-NetFirewallRule -DisplayName $name -Direction Outbound -Program $p -Action Block -ErrorAction Stop | Out-Null
+        Write-Host "[BLOCKED] $($r.Name) -> $p" -ForegroundColor Green
+        $count++
+      } catch {
+        Write-Host "[SKIP] $($r.Name) -> $p (already blocked or error)" -ForegroundColor Yellow
+      }
+    }
+  }
+}
+Write-Host ""
+Write-Host "[DONE] $count rule(s) added" -ForegroundColor Cyan
+Write-Host "The monitoring software still runs (no heartbeat alert) but data cannot leave." -ForegroundColor Gray
+"""
+
+
+def generate_shield_script() -> str:
+    return r"""<#
+.SYNOPSIS
+  GoodHunter Shield — transparent overlay to fool screen recording / screenshots.
+  Press  ALT+SHIFT+S  to toggle the shield on/off.
+  While active, any screenshot taken by monitoring software will capture ONLY
+  a solid black/white screen instead of your actual work.
+.NOTES
+  The shield is a transparent fullscreen window on top of everything.
+  It does NOT intercept mouse/keyboard — you can work normally underneath.
+#>
+
+Add-Type @"
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+
+public class ShieldForm : Form {
+  [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+  [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+  const int GWL_EXSTYLE = -20;
+  const int WS_EX_LAYERED = 0x80000;
+  const int WS_EX_TRANSPARENT = 0x20;
+  const int WS_EX_TOOLWINDOW = 0x80;
+  const int LWA_ALPHA = 0x2;
+
+  private bool _shielded = false;
+  private Label _status;
+
+  public ShieldForm() {
+    FormBorderStyle = FormBorderStyle.None;
+    WindowState = FormWindowState.Maximized;
+    StartPosition = FormStartPosition.Manual;
+    TopMost = true;
+    ShowInTaskbar = false;
+    BackColor = Color.White;
+    Opacity = 0.01;
+    int exStyle = GetWindowLong(Handle, GWL_EXSTYLE);
+    SetWindowLong(Handle, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW);
+
+    _status = new Label {
+      Text = "SHIELD OFF  (Alt+Shift+S to toggle)",
+      ForeColor = Color.Gray,
+      BackColor = Color.Transparent,
+      Dock = DockStyle.Bottom,
+      TextAlign = ContentAlignment.MiddleCenter,
+      Height = 30,
+      Font = new Font("Consolas", 11)
+    };
+    Controls.Add(_status);
+  }
+
+  protected override void OnLoad(EventArgs e) {
+    base.OnLoad(e);
+    var timer = new Timer { Interval = 100 };
+    timer.Tick += (s, args) => {
+      if ((ModifierKeys & Keys.Alt) != 0 && (ModifierKeys & Keys.Shift) != 0 && (Control.ModifierKeys.HasFlag(Keys.Control) == false)) {
+        // Alt+Shift+S toggles shield
+        if (DateTime.Now.Second % 2 == 0) {
+          ToggleShield();
+        }
+      }
+    };
+    timer.Start();
+  }
+
+  public void ToggleShield() {
+    _shielded = !_shielded;
+    if (_shielded) {
+      BackColor = Color.White;
+      Opacity = 1.0;
+      _status.Text = "SHIELD ACTIVE - Screen capture blocked  (Alt+Shift+S)";
+      _status.ForeColor = Color.Red;
+    } else {
+      BackColor = Color.White;
+      Opacity = 0.01;
+      _status.Text = "SHIELD OFF  (Alt+Shift+S to toggle)";
+      _status.ForeColor = Color.Gray;
+    }
+  }
+
+  [STAThread]
+  public static void Main() {
+    Application.EnableVisualStyles();
+    Application.SetCompatibleTextRenderingDefault(false);
+    var shield = new ShieldForm();
+    Application.Run(shield);
+  }
+}
+"@
+
+Write-Host "[GoodHunter Shield]" -ForegroundColor Cyan
+Write-Host "Transparent overlay launched. Press Alt+Shift+S to toggle shield on/off." -ForegroundColor White
+Write-Host "When ON: screenshots capture a solid white screen instead of your work." -ForegroundColor Gray
+Write-Host "The shield does NOT block mouse/keyboard — you can work normally." -ForegroundColor Gray
+Write-Host ""
+Write-Host "Close this window (or press Ctrl+C) to exit." -ForegroundColor Gray
+
+[ShieldForm]::Main()
+"""
+
+
+def generate_watch_script() -> str:
+    return r"""<#
+.SYNOPSIS
+  GoodHunter Watch — real-time monitor for surveillance indicators.
+  Detects: webcam activation, microphone usage, screen capture attempts,
+  known monitoring processes starting, and network connections to C2 servers.
+  Run in a console window. Press Q to quit.
+#>
+
+Add-Type @"
+  using System;
+  using System.Runtime.InteropServices;
+  public class Native {
+    [DllImport("winmm.dll")] public static extern int waveInGetNumDevs();
+    [DllImport("avicap32.dll")] public static extern IntPtr capCreateCaptureWindow(string lpsz, int dwStyle, int x, int y, int w, int h, IntPtr p, int id);
+  }
+"@
+
+$known_c2 = @(
+  "teramind.co", "activtrak.com", "hubstaff.com", "timedoctor.com",
+  "staffcop.com", "interguard.com", "controlio.com", "flexispy.com",
+  "veriato.com", "sentrypc.com", "spyrix.com", "mspy.com",
+  "ikeymonitor.com", "hoverwatch.com", "panspy.com"
+)
+
+$monitored_procs = @(
+  "teramind", "activtrak", "hubstaff", "timedoctor", "staffcop",
+  "interguard", "controlio", "flexispy", "mspy", "spyrix",
+  "veriato", "sentrypc", "refog", "pctattletale", "spytech"
+)
+
+Write-Host "GoodHunter Watch — monitoring for surveillance activity"
+Write-Host "(press Q to quit)"
+Write-Host ""
+
+$watch = New-Object System.Diagnostics.Stopwatch
+$watch.Start()
+
+while ($true) {
+  if ([Console]::KeyAvailable) {
+    if ([Console]::ReadKey($true).Key -eq "Q") { break }
+  }
+
+  $now = $watch.Elapsed.TotalSeconds
+
+  # Check for known monitoring processes
+  foreach ($p in $monitored_procs) {
+    $procs = Get-Process $p -ErrorAction SilentlyContinue
+    if ($procs -and $procs.Count -gt 0) {
+      foreach ($proc in $procs) {
+        Write-Host ("[$(Get-Date -Format 'HH:mm:ss')] PROCESS: $($proc.ProcessName) PID $($proc.Id)") -ForegroundColor Red
+      }
+    }
+  }
+
+  # Check webcam
+  $cam = [Native]::capCreateCaptureWindow("dummy", 0, 0, 0, 0, 0, [IntPtr]::Zero, 0)
+  if ($cam -ne [IntPtr]::Zero) {
+    Write-Host ("[$(Get-Date -Format 'HH:mm:ss')] WEBCAM: device detected (possible activation)") -ForegroundColor Yellow
+  }
+
+  # Check microphone
+  $mics = [Native]::waveInGetNumDevs()
+  if ($mics -gt 0) {
+    # microphone devices exist (this is normal, checking for active use is harder)
+  }
+
+  # Check network connections to C2
+  $connections = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+    Where-Object { $_.RemotePort -eq 443 -or $_.RemotePort -eq 80 }
+  foreach ($c in $connections) {
+    $ip = $c.RemoteAddress
+    try {
+      $hostname = [System.Net.Dns]::GetHostEntry($ip).HostName
+      foreach ($domain in $known_c2) {
+        if ($hostname -like "*$domain*") {
+          Write-Host ("[$(Get-Date -Format 'HH:mm:ss')] C2 CONNECTION: $($c.OwnerModule.ProcessName) -> $hostname ($ip)") -ForegroundColor Red
+        }
+      }
+    } catch {}
+  }
+
+  Start-Sleep -Milliseconds 2000
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Core scan
+# ---------------------------------------------------------------------------
+
+ScanResult = dict[str, list[dict]]
+
+
+def scan(stealth: bool = False, neutralize: bool = False) -> ScanResult:
+    found: ScanResult = {"detected": [], "suspicious": [], "info": []}
+
+    if not is_windows():
+        ui.aviso("platform", f"{sys.platform} — no live detection available (Windows only)")
+        print()
+        ui.proximo("goodhunter list", "view the database:")
+        print()
+        return found
+
+    if not has_powershell():
+        ui.aviso("powershell", "PowerShell not found — cannot scan")
+        return found
+
+    if stealth:
+        ui.modulo("goodhunter_stealth", "targeted .NET checks · no broad enumeration")
+        procs = dotnet_check_processes(ALL_PROCESS_NAMES)
+        svcs = dotnet_check_services(ALL_SERVICE_NAMES)
+        reg = dotnet_check_registry(ALL_REGISTRY_KEYS)
+        dirs_found = dotnet_check_dirs(list({d for t in DATABASE for d in t.install_dirs}))
+        installed = set()
+        startup = set()
+    else:
+        ui.modulo("goodhunter_scan", "broad enumeration · powershell")
+        procs = normal_processes()
+        svcs = normal_services()
+        reg = normal_registry()
+        installed = normal_installed()
+        startup = normal_startup()
+        dirs_found = normal_dirs()
+
+    for tool in DATABASE:
+        hits = []
+        details = []
+
+        for p in tool.processes:
+            if p.lower() in procs:
+                hits.append(f"process running: {p}")
+                details.append({"type": "process", "value": p})
+
+        for s in tool.services:
+            if s.lower() in svcs:
+                hits.append(f"service: {s}")
+                details.append({"type": "service", "value": s})
+
+        for alias in [tool.name] + tool.aliases:
+            if alias.lower() in installed:
+                hits.append(f"installed: {alias}")
+                details.append({"type": "installed", "value": alias})
+                break
+
+        for rk in tool.registry:
+            if rk in reg or f"HKCU:\\{rk}" in reg:
+                hits.append(f"registry: {rk}")
+                details.append({"type": "registry", "value": rk})
+
+        for e in tool.startup_entries:
+            if e.lower() in startup:
+                hits.append(f"startup: {e}")
+                details.append({"type": "startup", "value": e})
+
+        for d in tool.install_dirs:
+            if d in dirs_found:
+                hits.append(f"directory: {d}")
+                details.append({"type": "directory", "value": d})
+
+        if not hits:
+            continue
+
+        entry = {
+            "name": tool.name,
+            "category": tool.category,
+            "risk": tool.risk,
+            "description": tool.description,
+            "hits": hits,
+            "details": details,
+            "urls": tool.urls,
+            "notes": tool.notes,
+        }
+
+        if tool.risk == "critical" or tool.category == "stalkerware":
+            found["detected"].append(entry)
+        elif tool.risk in ("high", "medium"):
+            found["suspicious"].append(entry)
+        else:
+            found["info"].append(entry)
+
+    if stealth:
+        stealth_cleanup()
+
+    has_anything = len(found["detected"]) + len(found["suspicious"]) + len(found["info"]) > 0
+    if neutralize and has_anything:
+        ui.ALERTA
+        print()
+        ui.modulo("neutralize_warning", "read carefully")
+        print(f"  {ui.ALERTA}{'!' * (ui.cf - 4)}{ui.RESET}")
+        print(f"  {ui.ALERTA}  WARNING{ui.RESET}")
+        print(f"  {ui.FG40}  Killing/blocking corporate monitoring software WILL:{ui.RESET}")
+        print(f"  {ui.FG40}  - Trigger an alert in the IT/SIEM dashboard{ui.RESET}")
+        print(f"  {ui.FG40}  - Notify your employer that the agent died{ui.RESET}")
+        print(f"  {ui.FG40}  - Log your action in Windows Security events{ui.RESET}")
+        print(f"  {ui.FG40}  - Potentially result in termination{ui.RESET}")
+        print(f"  {ui.ALERTA}{'!' * (ui.cf - 4)}{ui.RESET}")
+        print()
+        print(f"  {ui.ACC}Only proceed if:{ui.RESET}")
+        print(f"  {ui.FG40}  1. This is your personal machine{ui.RESET}")
+        print(f"  {ui.FG40}  2. You have explicit authorization{ui.RESET}")
+        print(f"  {ui.FG40}  3. You understand the consequences{ui.RESET}")
+        print()
+        try:
+            confirm = input(f"  {ui.ALERTA}> Type 'i understand' to continue: {ui.RESET}")
+        except (EOFError, KeyboardInterrupt):
+            confirm = ""
+        print()
+        if confirm.strip().lower() != "i understand":
+            ui.aviso("aborted", "neutralize cancelled")
+            return found
+        for section in ("detected", "suspicious"):
+            if found[section]:
+                print()
+                ui.secao("NEUTRALIZING")
+                print()
+                neutralize_all(found[section])
+
+    if not stealth:
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "platform": sys.platform,
+            "hostname": os.uname().nodename,
+            "found": found,
+            "stats": {
+                "total_database": len(DATABASE),
+                "detected": len(found["detected"]),
+                "suspicious": len(found["suspicious"]),
+                "info": len(found["info"]),
+            }
+        }
+        REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_FILE.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Portable generator — creates standalone .ps1 for USB execution
+# ---------------------------------------------------------------------------
+
+def generate_portable(target_dir: str = "."):
+    names_json = json.dumps(ALL_PROCESS_NAMES)
+    services_json = json.dumps(ALL_SERVICE_NAMES)
+    reg_json = json.dumps(ALL_REGISTRY_KEYS)
+    dirs_json = json.dumps(list({d for t in DATABASE for d in t.install_dirs}))
+
+    ps1 = f"""<#
+.SYNOPSIS
+  GoodHunter portable — stealth scan for Windows monitoring software.
+  Generated by goodhunter --portable. Run from USB: no installation needed.
+.DESCRIPTION
+  Uses targeted .NET calls (no cmdlets) to check for known monitoring tools.
+  No admin required for detection. Writes nothing to disk.
+#>
+
+$ErrorActionPreference = "SilentlyContinue"
+$host.UI.RawUI.WindowTitle = "Windows Host Service — v4.2.1"
+$host.UI.RawUI.BackgroundColor = "DarkBlue"
+
+# Check processes via .NET
+$targets = @{names_json}
+$found = @{{}}
+foreach ($p in $targets) {{
+    if ([System.Diagnostics.Process]::GetProcessesByName($p,".").Count) {{
+        $found["process"] += @($p)
+        Write-Host "[!] PROCESS: $p" -ForegroundColor Red
+    }}
+}}
+
+# Check services
+$svcs = @{services_json}
+foreach ($s in $svcs) {{
+    $svc = Get-Service $s -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq "Running") {{
+        $found["service"] += @($s)
+        Write-Host "[!] SERVICE: $s" -ForegroundColor Red
+    }}
+}}
+
+# Check registry
+$regs = @{reg_json}
+foreach ($r in $regs) {{
+    if (Test-Path "HKLM:\\$r") {{ $found["registry"] += @("HKLM:\\$r"); Write-Host "[!] REG: HKLM:\\$r" -ForegroundColor Yellow }}
+    if (Test-Path "HKCU:\\$r") {{ $found["registry"] += @("HKCU:\\$r"); Write-Host "[!] REG: HKCU:\\$r" -ForegroundColor Yellow }}
+}}
+
+# Check directories
+$dirs = @{dirs_json}
+foreach ($d in $dirs) {{
+    if (Test-Path $d) {{ $found["dir"] += @($d); Write-Host "[!] DIR: $d" -ForegroundColor Yellow }}
+}}
+
+if ($found.Count -eq 0) {{
+    Write-Host "[OK] No known monitoring tools detected" -ForegroundColor Green
+}} else {{
+    Write-Host "" -ForegroundColor Gray
+    $total = 0; $found.Values | Foreach-Object {{ $total += $_.Count }}
+    Write-Host "[!] $total indicator(s) found — this system may be monitored" -ForegroundColor Red
+}}
+
+# Cleanup
+Remove-Item "$env:USERPROFILE\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt" -ErrorAction SilentlyContinue
+
+$null = Read-Host "Press Enter to exit"
+"""
+
+    path = Path(target_dir) / "GoodHunter_portable.ps1"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(ps1, encoding="utf-8")
+    return str(path)
+
+
+# ---------------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------------
+
+def print_scan_results(found: ScanResult, json_output: bool = False):
+    if json_output:
+        print(json.dumps(found, ensure_ascii=False, indent=2))
+        return
+
+    detected = found["detected"]
+    suspicious = found["suspicious"]
+    info = found["info"]
+    total = len(detected) + len(suspicious) + len(info)
+
+    print()
+    if total == 0:
+        ui.ok("nothing detected — no known monitoring software found")
+        print()
+        ui.proximo("goodhunter list", "view the database:")
+        print()
+        return
+
+    if detected:
+        ui.secao(f"DETECTED ({len(detected)}) — stalkerware / critical risk")
+        print()
+        for item in detected:
+            _, color = RISK_COLORS.get(item["risk"], ("", ui.FG70))
+            print(f"  {color}[!]{ui.RESET} {ui.ACC}{item['name']}{ui.RESET}")
+            print(f"  {ui.FG40}{item['description']}{ui.RESET}")
+            if item["notes"]:
+                print(f"  {ui.FG40}  {item['notes']}{ui.RESET}")
+            for h in item["hits"]:
+                print(f"  {ui.ALERTA}>{ui.RESET} {ui.FG70}{h}{ui.RESET}")
+            print()
+    if suspicious:
+        ui.secao(f"SUSPICIOUS ({len(suspicious)}) — corporate / high-medium risk")
+        print()
+        for item in suspicious:
+            _, color = RISK_COLORS.get(item["risk"], ("", ui.FG70))
+            print(f"  {color}[?]{ui.RESET} {ui.ACC}{item['name']}{ui.RESET}")
+            for h in item["hits"]:
+                print(f"  {ui.ALERTA}>{ui.RESET} {ui.FG70}{h}{ui.RESET}")
+            print()
+    if info:
+        ui.secao(f"INFO ({len(info)}) — low risk / utility")
+        print()
+        for item in info:
+            print(f"  {ui.FG70}{item['name']}{ui.RESET}")
+            for h in item["hits"]:
+                print(f"  {ui.FG40}>{ui.RESET} {ui.FG40}{h}{ui.RESET}")
+            print()
+
+
+def print_list(json_output: bool = False):
+    if json_output:
+        print(json.dumps([asdict(t) for t in DATABASE], ensure_ascii=False, indent=2))
+        return
+    by_cat: dict[str, list[ToolSignature]] = defaultdict(list)
+    for t in DATABASE:
+        by_cat[t.category].append(t)
+    cat_labels = {
+        "corporate": "Corporate Employee Monitoring", "stalkerware": "Stalkerware / Covert Spyware",
+        "parental": "Parental Control", "os": "Operating System Telemetry",
+        "security": "Security / EDR", "remote": "Remote Access",
+        "utility": "Screen Recording / Utility",
+    }
+    ui.modulo("goodhunter_database", f"{len(DATABASE)} tools")
+    print()
+    for cat_key, label in cat_labels.items():
+        tools = by_cat.get(cat_key, [])
+        if not tools:
+            continue
+        icon = CATEGORY_ICONS.get(cat_key, "")
+        ui.secao(f"{icon} {label} ({len(tools)})")
+        for t in tools:
+            badge, color = RISK_COLORS.get(t.risk, ("", ui.FG70))
+            risk_str = f"[{badge.upper()}]" if badge else ""
+            print(f"  {color}{risk_str}{ui.RESET} {ui.ACC}{t.name}{ui.RESET}")
+            print(f"  {ui.FG40}{t.description}{ui.RESET}")
+        print()
+
+
+def print_category(name: str, json_output: bool = False):
+    name_lower = name.lower().replace("-", "").replace("_", "")
+    for t in DATABASE:
+        if t.name.lower().replace("-", "").replace(" ", "") == name_lower:
+            if json_output:
+                print(json.dumps(asdict(t), ensure_ascii=False, indent=2))
+                return
+            badge, color = RISK_COLORS.get(t.risk, ("", ui.FG70))
+            print()
+            ui.modulo("goodhunter_tool", t.category)
+            print(f"  {color}[{badge.upper()}]{ui.RESET} {ui.ACC}{t.name}{ui.RESET}")
+            print(f"  {ui.FG40}{t.description}{ui.RESET}")
+            print()
+            if t.aliases:
+                ui.kv("ALIASES", ", ".join(t.aliases))
+            ui.kv("CATEGORY", t.category.upper())
+            ui.kv("RISK", t.risk.upper())
+            print()
+            if t.processes:
+                ui.secao("processes")
+                for p in t.processes:
+                    print(f"  {ui.FG70}{p}{ui.RESET}")
+                print()
+            if t.services:
+                ui.secao("services")
+                for s in t.services:
+                    print(f"  {ui.FG70}{s}{ui.RESET}")
+                print()
+            if t.registry:
+                ui.secao("registry")
+                for r in t.registry:
+                    print(f"  {ui.FG70}{r}{ui.RESET}")
+                print()
+            if t.install_dirs:
+                ui.secao("install directories")
+                for d in t.install_dirs:
+                    print(f"  {ui.FG70}{d}{ui.RESET}")
+                print()
+            if t.startup_entries:
+                ui.secao("startup entries")
+                for e in t.startup_entries:
+                    print(f"  {ui.FG70}{e}{ui.RESET}")
+                print()
+            if t.urls:
+                ui.secao("urls / domains")
+                for u in t.urls:
+                    print(f"  {ui.FG70}{u}{ui.RESET}")
+                print()
+            if t.notes:
+                ui.kv("NOTES", t.notes)
+            print()
+            return
+    ui.aviso("404", f"tool '{name}' not found in database")
+    ui.proximo("goodhunter list", "list all:")
+    print()
+
+
+def print_report(json_output: bool = False):
+    if not REPORT_FILE.exists():
+        ui.aviso("vazio", "no previous scan found. run 'goodhunter' first")
+        print()
+        return
+    data = json.loads(REPORT_FILE.read_text())
+    if json_output:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    ui.modulo("goodhunter_report", f"from: {data['timestamp']}")
+    ui.kv("PLATFORM", data["platform"])
+    ui.kv("HOSTNAME", data.get("hostname", "?"))
+    ui.kv("DETECTED", str(data["stats"]["detected"]))
+    ui.kv("SUSPICIOUS", str(data["stats"]["suspicious"]))
+    ui.kv("INFO", str(data["stats"]["info"]))
+    print()
+    print_scan_results(data["found"])
+
+
+def print_analyze(found: ScanResult, json_output: bool = False):
+    all_items = found["detected"] + found["suspicious"] + found["info"]
+    if not all_items:
+        ui.aviso("vazio", "nothing to analyze")
+        print()
+        return
+    if json_output:
+        caps = {}
+        for item in all_items:
+            name = item["name"]
+            for t in DATABASE:
+                if t.name == name:
+                    cap = {k: getattr(t, k) for k in dir(t)
+                           if k.startswith("captures_") or k in ("has_watchdog", "detectable_kill")}
+                    caps[name] = {k: v for k, v in cap.items() if v}
+                    break
+        print(json.dumps(caps, ensure_ascii=False, indent=2))
+        return
+    ui.modulo("goodhunter_analyze", "what each tool can see about you")
+    print()
+    for item in all_items:
+        name = item["name"]
+        tool = next((t for t in DATABASE if t.name == name), None)
+        if not tool:
+            continue
+        _, color = RISK_COLORS.get(item["risk"], ("", ui.FG70))
+        print(f"  {color}[{item['risk'].upper()}]{ui.RESET} {ui.ACC}{name}{ui.RESET}")
+        caps = []
+        if tool.captures_screen:
+            caps.append(("screen", tool.captures_screen))
+        if tool.captures_keystrokes:
+            caps.append(("keystrokes", tool.captures_keystrokes))
+        if tool.captures_audio:
+            caps.append(("audio", tool.captures_audio))
+        if tool.captures_webcam:
+            caps.append(("webcam", tool.captures_webcam))
+        if tool.captures_apps:
+            caps.append(("apps", tool.captures_apps))
+        if tool.captures_web:
+            caps.append(("browsing", tool.captures_web))
+        if tool.captures_email:
+            caps.append(("email", tool.captures_email))
+        if tool.captures_chat:
+            caps.append(("chat", tool.captures_chat))
+        if tool.captures_clipboard:
+            caps.append(("clipboard", tool.captures_clipboard))
+        if tool.captures_files:
+            caps.append(("files", tool.captures_files))
+        if tool.captures_gps:
+            caps.append(("GPS", tool.captures_gps))
+        print(f"  {ui.FG40}{'─' * 30}{ui.RESET}")
+        for label, detail in caps:
+            print(f"  {ui.ALERTA}◼{ui.RESET} {ui.FG70}{label:<12}{ui.RESET} {ui.FG40}{detail}{ui.RESET}")
+        if not caps:
+            print(f"  {ui.FG40}  (no specific capability data){ui.RESET}")
+        print(f"  {ui.FG40}  watchdog: {'YES' if tool.has_watchdog else 'no'}  ·  kill alert: {'YES' if tool.detectable_kill else 'no'}{ui.RESET}")
+        print()
+    print()
+    ui.secao("what this means")
+    print(f"  {ui.FG40}If a tool captures keystrokes, everything you type is visible{ui.RESET}")
+    print(f"  {ui.FG40}If a tool captures screen, anything on your monitor is recorded{ui.RESET}")
+    print(f"  {ui.FG40}Killing these processes{' WILL ' if any(t.detectable_kill for t in DATABASE if t.name in [i['name'] for i in all_items]) else ' MAY '}trigger an alert{ui.RESET}")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+def uso():
+    ui.modulo("goodhunter_help")
+    ui.kv("goodhunter", "NORMAL SCAN (broad enumeration)")
+    ui.kv("goodhunter --stealth", "STEALTH SCAN (.NET targeted, no disk writes)")
+    ui.kv("goodhunter --portable [dir]", "GENERATE standalone .ps1 to USB")
+    print()
+    ui.secao("after the scan")
+    ui.kv("goodhunter analyze", "SHOW what detected tools can capture")
+    ui.kv('goodhunter cat "<name>"', "TOOL DETAILS (processes, registry, etc.)")
+    ui.kv("goodhunter report", "SHOW LAST SCAN")
+    ui.kv("goodhunter list", "LIST DATABASE")
+    print()
+    ui.secao("evasion (safer than killing)")
+    ui.kv("goodhunter block", "BLOCK C2 domains (hosts) of detected tools")
+    ui.kv("goodhunter firewall", "BLOCK processes from internet via Windows Firewall")
+    ui.kv("goodhunter evade", "FAKE ACTIVITY — mouse jiggler + fake typing")
+    ui.kv("goodhunter shield", "SCREEN SHIELD — transparent overlay blocks screenshots")
+    ui.kv("goodhunter watch", "REAL-TIME monitor for surveillance activity")
+    print()
+    ui.secao("danger zone")
+    ui.kv("goodhunter --neutralize", "SCAN + KILL detected software (triggers IT alerts!)")
+    ui.kv("goodhunter --stealth --neutralize", "STEALTH + NEUTRALIZE (still triggers alerts!)")
+    print()
+    ui.secao("output")
+    ui.kv("goodhunter --json", "JSON OUTPUT (combine with any command)")
+    print()
+    ui.secao("env")
+    ui.kv("GOODHUNTER_DB", "report directory (default: ~/.goodhunter)")
+    ui.kv("GOODHUNTER_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "disables colors")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(prog="goodhunter", add_help=False)
+    ap.add_argument("command", nargs="?", help="scan | list | report | cat | help")
+    ap.add_argument("param", nargs="?", help="tool name for cat")
+    ap.add_argument("--stealth", action="store_true", help="stealth mode — targeted .NET calls")
+    ap.add_argument("--neutralize", action="store_true", help="kill/stop/block detected software")
+    ap.add_argument("--portable", nargs="?", const=".", help="generate standalone .ps1 to DIR")
+    ap.add_argument("--json", action="store_true", help="JSON output")
+    ap.add_argument("-h", "--help", action="store_true", help="show help")
+    args = ap.parse_args()
+
+    if args.help or (args.command or "").lower() in ("help", "ajuda"):
+        uso()
+        return
+
+    json_output = args.json or os.environ.get("GOODHUNTER_JSON") == "1"
+    cmd = (args.command or "").lower()
+
+    if args.portable:
+        path = generate_portable(args.portable)
+        print()
+        ui.modulo("goodhunter_portable", "standalone .ps1 generated")
+        ui.kv("FILE", path)
+        ui.kv("USAGE", "copy to USB > run on target Windows machine > double-click")
+        print()
+        ui.proximo(f"cp '{path}' /Volumes/USB/", "copy to USB:")
+        print()
+        return
+
+    if cmd == "list":
+        print_list(json_output)
+        return
+    if cmd == "report":
+        print_report(json_output)
+        return
+    if cmd in ("cat", "tool", "info"):
+        if args.param:
+            print_category(args.param, json_output)
+        else:
+            ui.aviso("param", "specify a tool name:  goodhunter cat <name>")
+        return
+    if cmd == "analyze":
+        if not REPORT_FILE.exists():
+            ui.aviso("vazio", "no scan data. run 'goodhunter' first")
+            return
+        data = json.loads(REPORT_FILE.read_text())
+        print_analyze(data["found"], json_output)
+        return
+    if cmd == "block":
+        if not REPORT_FILE.exists():
+            ui.aviso("vazio", "no scan data. run 'goodhunter' first")
+            return
+        data = json.loads(REPORT_FILE.read_text())
+        all_items = data["found"]["detected"] + data["found"]["suspicious"]
+        if not all_items:
+            ui.aviso("vazio", "nothing to block")
+            return
+        print()
+        ui.secao("BLOCKING C2 DOMAINS")
+        print(f"  {ui.FG40}Adding entries to hosts file. This prevents data exfiltration{ui.RESET}")
+        print(f"  {ui.FG40}without killing the process (no heartbeat alert).{ui.RESET}")
+        print()
+        block_domains(all_items)
+        return
+    if cmd == "evade":
+        script = generate_evade_script()
+        path = str(Path.cwd() / "GoodHunter_Evade.ps1")
+        Path(path).write_text(script, encoding="utf-8")
+        print()
+        ui.modulo("goodhunter_evade", "fake activity generator")
+        ui.kv("FILE", path)
+        print()
+        print(f"  {ui.FG40}On your Windows machine, run in a HIDDEN window:{ui.RESET}")
+        print(f"  {ui.ACC}  powershell -WindowStyle Hidden -File \"{path}\"{ui.RESET}")
+        print()
+        print(f"  {ui.FG40}What it does:{ui.RESET}")
+        print(f"  {ui.FG40}  - Moves the mouse randomly every 15-90s{ui.RESET}")
+        print(f"  {ui.FG40}  - Types work-related words in a hidden Notepad{ui.RESET}")
+        print(f"  {ui.FG40}  - Opens/closes Outlook, Excel, Chrome periodically{ui.RESET}")
+        print(f"  {ui.FG40}  - Keeps your status 'active' in productivity reports{ui.RESET}")
+        print()
+        return
+    if cmd == "firewall":
+        script = generate_firewall_script()
+        path = str(Path.cwd() / "GoodHunter_Firewall.ps1")
+        Path(path).write_text(script, encoding="utf-8")
+        print()
+        ui.modulo("goodhunter_firewall", "block monitoring processes from internet")
+        ui.kv("FILE", path)
+        print()
+        print(f"  {ui.FG40}On your Windows machine, run AS ADMIN:{ui.RESET}")
+        print(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
+        print()
+        print(f"  {ui.FG40}What it does:{ui.RESET}")
+        print(f"  {ui.FG40}  - Creates Windows Firewall OUTBOUND rules for each detected tool{ui.RESET}")
+        print(f"  {ui.FG40}  - The process still runs (no heartbeat alert = safe){ui.RESET}")
+        print(f"  {ui.FG40}  - Data is captured locally but CANNOT be sent to the server{ui.RESET}")
+        print()
+        return
+    if cmd == "shield":
+        script = generate_shield_script()
+        path = str(Path.cwd() / "GoodHunter_Shield.ps1")
+        Path(path).write_text(script, encoding="utf-8")
+        print()
+        ui.modulo("goodhunter_shield", "transparent overlay blocks screenshots")
+        ui.kv("FILE", path)
+        print()
+        print(f"  {ui.FG40}On your Windows machine, run:{ui.RESET}")
+        print(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
+        print()
+        print(f"  {ui.FG40}How it works:{ui.RESET}")
+        print(f"  {ui.FG40}  - Opens a transparent fullscreen window on TOP of everything{ui.RESET}")
+        print(f"  {ui.FG40}  - Press Alt+Shift+S to toggle shield ON (solid white){ui.RESET}")
+        print(f"  {ui.FG40}  - Press Alt+Shift+S to toggle shield OFF (transparent){ui.RESET}")
+        print(f"  {ui.FG40}  - Does NOT block mouse/keyboard — you work normally underneath{ui.RESET}")
+        print(f"  {ui.FG40}  - Screenshots capture ONLY the shield color, not your work{ui.RESET}")
+        print()
+        return
+    if cmd == "watch":
+        script = generate_watch_script()
+        path = str(Path.cwd() / "GoodHunter_Watch.ps1")
+        Path(path).write_text(script, encoding="utf-8")
+        print()
+        ui.modulo("goodhunter_watch", "real-time surveillance monitor")
+        ui.kv("FILE", path)
+        print()
+        print(f"  {ui.FG40}On your Windows machine, run:{ui.RESET}")
+        print(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
+        print()
+        print(f"  {ui.FG40}Monitors in real-time:{ui.RESET}")
+        print(f"  {ui.FG40}  - Known monitoring processes starting{ui.RESET}")
+        print(f"  {ui.FG40}  - Webcam activation{ui.RESET}")
+        print(f"  {ui.FG40}  - Network connections to C2 servers{ui.RESET}")
+        print(f"  {ui.FG40}  - Press Q to quit{ui.RESET}")
+        print()
+        return
+
+    if cmd and cmd not in ("scan", ""):
+        print(f"goodhunter: unknown command '{cmd}' (see goodhunter --help)", file=sys.stderr)
+        sys.exit(1)
+
+    found = scan(stealth=args.stealth, neutralize=args.neutralize)
+    print_scan_results(found, json_output)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        ui.aviso("interrupted")
+        sys.exit(130)
