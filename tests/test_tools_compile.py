@@ -23,6 +23,7 @@ PY_TOOLS = [
     "goodprof/goodprof",
     "goodbio/goodbio",
     "goodzap/goodzap",
+    "goodhunter/goodhunter",
     "images/goodpixel/goodpixel",
     "images/goodprofile/goodprofile",
 ]
