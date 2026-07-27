@@ -13,7 +13,7 @@
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill dark dark-skill images/goodpixel goodnerd)
+NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel goodnerd)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -23,6 +23,8 @@ DESCS=(
   "retrô de conversa exportada do WhatsApp (IA)"
   "copiloto do canal de Helldivers 2 no terminal (OpenRouter)"
   "skill /goodivers no Claude Code: gera com o Claude, sem chave"
+  "radar de vagas + aderência, carta, CV e prep (OpenRouter)"
+  "skill /goodjob no Claude Code: gera com o Claude, sem chave"
   "copiloto do Instagram @darkning.art, horror art (OpenRouter)"
   "skill /dark no Claude Code: gera com o Claude, sem chave"
   "imagem (png/jpg/svg/…) -> pixel art, paletas clássicas"
@@ -31,12 +33,14 @@ DESCS=(
 
 RCS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile")
 SKILL_GOODIVERS="$HOME/.claude/skills/goodivers"
+SKILL_GOODJOB="$HOME/.claude/skills/goodjob"
 SKILL_DARK="$HOME/.claude/skills/dark"
 
 instalada() {
   # skills: symlink no macOS/Linux; no Windows (Git Bash) pode ser cópia da pasta
   case "$1" in
     goodivers-skill) [ -L "$SKILL_GOODIVERS" ] || [ -d "$SKILL_GOODIVERS" ] ;;
+    goodjob-skill) [ -L "$SKILL_GOODJOB" ] || [ -d "$SKILL_GOODJOB" ] ;;
     dark-skill) [ -L "$SKILL_DARK" ] || [ -d "$SKILL_DARK" ] ;;
     *) grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null ;;
   esac
@@ -278,6 +282,7 @@ if [ "$MODO" = install ]; then
     printf '  %s>%s %s%s%s\n' "$ACC30" "$RESET" "$ACC$BOLD" "$(retro_upper "$t")" "$RESET"
     case "$t" in
       goodivers-skill) bash "$ROOT/goodivers/setup.sh" --skill ;;
+      goodjob-skill)   bash "$ROOT/goodjob/setup.sh" --skill ;;
       dark-skill)      bash "$ROOT/dark/setup.sh" --skill ;;
       *)               bash "$ROOT/$t/setup.sh" ;;
     esac
@@ -293,9 +298,10 @@ else
     [ -f "$rc" ] && cp "$rc" "$rc.tools-backup"
   done
   for t in "${MARCADAS[@]}"; do
-    if [ "$t" = goodivers-skill ] || [ "$t" = dark-skill ]; then
+    if [ "$t" = goodivers-skill ] || [ "$t" = goodjob-skill ] || [ "$t" = dark-skill ]; then
       # remove só se for symlink apontando pra este repo
       if [ "$t" = goodivers-skill ]; then LINKS="$SKILL_GOODIVERS"; ORIGEM="$ROOT/goodivers"; NOME_SKILL=goodivers
+      elif [ "$t" = goodjob-skill ]; then LINKS="$SKILL_GOODJOB"; ORIGEM="$ROOT/goodjob"; NOME_SKILL=goodjob
       else LINKS="$SKILL_DARK"; ORIGEM="$ROOT/dark"; NOME_SKILL=dark; fi
       if [ -L "$LINKS" ]; then
         case "$(readlink "$LINKS")" in
