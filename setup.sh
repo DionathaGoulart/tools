@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/rcblock.sh
 . "$ROOT/lib/rcblock.sh"
 
-NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel images/goodprofile goodnerd)
+NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel images/goodprofile goodnerd goodhunter)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -36,6 +36,7 @@ DESCS=(
   "imagem (png/jpg/svg/…) -> pixel art, paletas clássicas"
   "imagem -> tamanhos prontos de perfil/rede social (avatar, capa, favicon)"
   "teatro de hacker fake no terminal, pra impressionar leigos"
+  "detecta software de monitoramento no Windows (200+ assinaturas)"
 )
 
 RCS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile")
