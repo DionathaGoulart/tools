@@ -377,7 +377,7 @@ def main():
     ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.help:
+    if args.help or (args.topico or "").lower() in ("help", "ajuda"):
         uso()
     elif args.modelos:
         listar_modelos_free()

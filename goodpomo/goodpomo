@@ -440,7 +440,7 @@ uso() {
 # ---------- main ----------
 MODO=foco
 case "${1:-}" in
-  -h|--help)   uso; exit 0 ;;
+  -h|--help|help|ajuda) uso; exit 0 ;;
   -l|--log)    cmd_log; exit 0 ;;
   temas|tema)  cmd_temas; exit 0 ;;
   pausa|p)     MODO=pausa; shift ;;

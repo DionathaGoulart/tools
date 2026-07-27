@@ -614,6 +614,9 @@ def main():
     if args.arquivo == "temas" and not os.path.isfile("temas"):
         ui.catalogo_temas()
         return
+    if args.arquivo == "help" and not os.path.isfile("help"):
+        ap.print_help()
+        return
     if args.modelos:
         listar_modelos_free()
         return

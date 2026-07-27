@@ -73,7 +73,7 @@ uso() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -h|--help) uso; exit 0 ;;
+    -h|--help|help|ajuda) uso; exit 0 ;;
     temas|tema) retro_catalogo_temas GOOD_TEMA; exit 0 ;;
     --refresh) rm -f "$CACHE_FILE" ;;
     -c|--color)

@@ -443,7 +443,7 @@ def main():
         add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="dia",
-                    choices=["dia", "capitulo", "perguntas", "temas"],
+                    choices=["dia", "capitulo", "perguntas", "temas", "help"],
                     help="dia (padrão): pergunta do dia · capitulo: gera biografia · "
                          "perguntas: reabastece a fila · temas: lista as paletas")
     ap.add_argument("-f", "--followup", action="store_true",
@@ -455,7 +455,7 @@ def main():
     ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.help:
+    if args.help or args.comando == "help":
         uso()
     elif args.modelos:
         listar_modelos_free()

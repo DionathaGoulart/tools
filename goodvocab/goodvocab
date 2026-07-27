@@ -438,7 +438,7 @@ def main():
         add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="dia",
-                    choices=["dia", "palavras", "temas"],
+                    choices=["dia", "palavras", "temas", "help"],
                     help="dia (padrão): revisão + palavra nova · palavras: reabastece a fila "
                          "· temas: lista as paletas do terminal (GOODVOCAB_PALETA / RETRO_TEMA)")
     ap.add_argument("-q", "--quiz", action="store_true",
@@ -452,7 +452,7 @@ def main():
     ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.help:
+    if args.help or args.comando == "help":
         uso()
     elif args.comando == "temas":
         ui.catalogo_temas()

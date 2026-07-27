@@ -878,7 +878,7 @@ def main():
     )
     ap.add_argument("comando", nargs="?", default="radar",
                     choices=["radar", "buscar", "vagas", "perfil", "match", "carta",
-                             "cv", "prep", "tracker", "temas"],
+                             "cv", "prep", "tracker", "temas", "help"],
                     help="radar (padrão): vagas do seu perfil · buscar: busca avulsa · "
                          "vagas: reexibe o radar · perfil: seu perfil · match/carta/cv/"
                          "prep <N>: geração sobre a vaga N · tracker: funil · temas: paletas")
@@ -894,7 +894,7 @@ def main():
     ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.help:
+    if args.help or args.comando == "help":
         uso()
         return
 

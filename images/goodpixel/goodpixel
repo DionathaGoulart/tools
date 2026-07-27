@@ -414,6 +414,8 @@ def main() -> int:
         ui.catalogo_temas()
         return 0
 
+    if args.files == ["help"] and not os.path.isfile("help"):
+        args.help = True
     if args.help or not args.files:
         print(HELP.format(
             titulo=ui.forte("[ MODULE: GOODPIXEL ]"),

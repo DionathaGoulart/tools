@@ -812,7 +812,7 @@ def main():
     )
     ap.add_argument("comando", nargs="?", default="radar",
                     choices=["radar", "ideias", "pacote", "legendas", "stories",
-                             "buscar", "refs", "temas"],
+                             "buscar", "refs", "temas", "help"],
                     help="radar (padrão): janelas sazonais + pulso do nicho · ideias: "
                          "10 ideias rankeadas · pacote: hook+roteiro+caption+hashtags · "
                          "legendas: 8 captions A/B · stories: plano da semana · "
@@ -831,7 +831,7 @@ def main():
     ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
     args = ap.parse_args()
 
-    if args.help:
+    if args.help or args.comando == "help":
         uso()
         return
 
