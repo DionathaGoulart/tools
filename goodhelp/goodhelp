@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# goodhelp — mapa da família good*: lista as ferramentas, marca as instaladas
+# e abre a ajuda de qualquer uma.
+#
+# usage: goodhelp                lista as ferramentas instaladas
+#        goodhelp <ferramenta>   abre a ajuda dela (ex: goodhelp goodivers)
+#        goodhelp temas          lista as paletas do terminal
+#        goodhelp -h | --help
+#
+# Não se instala sozinho: o setup.sh de cada ferramenta coloca este diretório
+# no PATH junto — instalou qualquer uma, ganhou o goodhelp. Só aparecem na
+# lista as ferramentas presentes no PATH (command -v); cada uma também
+# responde a `<ferramenta> help` direto.
+
+set -u
+
+# ---------- shared lib (theme / box / blocks) ----------
+_goodhelp_src="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_goodhelp_src" ]; do
+  _goodhelp_dir="$(cd -P "$(dirname "$_goodhelp_src")" 2>/dev/null && pwd)" || break
+  _goodhelp_src="$(readlink "$_goodhelp_src")"
+  case "$_goodhelp_src" in /*) ;; *) _goodhelp_src="$_goodhelp_dir/$_goodhelp_src" ;; esac
+done
+_goodhelp_dir="$(cd -P "$(dirname "$_goodhelp_src")" 2>/dev/null && pwd)"
+RETRO_LIB="$_goodhelp_dir/../lib/retro.sh"
+[ -f "$RETRO_LIB" ] || \
+  RETRO_LIB="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../lib" 2>/dev/null && pwd)/retro.sh"
+[ -f "$RETRO_LIB" ] || { echo "goodhelp: lib/retro.sh não encontrada" >&2; exit 2; }
+ROOT="$(cd "$_goodhelp_dir/.." 2>/dev/null && pwd)"
+# shellcheck source=../lib/retro.sh
+. "$RETRO_LIB"
+unset _goodhelp_src _goodhelp_dir
+
+TEMA="${GOODHELP_TEMA:-${RETRO_TEMA:-vault-gold}}"
+retro_init 72
+
+# ---------- catálogo (bash 3.2: arrays paralelos, sem assoc) ----------
+# grupo|comando|descrição — mesma ordem do README
+CATALOGO=(
+  "terminal|good|fetch de sistema + kit da família good"
+  "terminal|goodcheat|cheatsheets no terminal"
+  "terminal|goodharness|styleguides e harness de projeto"
+  "terminal|goodpomo|pomodoro com notificação e stats"
+  "terminal|goodnerd|teatro de hacker fake, pra impressionar"
+  "ia|goodprof|estudo Feynman: te sabatina até dominar"
+  "ia|goodbio|sua autobiografia, uma pergunta por dia"
+  "ia|goodvocab|palavra de inglês por dia, com revisão"
+  "ia|goodzap|retrô de conversa exportada do WhatsApp"
+  "ia|goodivers|copiloto do canal de Helldivers 2"
+  "ia|goodjob|radar de vagas + carta, CV e prep"
+  "ia|dark|copiloto do @darkning.art (horror art)"
+  "imagens|goodpixel|imagem -> pixel art, paletas clássicas"
+  "senhas|cofre|cofre de senhas standalone (goodpen)"
+  "senhas|pass|password-store com backup em pendrive"
+)
+
+instalada() { command -v "$1" >/dev/null 2>&1; }
+
+linha_tool() { # $1 = comando, $2 = descrição
+  local pontos=$(( COLS > 60 ? 50 : COLS - 14 ))
+  [ "$pontos" -lt 20 ] && pontos=20
+  local n=$((pontos - ${#1} - ${#2}))
+  [ "$n" -lt 2 ] && n=2
+  printf '  %s%s%s %s%s%s %s%s%s\n' \
+    "$ACC$BOLD" "$1" "$RESET" \
+    "$ACC15" "$(retro_repetir '·' "$n")" "$RESET" "$FG70" "$2" "$RESET"
+}
+
+# ---------- telas ----------
+listar() {
+  local total=0 inst=0 item grupo cmd desc atual=""
+  for item in "${CATALOGO[@]}"; do
+    total=$((total + 1))
+    cmd="${item#*|}"; cmd="${cmd%%|*}"
+    instalada "$cmd" && inst=$((inst + 1))
+  done
+
+  echo
+  retro_topo
+  retro_chrome "root@goodhelp: ~/ferramentas" "$inst/$total instaladas"
+  retro_sep
+  retro_modulo "goodhelp" "suas ferramentas good*"
+  if [ "$inst" -eq 0 ]; then
+    retro_aviso "vazio" "nenhuma ferramenta da família no PATH"
+  fi
+  for item in "${CATALOGO[@]}"; do
+    grupo="${item%%|*}"
+    cmd="${item#*|}"; cmd="${cmd%%|*}"
+    desc="${item##*|}"
+    instalada "$cmd" || continue
+    if [ "$grupo" != "$atual" ]; then
+      [ -n "$atual" ] && echo
+      retro_secao "$grupo"
+      atual="$grupo"
+    fi
+    linha_tool "$cmd" "$desc"
+  done
+  echo
+  retro_secao "como usar"
+  retro_kv "goodhelp <ferramenta>" "abre a ajuda dela"
+  retro_kv "<ferramenta> help" "mesma coisa, direto"
+  echo
+  [ "$inst" -lt "$total" ] && \
+    retro_aviso "família" "mais $((total - inst)) disponíveis: bash ${ROOT/#$HOME/~}/setup.sh"
+  retro_base
+  retro_sombra
+  echo
+}
+
+uso() {
+  retro_modulo "goodhelp_help"
+  retro_secao "comandos"
+  retro_kv "goodhelp" "lista as ferramentas instaladas"
+  retro_kv "goodhelp <ferramenta>" "abre a ajuda dela"
+  retro_kv "goodhelp temas" "paletas do terminal"
+  echo
+  retro_secao "env"
+  retro_kv "GOODHELP_TEMA / RETRO_TEMA" "$(retro_upper "$TEMA")"
+  retro_kv "NO_COLOR" "desliga as cores"
+  echo
+}
+
+abrir_ajuda() { # $1 = nome da ferramenta
+  local item cmd
+  for item in "${CATALOGO[@]}"; do
+    cmd="${item#*|}"; cmd="${cmd%%|*}"
+    if [ "$cmd" = "$1" ]; then
+      if instalada "$cmd"; then
+        exec "$cmd" help
+      fi
+      retro_erro "'$1' existe mas não está instalada."
+      retro_proximo "bash ${ROOT/#$HOME/~}/setup.sh" "instale com:"
+      exit 1
+    fi
+  done
+  retro_erro "ferramenta desconhecida: '$1' (veja: goodhelp)"
+  exit 2
+}
+
+# ---------- main ----------
+case "${1:-}" in
+  "")                   listar ;;
+  -h|--help|help|ajuda) uso ;;
+  temas|tema)           retro_catalogo_temas GOODHELP_TEMA ;;
+  -*)                   retro_erro "opção desconhecida '$1' (veja goodhelp -h)"; exit 2 ;;
+  *)                    abrir_ajuda "$1" ;;
+esac

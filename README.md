@@ -7,6 +7,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | Ferramenta | Comando | O que faz |
 |---|---|---|
 | **Terminal** | | |
+| [goodhelp](./goodhelp) | `goodhelp` | Mapa da família good*: lista o que está instalado e abre a ajuda de cada uma — vem junto automaticamente com qualquer ferramenta |
 | [goodcheats](./goodcheats) | `good` / `goodcheat` / `goodharness` | Kit de utilidades da família good: fetch de sistema + cheatsheets + styleguides |
 | [goodpomo](./goodpomo) | `goodpomo` | Pomodoro com notificação nativa e estatísticas |
 | [goodnerd](./goodnerd) | `goodnerd` | Teatro de "hacker" fake no terminal, pra impressionar os leigos |
@@ -22,6 +23,8 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
+
+Toda ferramenta responde a `<ferramenta> help` (ex: `goodivers help`, `goodpomo help`) — e `goodhelp` lista as que você tem instaladas. Ele não se instala sozinho: vem junto, automaticamente, ao instalar qualquer ferramenta.
 
 ## Instalação
 

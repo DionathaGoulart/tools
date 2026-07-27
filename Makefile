@@ -9,7 +9,7 @@ SHELL := bash
 # Mirrored by the `bash -n` step in .github/workflows/ci.yml (that step can't
 # use make, since the Windows matrix runner has no make).
 SH_SCRIPTS := $(shell find . -path ./.git -prune -o -name '*.sh' -print) \
-	goodpomo/goodpomo goodnerd/goodnerd lib/shims/python3 \
+	goodpomo/goodpomo goodnerd/goodnerd goodhelp/goodhelp lib/shims/python3 \
 	goodcheats/good goodcheats/goodcheat goodcheats/goodharness
 
 help:

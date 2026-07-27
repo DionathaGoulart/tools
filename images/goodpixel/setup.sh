@@ -19,6 +19,16 @@ if [ "$SOURCED" -eq 1 ]; then
     *":$TOOLS_DIR:"*) ;;
     *) export PATH="$TOOLS_DIR:$PATH" ;;
   esac
+
+  # goodhelp vem junto por padrão: mapa da família (goodhelp / <ferramenta> help)
+  _gh_dir="$(cd "$TOOLS_DIR/../../goodhelp" 2>/dev/null && pwd)"
+  if [ -n "$_gh_dir" ] && [ -x "$_gh_dir/goodhelp" ]; then
+    case ":$PATH:" in
+      *":$_gh_dir:"*) ;;
+      *) export PATH="$_gh_dir:$PATH" ;;
+    esac
+  fi
+  unset _gh_dir
   # Windows (Git Bash): não existe python3.exe — cai no shim do repo (py/python)
   if ! command -v python3 >/dev/null 2>&1 && [ -f "$TOOLS_DIR/../../lib/shims/python3" ]; then
     case ":$PATH:" in

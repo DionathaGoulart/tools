@@ -25,6 +25,16 @@ if [ "$SOURCED" -eq 1 ]; then
     *) export PATH="$TOOLS_DIR:$PATH" ;;
   esac
 
+  # goodhelp vem junto por padrão: mapa da família (goodhelp / <ferramenta> help)
+  _gh_dir="$(cd "$TOOLS_DIR/../goodhelp" 2>/dev/null && pwd)"
+  if [ -n "$_gh_dir" ] && [ -x "$_gh_dir/goodhelp" ]; then
+    case ":$PATH:" in
+      *":$_gh_dir:"*) ;;
+      *) export PATH="$_gh_dir:$PATH" ;;
+    esac
+  fi
+  unset _gh_dir
+
   # once-a-day reminder (opt-in)
   if [ "${DARK_LEMBRETE:-0}" = "1" ]; then
     _drk_stamp="${DARK_DIR:-$HOME/.dark}/.ultimo_radar"

@@ -48,7 +48,7 @@ jobs:
         run: |
           set -e
           scripts="$(find . -path ./.git -prune -o -name '*.sh' -print)"
-          scripts="$scripts goodpomo/goodpomo goodnerd/goodnerd lib/shims/python3"
+          scripts="$scripts goodpomo/goodpomo goodnerd/goodnerd goodhelp/goodhelp lib/shims/python3"
           scripts="$scripts goodcheats/good goodcheats/goodcheat goodcheats/goodharness"
           for f in $scripts; do
             [ -f "$f" ] || continue
