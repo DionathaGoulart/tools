@@ -295,7 +295,7 @@ def fetch_despachos():
     for d in (dados or [])[:4]:
         msg = limpar_marcacao(d.get("message") or "")
         if msg:
-            out.append({"quando": d.get("published", ""), "texto": resumir(msg, 260)})
+            out.append({"quando": d.get("published", ""), "texto": " ".join(msg.split())})
     return out
 
 
