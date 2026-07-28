@@ -50,6 +50,7 @@ CATALOGO=(
   "ia|goodjob|radar de vagas + carta, CV e prep"
   "ia|dark|copiloto do @darkning.art (horror art)"
   "imagens|goodpixel|imagem -> pixel art, paletas clássicas"
+  "imagens|goodprofile|tamanhos prontos de perfil/rede social"
   "senhas|cofre|cofre de senhas standalone (goodpen)"
   "senhas|pass|password-store com backup em pendrive"
 )

@@ -21,6 +21,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
 | **Imagens** | | |
 | [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
+| [images/goodprofile](./images/goodprofile) | `goodprofile` | Encaixa imagens nos tamanhos prontos de perfil/rede social: presets de avatar/capa/favicon, corte com foco, troca de cor, centralização e máscara redonda |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
@@ -50,6 +51,7 @@ bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude C
 bash ~/Desktop/tools/goodjob/setup.sh
 bash ~/Desktop/tools/goodjob/setup.sh --skill     # skill /goodjob do Claude Code
 bash ~/Desktop/tools/images/goodpixel/setup.sh
+bash ~/Desktop/tools/images/goodprofile/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
@@ -252,6 +254,7 @@ subcomandos, gerando com o Claude da sessão (sem chave).
 | Ferramenta | Prefixo | Subcomandos principais |
 |---|---|---|
 | goodpixel | `goodpixel` | `[imagens...]` · `-w/--width` · `-c/--colors` · `--palette mono\|gameboy\|cga\|pico8` · `-d` dither · `-s/--scale` · `--temas` |
+| goodprofile | `goodprofile` | `[imagens...] [preset\|kit\|LxA]` · `presets` catálogo · `--modo cobrir\|conter\|esticar` · `--gravidade`/`--foco X,Y` · `--centralizar`/`--margem` · `--cor-de/--cor-para` · `--tint` · `--pb` · `--circulo`/`--raio` · `--formato png\|jpg\|webp` · `--temas` |
 
 ### Senhas
 
@@ -332,6 +335,9 @@ tools/
   images/
     goodpixel/         ← imagem → pixel art (Pillow/ImageMagick)
       goodpixel          ← o CLI
+      setup.sh         ← adiciona ao PATH
+    goodprofile/       ← imagem → tamanhos de perfil/rede social
+      goodprofile        ← o CLI
       setup.sh         ← adiciona ao PATH
 ```
 
