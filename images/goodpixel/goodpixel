@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import os
 import struct
-import subprocess
 import sys
 import zlib
 from pathlib import Path
@@ -31,10 +30,8 @@ from pathlib import Path
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "lib")
 )
+import imgcore  # noqa: E402
 from retro import Retro  # noqa: E402
-
-RASTER = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ppm"}
-VECTOR = {".svg", ".pdf", ".eps", ".ai"}
 
 # classic pixel-art palettes (name -> list of RGB tuples)
 PRESETS: dict[str, list[tuple[int, int, int]]] = {
@@ -55,84 +52,6 @@ _S2L = [((c / 255) ** 2.2) for c in range(256)]
 
 def _l2s(v: float) -> int:
     return min(255, max(0, round((v ** (1 / 2.2)) * 255)))
-
-
-# ---------------------------------------------------------------- decoding
-def _which(name: str) -> str | None:
-    from shutil import which
-
-    return which(name)
-
-
-def _decode_pillow(path: Path, maxdim: int):
-    from PIL import Image  # type: ignore
-
-    im = Image.open(path)
-    if im.mode != "RGB":
-        im = im.convert("RGB")
-    if max(im.size) > maxdim:
-        im.thumbnail((maxdim, maxdim), Image.LANCZOS)
-    return im.width, im.height, im.tobytes()
-
-
-def _decode_magick(path: Path, maxdim: int, vector: bool):
-    magick = _which("magick") or _which("convert")
-    if not magick:
-        return None
-    cmd = [magick]
-    if vector:
-        # render vectors big, then let the resize step shrink cleanly
-        cmd += ["-background", "none", "-density", "384"]
-    cmd += [str(path), "-resize", f"{maxdim}x{maxdim}>", "-depth", "8", "ppm:-"]
-    out = subprocess.run(cmd, capture_output=True)
-    if out.returncode != 0 or not out.stdout:
-        return None
-    return _parse_ppm(out.stdout)
-
-
-def _parse_ppm(data: bytes):
-    """Minimal P6 binary PPM reader (magic, w, h, maxval, then RGB bytes)."""
-    if data[:2] != b"P6":
-        raise ValueError("saída do decoder não é PPM P6")
-    tokens: list[bytes] = []
-    i = 2
-    n = len(data)
-    while len(tokens) < 3 and i < n:
-        while i < n and data[i] in b" \t\n\r":
-            i += 1
-        if i < n and data[i:i + 1] == b"#":  # comment line
-            while i < n and data[i] not in b"\n\r":
-                i += 1
-            continue
-        start = i
-        while i < n and data[i] not in b" \t\n\r":
-            i += 1
-        tokens.append(data[start:i])
-    w, h, maxv = (int(t) for t in tokens)
-    i += 1  # single whitespace after maxval
-    pixels = data[i:i + w * h * 3]
-    if maxv != 255:  # rescale 16-bit-ish sources down to 8-bit
-        pixels = bytes(v * 255 // maxv for v in pixels)
-    return w, h, pixels
-
-
-def decode(path: Path, maxdim: int):
-    ext = path.suffix.lower()
-    vector = ext in VECTOR
-    if not vector:
-        try:
-            return _decode_pillow(path, maxdim)
-        except ImportError:
-            pass
-        except Exception:
-            pass  # Pillow choked on the format — fall through to magick
-    res = _decode_magick(path, maxdim, vector)
-    if res is None:
-        raise RuntimeError(
-            "não consegui decodificar. Instale Pillow (pip install Pillow) "
-            "ou ImageMagick (brew/apt/choco install imagemagick)."
-        )
-    return res
 
 
 # ------------------------------------------------------------- transform
@@ -302,7 +221,7 @@ def swatches(ui: Retro, colors):
 # ------------------------------------------------------------- one file
 def convert(ui: Retro, src: Path, args, out_override: Path | None):
     maxdim = max(1024, args.width * 8)
-    w, h, buf = decode(src, maxdim)
+    w, h, buf = imgcore.decode(src, maxdim)
 
     gw = args.width
     gh = args.height or max(1, round(gw * h / w))
