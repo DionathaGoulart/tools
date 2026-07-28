@@ -19,6 +19,7 @@ extend-include = [
     "goodbio/goodbio",
     "goodzap/goodzap",
     "images/goodpixel/goodpixel",
+    "images/goodprofile/goodprofile",
 ]
 
 extend-exclude = ["**/__pycache__", "goodpen/standalone/dist"]

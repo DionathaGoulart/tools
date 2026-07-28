@@ -15,6 +15,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 PY_TOOLS = [
     "lib/llm.py",
     "lib/retro.py",
+    "lib/imgcore.py",
     "dark/dark",
     "goodivers/goodivers",
     "goodjob/goodjob",
@@ -23,6 +24,7 @@ PY_TOOLS = [
     "goodbio/goodbio",
     "goodzap/goodzap",
     "images/goodpixel/goodpixel",
+    "images/goodprofile/goodprofile",
 ]
 
 
