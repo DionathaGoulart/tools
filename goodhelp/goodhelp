@@ -11,6 +11,11 @@
 # no PATH junto — instalou qualquer uma, ganhou o goodhelp. Só aparecem na
 # lista as ferramentas presentes no PATH (command -v); cada uma também
 # responde a `<ferramenta> help` direto.
+#
+# O contador N/M cobre o que o instalador da raiz oferece. Ferramenta com
+# setup próprio (goodpen: cofre / pass) fica fora do total enquanto não
+# estiver instalada — assim o aviso "mais N disponíveis: bash setup.sh" nunca
+# aponta pra um setup que não instala aquilo. Instalada, ela entra na lista.
 
 set -u
 
@@ -35,27 +40,39 @@ TEMA="${GOODHELP_TEMA:-${RETRO_TEMA:-vault-gold}}"
 retro_init 72
 
 # ---------- catálogo (bash 3.2: arrays paralelos, sem assoc) ----------
-# grupo|comando|descrição — mesma ordem do README
+# grupo|comando|descrição|setup — mesma ordem do README.
+# setup vazio = entra no instalador da raiz (setup.sh). Preenchido = a
+# ferramenta tem setup próprio (goodpen), fora do instalador: ela não conta
+# no total nem no aviso "mais N disponíveis" enquanto não estiver instalada.
 CATALOGO=(
-  "terminal|good|fetch de sistema + kit da família good"
-  "terminal|goodcheat|cheatsheets no terminal"
-  "terminal|goodharness|styleguides e harness de projeto"
-  "terminal|goodpomo|pomodoro com notificação e stats"
-  "terminal|goodnerd|teatro de hacker fake, pra impressionar"
-  "ia|goodprof|estudo Feynman: te sabatina até dominar"
-  "ia|goodbio|sua autobiografia, uma pergunta por dia"
-  "ia|goodvocab|palavra de inglês por dia, com revisão"
-  "ia|goodzap|retrô de conversa exportada do WhatsApp"
-  "ia|goodivers|copiloto do canal de Helldivers 2"
-  "ia|goodjob|radar de vagas + carta, CV e prep"
-  "ia|dark|copiloto do @darkning.art (horror art)"
-  "imagens|goodpixel|imagem -> pixel art, paletas clássicas"
-  "imagens|goodprofile|tamanhos prontos de perfil/rede social"
-  "senhas|cofre|cofre de senhas standalone (goodpen)"
-  "senhas|pass|password-store com backup em pendrive"
+  "terminal|good|fetch de sistema + kit da família good|"
+  "terminal|goodcheat|cheatsheets no terminal|"
+  "terminal|goodharness|styleguides e harness de projeto|"
+  "terminal|goodpomo|pomodoro com notificação e stats|"
+  "terminal|goodnerd|teatro de hacker fake, pra impressionar|"
+  "ia|goodprof|estudo Feynman: te sabatina até dominar|"
+  "ia|goodbio|sua autobiografia, uma pergunta por dia|"
+  "ia|goodvocab|palavra de inglês por dia, com revisão|"
+  "ia|goodzap|retrô de conversa exportada do WhatsApp|"
+  "ia|goodivers|copiloto do canal de Helldivers 2|"
+  "ia|goodjob|radar de vagas + carta, CV e prep|"
+  "ia|dark|copiloto do @darkning.art (horror art)|"
+  "imagens|goodpixel|imagem -> pixel art, paletas clássicas|"
+  "imagens|goodprofile|tamanhos prontos de perfil/rede social|"
+  "senhas|cofre|cofre de senhas standalone (goodpen)|goodpen/standalone/build.sh"
+  "senhas|pass|password-store com backup em pendrive|goodpen/pass-store/setup.sh"
 )
 
 instalada() { command -v "$1" >/dev/null 2>&1; }
+
+# quebra uma linha do catálogo em grupo/cmd/desc/setup (bash 3.2)
+partir() { # $1 = item   → define GRUPO CMD DESC SETUP
+  local resto
+  GRUPO="${1%%|*}"; resto="${1#*|}"
+  CMD="${resto%%|*}";  resto="${resto#*|}"
+  DESC="${resto%%|*}"
+  SETUP="${resto#*|}"
+}
 
 linha_tool() { # $1 = comando, $2 = descrição
   local pontos=$(( COLS > 60 ? 50 : COLS - 14 ))
@@ -69,11 +86,14 @@ linha_tool() { # $1 = comando, $2 = descrição
 
 # ---------- telas ----------
 listar() {
-  local total=0 inst=0 item grupo cmd desc atual=""
+  local total=0 inst=0 item atual="" faltam plural
   for item in "${CATALOGO[@]}"; do
-    total=$((total + 1))
-    cmd="${item#*|}"; cmd="${cmd%%|*}"
-    instalada "$cmd" && inst=$((inst + 1))
+    partir "$item"
+    if instalada "$CMD"; then
+      inst=$((inst + 1)); total=$((total + 1))
+    elif [ -z "$SETUP" ]; then
+      total=$((total + 1))          # falta, mas o setup.sh da raiz instala
+    fi                              # senão: setup próprio, fica fora da conta
   done
 
   echo
@@ -85,24 +105,25 @@ listar() {
     retro_aviso "vazio" "nenhuma ferramenta da família no PATH"
   fi
   for item in "${CATALOGO[@]}"; do
-    grupo="${item%%|*}"
-    cmd="${item#*|}"; cmd="${cmd%%|*}"
-    desc="${item##*|}"
-    instalada "$cmd" || continue
-    if [ "$grupo" != "$atual" ]; then
+    partir "$item"
+    instalada "$CMD" || continue
+    if [ "$GRUPO" != "$atual" ]; then
       [ -n "$atual" ] && echo
-      retro_secao "$grupo"
-      atual="$grupo"
+      retro_secao "$GRUPO"
+      atual="$GRUPO"
     fi
-    linha_tool "$cmd" "$desc"
+    linha_tool "$CMD" "$DESC"
   done
   echo
   retro_secao "como usar"
   retro_kv "goodhelp <ferramenta>" "abre a ajuda dela"
   retro_kv "<ferramenta> help" "mesma coisa, direto"
   echo
-  [ "$inst" -lt "$total" ] && \
-    retro_aviso "família" "mais $((total - inst)) disponíveis: bash ${ROOT/#$HOME/~}/setup.sh"
+  if [ "$inst" -lt "$total" ]; then
+    faltam=$((total - inst))
+    [ "$faltam" -eq 1 ] && plural="disponível" || plural="disponíveis"
+    retro_aviso "família" "mais $faltam $plural: bash ${ROOT/#$HOME/~}/setup.sh"
+  fi
   retro_base
   retro_sombra
   echo
@@ -122,15 +143,15 @@ uso() {
 }
 
 abrir_ajuda() { # $1 = nome da ferramenta
-  local item cmd
+  local item
   for item in "${CATALOGO[@]}"; do
-    cmd="${item#*|}"; cmd="${cmd%%|*}"
-    if [ "$cmd" = "$1" ]; then
-      if instalada "$cmd"; then
-        exec "$cmd" help
+    partir "$item"
+    if [ "$CMD" = "$1" ]; then
+      if instalada "$CMD"; then
+        exec "$CMD" help
       fi
       retro_erro "'$1' existe mas não está instalada."
-      retro_proximo "bash ${ROOT/#$HOME/~}/setup.sh" "instale com:"
+      retro_proximo "bash ${ROOT/#$HOME/~}/${SETUP:-setup.sh}" "instale com:"
       exit 1
     fi
   done
