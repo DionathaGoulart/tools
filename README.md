@@ -25,7 +25,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
-Toda ferramenta responde a `<ferramenta> help` (ex: `goodivers help`, `goodpomo help`) — e `goodhelp` lista as que você tem instaladas. Ele não se instala sozinho: vem junto, automaticamente, ao instalar qualquer ferramenta.
+Toda ferramenta responde a `<ferramenta> help` (ex: `goodivers help`, `goodpomo help`) — e `goodhelp` lista as que você tem instaladas. Ele não se instala sozinho: vem junto, automaticamente, ao instalar qualquer ferramenta. O contador `N/M` conta só o que o instalador da raiz oferece; o goodpen tem setup próprio e só entra na conta depois de instalado.
 
 ## Instalação
 
