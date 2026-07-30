@@ -86,7 +86,10 @@ Sem argumento = `radar`.
 1. `goodivers --json` (com `-f` se pedido).
 2. Renderize um resumo em markdown, nesta ordem: ⭐ Ordem Maior (título,
    briefing, tempo restante, medalhas) · 📢 Despachos (até 3) · 🔧 Oficial
-   Steam · 👽 r/Helldivers (top posts com ↑score) · 📺 Canais do nicho (3
+   Steam · 👽 Comunidade (o campo `reddit` do JSON é `{fonte, posts}`:
+   fonte `reddit` = top posts com ↑score; fonte `steam` = threads do fórum
+   oficial com nº de respostas — rotule a seção conforme a fonte; caches
+   antigos podem trazer uma lista solta, trate como reddit) · 📺 Canais do nicho (3
    vídeos por canal: views, idade, 🔥 se outlier) · 🎬 Seu canal ·
    `falhas` do snapshot, se houver.
 3. **Traduza pra PT-BR** as mensagens que vêm em inglês do jogo: título e
@@ -95,7 +98,8 @@ Sem argumento = `radar`.
    (facções, armas, stratagems, warbonds, Malevelon Creek etc.). Os **títulos
    de vídeo dos canais do nicho** são identificadores reais: mostre o título
    ORIGINAL e, embaixo, uma tradução PT-BR curta (igual ao CLI, que exibe o
-   original + linha `↳ <PT-BR>`). Os posts do r/Helldivers pode traduzir.
+   original + linha `↳ <PT-BR>`). Os posts da comunidade (reddit ou fórum
+   Steam) pode traduzir.
    Nunca invente conteúdo pra caber na tradução; se um termo for ambíguo,
    mantenha o original.
 4. Feche com 1-2 frases suas: onde está a janela de conteúdo de hoje.

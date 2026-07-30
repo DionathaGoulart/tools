@@ -46,7 +46,7 @@ Fotografia do momento, coletada em paralelo (**a coleta é sem LLM e sem chave**
 | Ordem Maior (janela do topo) | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
 | Despachos da Super Terra | as notícias in-game (a "TV" do jogo) | api.helldivers2.dev |
 | Oficial · Steam | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
-| Quente no r/Helldivers | posts em alta — com `REDDIT_CLIENT_ID`/`SECRET` usa a API OAuth oficial (funciona em qualquer IP); sem credencial tenta o endpoint público (Reddit bloqueia muitos IPs; o radar segue sem) | Reddit |
+| Quente na comunidade | posts em alta do r/Helldivers — com `REDDIT_CLIENT_ID`/`SECRET` usa a API OAuth oficial (funciona em qualquer IP); sem credencial tenta o endpoint público. Se o Reddit bloquear o IP, cai sozinho pro **fórum oficial do jogo na Steam** (threads com atividade recente, sem auth) | Reddit → Steam |
 | Canais do nicho | últimos vídeos de cada canal monitorado, com views e idade | RSS público do YouTube |
 | Seu canal · Goodivers | seus vídeos e views, sempre à vista | RSS público do YouTube |
 

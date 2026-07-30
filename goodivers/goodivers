@@ -5,7 +5,8 @@ goodivers — copiloto de conteúdo do canal Goodivers (Helldivers 2).
 
 Helldivers 2 é jogo-serviço: Ordem Maior, patch e warbond mudam toda semana,
 e conteúdo bom nasce dessa janela. O goodivers puxa o estado AO VIVO do jogo
-(Ordem Maior, despachos, patch notes), o pulso da comunidade (r/Helldivers) e
+(Ordem Maior, despachos, patch notes), o pulso da comunidade (r/Helldivers;
+fórum oficial da Steam como fallback quando o Reddit bloqueia o IP) e
 o que os canais do nicho estão publicando (RSS do YouTube, com detecção de
 vídeo-outlier) — e injeta tudo isso no modelo pra gerar ideias de vídeo,
 títulos, conceitos de thumbnail, descrição e roteiro pensados pro algoritmo
@@ -104,6 +105,7 @@ REDDIT_URL = "https://www.reddit.com/r/Helldivers/hot.json?limit=12&raw_json=1"
 REDDIT_OAUTH_URL = "https://oauth.reddit.com/r/Helldivers/hot?limit=12&raw_json=1"
 REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 REDDIT_UA = "macos:goodivers:1.0 (radar de conteudo do canal)"
+STEAM_FORUM_URL = "https://steamcommunity.com/app/553850/discussions/0/"
 RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
 UA_BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
@@ -441,6 +443,53 @@ def fetch_reddit():
     return out[:8]
 
 
+def fetch_forum_steam():
+    """Threads com atividade recente no fórum oficial de Helldivers 2 na Steam
+    (board General). HTML server-rendered, sem auth e sem bloqueio de IP — o
+    substituto do pulso de comunidade quando o Reddit corta o acesso. Parse
+    por regex: mesmo racional do RSS (formato fixo do markup)."""
+    pagina = http_get(STEAM_FORUM_URL, {"User-Agent": UA_BROWSER},
+                      timeout=20).decode("utf-8", errors="replace")
+    topos = list(re.finditer(
+        r'class="forum_topic\s([^"]*)"[^>]*data-gidforumtopic="\d+"', pagina))
+    out = []
+    for i, m in enumerate(topos):
+        if "sticky" in m.group(1):   # fixado pela moderação não é "pulso"
+            continue
+        fim = topos[i + 1].start() if i + 1 < len(topos) else len(pagina)
+        bloco = pagina[m.start():fim]
+        m_nome = re.search(r'forum_topic_name[^>]*>(.*?)</div>', bloco, re.S)
+        if not m_nome:
+            continue
+        titulo = limpar_marcacao(html.unescape(m_nome.group(1)))
+        m_resp = re.search(
+            r'forum_topic_reply_count">.*?>\s*([\d.,]+)\s*</div>', bloco, re.S)
+        resp = int(re.sub(r"[.,]", "", m_resp.group(1))) if m_resp else 0
+        if titulo:
+            out.append({"titulo": titulo, "score": resp,
+                        "comentarios": resp, "flair": ""})
+    return out[:8]
+
+
+def fetch_comunidade():
+    """Pulso da comunidade com fallback: r/Helldivers quando dá (API OAuth com
+    credencial, endpoint público sem), fórum oficial da Steam quando o Reddit
+    bloqueia. Snapshot guarda {fonte, posts}; comunidade_posts() normaliza."""
+    try:
+        return {"fonte": "reddit", "posts": fetch_reddit()}
+    except Exception:
+        return {"fonte": "steam", "posts": fetch_forum_steam()}
+
+
+def comunidade_posts(s):
+    """(fonte, posts) da seção de comunidade. Aceita o formato novo
+    ({fonte, posts}) e o antigo (lista solta do reddit, de caches velhos)."""
+    bruto = s.get("reddit")
+    if isinstance(bruto, dict):
+        return bruto.get("fonte") or "reddit", bruto.get("posts") or []
+    return "reddit", bruto or []
+
+
 def fetch_canal(canal):
     """Últimos vídeos de um canal via RSS público do YouTube (título + views).
     Parse por regex de propósito: o feed tem formato fixo e o ElementTree
@@ -591,7 +640,7 @@ def coletar_radar(force=False):
             "ordem": ex.submit(fetch_ordem),
             "despachos": ex.submit(fetch_despachos),
             "patches": ex.submit(fetch_patches),
-            "reddit": ex.submit(fetch_reddit),
+            "reddit": ex.submit(fetch_comunidade),
             "meu_canal": ex.submit(fetch_canal, CANAL_PROPRIO),
         }
         jobs_canais = [ex.submit(fetch_canal, c) for c in cfg["canais"]]
@@ -693,16 +742,20 @@ def render_radar(s):
                 texto = f"{tag_novo()}{ui.FG70} " + texto
             ui.item(f"{idade_humana(p['quando']):>8}", texto)
 
-    if s.get("reddit"):
+    fonte_c, posts_c = comunidade_posts(s)
+    if posts_c:
         print()
-        ui.secao("quente no r/helldivers")
-        for p in s["reddit"]:
+        ui.secao("quente no r/helldivers" if fonte_c == "reddit"
+                 else "quente no forum oficial · steam")
+        for p in posts_c:
             texto = resumir(p.get("titulo_pt") or p["titulo"], 90)
             if p.get("novo"):
                 texto = f"{tag_novo()}{ui.FG70} " + texto
-            if p["flair"]:
+            if p.get("flair"):
                 texto += " " + ui.chip(p["flair"]) + ui.FG70
-            ui.item(f"↑{p['score']:>5}", texto)
+            marca = (f"↑{p['score']:>5}" if fonte_c == "reddit"
+                     else f"≡{p.get('comentarios', 0):>5}")
+            ui.item(marca, texto)
 
     if s.get("canais"):
         print()
@@ -730,6 +783,8 @@ def render_radar(s):
     print()
     if s.get("falhas"):
         ui.aviso("offline", ", ".join(s["falhas"]))
+    if fonte_c == "steam" and posts_c:
+        ui.aviso("comunidade", "REDDIT BLOQUEADO NESTE IP — MOSTRANDO O FORUM DA STEAM")
     ui.aviso("legenda", "[OUTLIER] = VIEWS/DIA >= 2X A MEDIANA DO PROPRIO CANAL")
     if any(obj.get("novo") for obj, _, _ in _slots_traduziveis(s)):
         ui.aviso("legenda", "[NOVO] = APARECEU DEPOIS DA COLETA ANTERIOR")
@@ -794,7 +849,7 @@ def _slots_traduziveis(s):
         slots.append((d, "texto", "texto_pt"))
     for p in s.get("patches") or []:
         slots.append((p, "titulo", "titulo_pt"))
-    for p in s.get("reddit") or []:
+    for p in comunidade_posts(s)[1]:
         slots.append((p, "titulo", "titulo_pt"))
     for c in s.get("canais") or []:
         for v in c.get("videos", [])[:3]:
@@ -957,9 +1012,14 @@ def bloco_dados_vivos(s):
         linhas.append(f"- Despacho ({idade_humana(d['quando'])}): {d['texto']}")
     for p in s.get("patches") or []:
         linhas.append(f"- Oficial Steam ({idade_humana(p['quando'])}): {p['titulo']} — {p['resumo']}")
-    if s.get("reddit"):
-        linhas.append("- Quente no r/Helldivers: " + " | ".join(
-            f"{p['titulo']} (↑{p['score']})" for p in s["reddit"][:6]))
+    fonte_c, posts_c = comunidade_posts(s)
+    if posts_c:
+        rotulo = ("Quente no r/Helldivers" if fonte_c == "reddit"
+                  else "Quente no fórum oficial da Steam")
+        linhas.append(f"- {rotulo}: " + " | ".join(
+            f"{p['titulo']} (↑{p['score']})" if fonte_c == "reddit"
+            else f"{p['titulo']} ({p.get('comentarios', 0)} respostas)"
+            for p in posts_c[:6]))
     for c in s.get("canais") or []:
         top = [f"\"{v['titulo']}\" ({fmt_views(v['views'])} views, "
                f"{idade_humana(v['publicado'])}{', OUTLIER 🔥' if v.get('outlier') else ''})"
