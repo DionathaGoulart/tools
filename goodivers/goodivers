@@ -16,7 +16,10 @@ corpo de `patch <N>` são exibidos traduzidos pra PT-BR por uma chamada de LLM
 (use --original pra ver o dado cru em inglês, sem LLM). A tradução fica em
 cache pelo texto ORIGINAL: coleta nova só manda pra LLM o que mudou — radar
 igual ao anterior = zero chamada — e o que estreou aparece marcado [NOVO];
-a tradução de patch é permanente (patch publicado não muda). O modelo também
+a tradução de patch é permanente (patch publicado não muda). O comando `radar`
+responde NA HORA com a última coleta traduzida e verifica as fontes em seguida:
+nada mudou = uma linha de confirmação; mudou = traduz só o diff e reimprime o
+radar atualizado (-f pula a resposta instantânea). O modelo também
 entra em `ideias`, `pacote`, `titulos` e `inspirar`.
 
 args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
@@ -112,7 +115,8 @@ SEED_CANAIS = [
     {"nome": "CommissarKai", "id": "UC5HEdXrvMyV24HE0c0LwO9Q"},       # gameplay/humor
 ]
 
-CACHE_RADAR_HORAS = 6
+CACHE_RADAR_HORAS = 6   # validade do snapshot pros comandos de geração (o comando
+                        # `radar` em si sempre verifica as fontes, com qualquer idade)
 CACHE_BUSCA_HORAS = 6  # cache de buscas do YouTube (mesma janela do radar)
 CACHE_PATCH_HORAS = 6  # cache dos patch notes (patch não sai todo dia)
 OUTLIER_RATIO = 2.0  # views/dia ≥ 2x a mediana do próprio canal = [OUTLIER]
@@ -792,13 +796,23 @@ def _traduzir_lista(textos):
     return out
 
 
-def traduzir_radar(s):
+def textos_radar(s):
+    """Assinatura de conteúdo do snapshot: o conjunto dos textos que o radar
+    exibe. É o que decide se \"tem novidade\" entre duas coletas — views, score
+    e tempo restante mudam sempre e não contam como novidade."""
+    return {txt for obj, src, _ in _slots_traduziveis(s)
+            if (txt := str(obj.get(src) or "").strip())}
+
+
+def traduzir_radar(s, so_cache=False):
     """Preenche campos *_pt no snapshot pra render em PT-BR. O cache em
     radar_pt.json é por TEXTO ORIGINAL e sobrevive entre coletas: uma coleta
     nova só manda pra LLM o que ainda não tem tradução — radar igual ao
     anterior = zero chamada. O que estreou nesta coleta ganha `novo=True` pro
-    render destacar (o destaque dura até a coleta seguinte). Sem key ou erro
-    de rede: avisa e mantém o inglês (nunca quebra)."""
+    render destacar (o destaque dura até a coleta seguinte). `so_cache=True`
+    nunca chama a LLM: aplica o que já tem traduzido e pronto (é a resposta
+    instantânea do radar). Sem key ou erro de rede: avisa e mantém o inglês
+    (nunca quebra)."""
     pares = [(obj, dst, txt) for obj, src, dst in _slots_traduziveis(s)
              if (txt := str(obj.get(src) or "").strip())]
     if not pares:
@@ -813,6 +827,14 @@ def traduzir_radar(s):
         novos_txt = atuais - set(mapa)
     else:
         novos_txt = set()   # 1ª tradução: tudo seria "novo", nada a contrastar
+
+    if so_cache:
+        for obj, dst, txt in pares:
+            if mapa.get(txt):
+                obj[dst] = mapa[txt]
+            if txt in novos_txt:
+                obj["novo"] = True
+        return
 
     faltando = sorted(atuais - set(mapa))
     if faltando:
@@ -980,10 +1002,35 @@ def outliers_com_id(s):
 
 
 def cmd_radar(fresh, como_json=False, original=False):
-    s = coletar_radar(force=fresh)
     if como_json:
-        imprimir_json(s)          # --json é sempre cru (coletor pro skill/scripts)
+        imprimir_json(coletar_radar(force=fresh))   # --json é sempre cru
         return
+
+    cache = carregar_json(RADAR_FILE, None)
+    if cache and not fresh:
+        # resposta instantânea: última coleta (qualquer idade), traduzida só
+        # com o cache — zero LLM, zero rede até aqui
+        if not original:
+            traduzir_radar(cache, so_cache=True)
+        render_radar(cache)
+        nota("verificando as fontes agora…")
+        s = coletar_radar(force=True)
+        novos = textos_radar(s) - textos_radar(cache)
+        if textos_radar(s) == textos_radar(cache):
+            ui.aviso("radar", "VERIFICADO AGORA: SEM NOVIDADE — VALE O DE CIMA")
+            print()
+            return
+        if not original:
+            traduzir_radar(s)     # só o diff vai pra LLM
+        if novos:
+            ui.aviso("radar", f"{len(novos)} ITEM(NS) NOVO(S) — RADAR ATUALIZADO ABAIXO")
+        else:
+            ui.aviso("radar", "ITENS SAIRAM DO AR — RADAR ATUALIZADO ABAIXO")
+        render_radar(s)
+        return
+
+    # 1ª execução (sem cache) ou -f: coleta única, sem render duplo
+    s = coletar_radar(force=True)
     if not original:
         traduzir_radar(s)         # PT-BR é o padrão; --original pula a LLM
     render_radar(s)
@@ -1489,7 +1536,7 @@ def uso():
     ui.kv("goodivers temas", "PALETAS")
     print()
     ui.secao("flags")
-    ui.kv("-f, --fresh", "IGNORA O CACHE E RECOLETA AGORA")
+    ui.kv("-f, --fresh", "(RADAR) SEM RESPOSTA INSTANTANEA; (RESTO) FURA O CACHE")
     ui.kv("--original", "(RADAR, PATCH) DADO CRU EM INGLES, SEM LLM")
     ui.kv("--ver", "(IDEIAS) MOSTRA A ULTIMA LEVA SALVA")
     ui.kv("--hist [N]", "(IDEIAS) HISTORICO DE LEVAS")
@@ -1532,7 +1579,8 @@ def main():
                          "retro (GOODIVERS_TEMA / RETRO_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
     ap.add_argument("-f", "--fresh", action="store_true",
-                    help="ignora o cache e recoleta agora (radar e buscas)")
+                    help="(radar) pula a resposta instantânea do cache; (buscas, "
+                         "patch, geração) ignora o cache de 6h e recoleta agora")
     ap.add_argument("-s", "--semana", action="store_true",
                     help="(buscar) só vídeos desta semana")
     ap.add_argument("--br", action="store_true",

@@ -66,8 +66,14 @@ Detalhes de comportamento:
   a item com o que já tem traduzido: só o que **mudou** vai pra LLM — radar
   igual ao anterior = **zero** chamada. O que estreou desde a coleta anterior
   aparece marcado **`[NOVO]`** (em verde) até a próxima coleta.
-- O snapshot fica em cache por **6 horas** (`~/.goodivers/radar.json`) — os
-  outros comandos reaproveitam sem recoletar. `-f` força recoleta.
+- **Resposta instantânea + verificação:** com cache existente, `goodivers`
+  imprime na hora a última coleta traduzida (~0,3s, zero rede) e **em seguida
+  verifica as fontes**: nada mudou = uma linha de confirmação; mudou = traduz
+  só o diff e reimprime o radar atualizado com os itens **`[NOVO]`**. `-f`
+  pula a resposta instantânea (coleta única). Views/score/prazo mudando não
+  contam como novidade — só conteúdo novo.
+- O snapshot (`~/.goodivers/radar.json`) vale por **6 horas** pros outros
+  comandos (`ideias`, `pacote`…), que reaproveitam sem recoletar.
 - Fonte fora do ar? O radar reaproveita a última coleta boa daquela seção e
   avisa a idade do dado no rodapé. Nenhuma fonte derruba as outras.
 - **Quando usar:** de manhã, todo dia. Ordem Maior nova ou patch = janela de
@@ -238,7 +244,7 @@ saída redirecionada (pipe, arquivo), a cor some e o layout continua legível.
 
 | Flag | Faz |
 |---|---|
-| `-f` / `--fresh` | ignora o cache de 6h e recoleta agora (radar e buscas) |
+| `-f` / `--fresh` | (radar) pula a resposta instantânea do cache; (buscas, patch, geração) ignora o cache de 6h e recoleta agora |
 | `--original` | (radar) não traduz, mostra o dado cru em inglês, sem LLM (`GOODIVERS_ORIGINAL=1` liga por padrão) |
 | `-m` / `--modelos` | lista os modelos `:free` disponíveis na OpenRouter agora |
 | `--json` | saída JSON crua de `radar`, `buscar`, `patch` e `canais` — pra scripts e pro skill `/goodivers` |
