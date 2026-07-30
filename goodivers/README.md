@@ -61,6 +61,11 @@ Detalhes de comportamento:
   LLM. `GOODIVERS_ORIGINAL=1` deixa o cru como padrão. Sem `OPENROUTER_API_KEY`
   o radar cai pro inglês automaticamente (avisa e segue). A **coleta** e o
   cache continuam crus; `--json` nunca traduz.
+- **A tradução é incremental:** o cache (`~/.goodivers/radar_pt.json`) guarda
+  cada tradução pelo **texto original**. Numa coleta nova, o radar compara item
+  a item com o que já tem traduzido: só o que **mudou** vai pra LLM — radar
+  igual ao anterior = **zero** chamada. O que estreou desde a coleta anterior
+  aparece marcado **`[NOVO]`** (em verde) até a próxima coleta.
 - O snapshot fica em cache por **6 horas** (`~/.goodivers/radar.json`) — os
   outros comandos reaproveitam sem recoletar. `-f` força recoleta.
 - Fonte fora do ar? O radar reaproveita a última coleta boa daquela seção e

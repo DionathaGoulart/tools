@@ -13,8 +13,10 @@ do YouTube em canal pequeno.
 
 A COLETA do radar é 100% sem LLM (só APIs públicas); por padrão o radar e o
 corpo de `patch <N>` são exibidos traduzidos pra PT-BR por uma chamada de LLM
-(use --original pra ver o dado cru em inglês, sem LLM; a tradução de patch
-fica em cache permanente — patch note publicado não muda). O modelo também
+(use --original pra ver o dado cru em inglês, sem LLM). A tradução fica em
+cache pelo texto ORIGINAL: coleta nova só manda pra LLM o que mudou — radar
+igual ao anterior = zero chamada — e o que estreou aparece marcado [NOVO];
+a tradução de patch é permanente (patch publicado não muda). O modelo também
 entra em `ideias`, `pacote`, `titulos` e `inspirar`.
 
 args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
@@ -72,7 +74,7 @@ carregar_dotenv()
 BASE_DIR = Path(os.environ.get("GOODIVERS_DIR", Path.home() / ".goodivers"))
 CONFIG_FILE = BASE_DIR / "config.json"   # canais monitorados
 RADAR_FILE = BASE_DIR / "radar.json"     # último snapshot do radar (cache)
-RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # cache de tradução do radar (por ts)
+RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # tradução do radar (por texto original)
 BUSCA_FILE = BASE_DIR / "busca.json"     # cache de buscas do YouTube (por termo+flags)
 PATCH_FILE = BASE_DIR / "patch.json"     # cache dos patch notes oficiais (Steam)
 PATCH_PT_FILE = BASE_DIR / "patch_pt.json"  # tradução de patch por gid (permanente)
@@ -152,6 +154,11 @@ def chips(itens, recuo=2):
         tam += t
     if atual:
         print(" " * recuo + " ".join(atual))
+
+
+def tag_novo():
+    """Marcador verde de item que estreou nesta coleta (vs a anterior)."""
+    return f"{ui.OK}{ui.BOLD}[NOVO]{ui.RESET}"
 
 
 def carregar_json(caminho, padrao):
@@ -582,8 +589,10 @@ def janela_guerra(s):
     if ordens:
         o = ordens[0]
         titulo = str(o.get("titulo_pt") or o["titulo"])
+        marca = " " + tag_novo() if o.get("novo") else ""
         linhas.append(f"{ui.ACC}{ui.BOLD}"
-                      f"{resumir(titulo.upper(), ui.cf)}{ui.RESET}")
+                      f"{resumir(titulo.upper(), ui.cf - (7 if marca else 0))}"
+                      f"{ui.RESET}{marca}")
         detalhe = " · ".join(x for x in (
             f"EXPIRA EM {str(o['restante']).upper()}" if o.get("restante") else "",
             f"{o['medalhas']} MEDALHAS" if o.get("medalhas") else "") if x)
@@ -612,7 +621,8 @@ def render_radar(s):
     janela_guerra(s)
 
     for o in (s.get("ordem") or [])[1:]:
-        ui.secao(str(o.get("titulo_pt") or o["titulo"]))
+        ui.secao(str(o.get("titulo_pt") or o["titulo"])
+                 + (" · [novo]" if o.get("novo") else ""))
         corpo(resumir(o.get("briefing_pt") or o.get("briefing") or "", 300), recuo=2)
 
     if s.get("despachos"):
@@ -622,7 +632,10 @@ def render_radar(s):
             texto = d.get("texto_pt") or d["texto"]
             larg = max(40, min(ui.cols - 13, 92))
             linhas = textwrap.wrap(texto, larg) or [""]
-            ui.item(f"{idade_humana(d['quando']):>8}", linhas[0])
+            primeira = linhas[0]
+            if d.get("novo"):
+                primeira = f"{tag_novo()}{ui.FG70} " + primeira
+            ui.item(f"{idade_humana(d['quando']):>8}", primeira)
             for extra in linhas[1:]:
                 print(f"{' ' * 11}{ui.FG70}{extra}{ui.RESET}")
 
@@ -630,13 +643,18 @@ def render_radar(s):
         print()
         ui.secao("oficial · steam")
         for p in s["patches"]:
-            ui.item(f"{idade_humana(p['quando']):>8}", p.get("titulo_pt") or p["titulo"])
+            texto = p.get("titulo_pt") or p["titulo"]
+            if p.get("novo"):
+                texto = f"{tag_novo()}{ui.FG70} " + texto
+            ui.item(f"{idade_humana(p['quando']):>8}", texto)
 
     if s.get("reddit"):
         print()
         ui.secao("quente no r/helldivers")
         for p in s["reddit"]:
             texto = resumir(p.get("titulo_pt") or p["titulo"], 90)
+            if p.get("novo"):
+                texto = f"{tag_novo()}{ui.FG70} " + texto
             if p["flair"]:
                 texto += " " + ui.chip(p["flair"]) + ui.FG70
             ui.item(f"↑{p['score']:>5}", texto)
@@ -648,6 +666,8 @@ def render_radar(s):
             print(f"  {ui.forte(str(c['nome']).upper())}")
             for v in c["videos"][:3]:
                 texto = resumir(v["titulo"], 72)
+                if v.get("novo"):
+                    texto = f"{tag_novo()}{ui.FG70} " + texto
                 if v.get("outlier"):
                     texto += " " + ui.chip("outlier") + ui.FG70
                 ui.item(f"{fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}",
@@ -666,6 +686,8 @@ def render_radar(s):
     if s.get("falhas"):
         ui.aviso("offline", ", ".join(s["falhas"]))
     ui.aviso("legenda", "[OUTLIER] = VIEWS/DIA >= 2X A MEDIANA DO PROPRIO CANAL")
+    if any(obj.get("novo") for obj, _, _ in _slots_traduziveis(s)):
+        ui.aviso("legenda", "[NOVO] = APARECEU DEPOIS DA COLETA ANTERIOR")
     ui.proximo("goodivers ideias")
     print()
 
@@ -771,28 +793,46 @@ def _traduzir_lista(textos):
 
 
 def traduzir_radar(s):
-    """Preenche campos *_pt no snapshot pra render em PT-BR. Cacheia a tradução
-    por `ts` do snapshot em radar_pt.json: 1 chamada LLM por coleta, reusada nas
-    6h seguintes. Sem key ou erro de rede: avisa e mantém o inglês (nunca quebra)."""
+    """Preenche campos *_pt no snapshot pra render em PT-BR. O cache em
+    radar_pt.json é por TEXTO ORIGINAL e sobrevive entre coletas: uma coleta
+    nova só manda pra LLM o que ainda não tem tradução — radar igual ao
+    anterior = zero chamada. O que estreou nesta coleta ganha `novo=True` pro
+    render destacar (o destaque dura até a coleta seguinte). Sem key ou erro
+    de rede: avisa e mantém o inglês (nunca quebra)."""
     pares = [(obj, dst, txt) for obj, src, dst in _slots_traduziveis(s)
              if (txt := str(obj.get(src) or "").strip())]
     if not pares:
         return
 
     cache = carregar_json(RADAR_PT_FILE, {})
-    mapa = dict(cache.get("mapa", {})) if cache.get("ts") == s.get("ts") else {}
+    mapa = dict(cache.get("mapa", {}))
+    atuais = {txt for _, _, txt in pares}
+    if cache.get("ts") == s.get("ts"):
+        novos_txt = set(cache.get("novos", []))
+    elif mapa:
+        novos_txt = atuais - set(mapa)
+    else:
+        novos_txt = set()   # 1ª tradução: tudo seria "novo", nada a contrastar
 
-    faltando = sorted({txt for _, _, txt in pares if txt not in mapa})
+    faltando = sorted(atuais - set(mapa))
     if faltando:
         novos = _traduzir_lista(faltando)
         if novos is None:
             return                                  # falhou; mantém inglês
         mapa.update(novos)
-        salvar_json(RADAR_PT_FILE, {"ts": s.get("ts"), "mapa": mapa})
+    if faltando or cache.get("ts") != s.get("ts"):
+        # poda pro que o radar atual mostra: o arquivo não cresce pra sempre
+        salvar_json(RADAR_PT_FILE, {
+            "ts": s.get("ts"),
+            "mapa": {t: p for t, p in mapa.items() if t in atuais},
+            "novos": sorted(novos_txt),
+        })
 
     for obj, dst, txt in pares:
         if mapa.get(txt):
             obj[dst] = mapa[txt]
+        if txt in novos_txt:
+            obj["novo"] = True
 
 
 def traduzir_patch(escolhido):
