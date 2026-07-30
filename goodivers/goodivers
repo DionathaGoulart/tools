@@ -32,6 +32,7 @@ do radar; sem a chave, o radar cai pro inglês automaticamente).
 """
 
 import argparse
+import base64
 import hashlib
 import html
 import json
@@ -44,7 +45,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
@@ -83,6 +84,7 @@ PATCH_FILE = BASE_DIR / "patch.json"     # cache dos patch notes oficiais (Steam
 PATCH_PT_FILE = BASE_DIR / "patch_pt.json"  # tradução de patch por gid (permanente)
 IDEIAS_FILE = BASE_DIR / "ideias.json"   # última leva de ideias (pra `pacote N`)
 IDEIAS_HIST_FILE = BASE_DIR / "ideias_hist.jsonl"  # histórico de levas (1 por linha)
+REDDIT_TOKEN_FILE = BASE_DIR / "reddit_token.json"  # token OAuth do app (dura 24h)
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -99,6 +101,9 @@ STEAM_NEWS_URL = ("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
                   "?appid=553850&count=8&maxlength=1200&format=json"
                   "&feeds=steam_community_announcements")
 REDDIT_URL = "https://www.reddit.com/r/Helldivers/hot.json?limit=12&raw_json=1"
+REDDIT_OAUTH_URL = "https://oauth.reddit.com/r/Helldivers/hot?limit=12&raw_json=1"
+REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+REDDIT_UA = "macos:goodivers:1.0 (radar de conteudo do canal)"
 RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
 UA_BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
@@ -382,10 +387,46 @@ def escolher_patch(itens, alvo):
     return None
 
 
+def _reddit_token():
+    """Token OAuth de app (grant client_credentials). Sem REDDIT_CLIENT_ID/
+    REDDIT_CLIENT_SECRET devolve None e o fetch cai pro endpoint público.
+    O token dura 24h e fica em cache; renova com 5min de folga."""
+    cid = os.environ.get("REDDIT_CLIENT_ID", "").strip()
+    sec = os.environ.get("REDDIT_CLIENT_SECRET", "").strip()
+    if not (cid and sec):
+        return None
+    cache = carregar_json(REDDIT_TOKEN_FILE, {})
+    exp = parse_iso(cache.get("expira") or "")
+    if cache.get("token") and exp and (exp - agora_utc()).total_seconds() > 300:
+        return cache["token"]
+    cred = base64.b64encode(f"{cid}:{sec}".encode()).decode()
+    req = urllib.request.Request(
+        REDDIT_TOKEN_URL,
+        data=b"grant_type=client_credentials",
+        headers={"User-Agent": REDDIT_UA, "Authorization": f"Basic {cred}"})
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        dados = json.loads(resp.read())
+    token = dados.get("access_token") or ""
+    if not token:
+        raise ValueError("Reddit não devolveu access_token (credenciais erradas?)")
+    vida = int(dados.get("expires_in") or 3600)
+    salvar_json(REDDIT_TOKEN_FILE, {
+        "token": token,
+        "expira": (agora_utc() + timedelta(seconds=vida)).isoformat()})
+    return token
+
+
 def fetch_reddit():
-    """Posts quentes do r/Helldivers. Reddit costuma bloquear IP de nuvem/VPN —
-    quando bloquear, o radar segue sem essa fonte."""
-    dados = http_json(REDDIT_URL, {"User-Agent": UA_BROWSER})
+    """Posts quentes do r/Helldivers. Com REDDIT_CLIENT_ID/SECRET usa a API
+    OAuth oficial — funciona mesmo onde o Reddit bloqueia acesso anônimo (IP
+    de nuvem/VPN/faixa flagrada). Sem credencial tenta o endpoint público;
+    se falhar, o radar segue sem essa fonte."""
+    token = _reddit_token()
+    if token:
+        dados = http_json(REDDIT_OAUTH_URL, {
+            "User-Agent": REDDIT_UA, "Authorization": f"Bearer {token}"})
+    else:
+        dados = http_json(REDDIT_URL, {"User-Agent": UA_BROWSER})
     out = []
     for filho in dados.get("data", {}).get("children", []):
         p = filho.get("data", {})
@@ -1549,6 +1590,7 @@ def uso():
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("REDDIT_CLIENT_ID/SECRET", "OPCIONAL: REDDIT VIA API OFICIAL (OAUTH)")
     ui.kv("GOODIVERS_ORIGINAL", "RADAR/PATCH CRU EM INGLES POR PADRAO (1)")
     ui.kv("GOODIVERS_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
     ui.kv("GOODIVERS_DIR", str(BASE_DIR))

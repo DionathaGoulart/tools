@@ -46,7 +46,7 @@ Fotografia do momento, coletada em paralelo (**a coleta é sem LLM e sem chave**
 | Ordem Maior (janela do topo) | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
 | Despachos da Super Terra | as notícias in-game (a "TV" do jogo) | api.helldivers2.dev |
 | Oficial · Steam | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
-| Quente no r/Helldivers | posts em alta (best-effort: Reddit bloqueia alguns IPs; o radar segue sem) | Reddit |
+| Quente no r/Helldivers | posts em alta — com `REDDIT_CLIENT_ID`/`SECRET` usa a API OAuth oficial (funciona em qualquer IP); sem credencial tenta o endpoint público (Reddit bloqueia muitos IPs; o radar segue sem) | Reddit |
 | Canais do nicho | últimos vídeos de cada canal monitorado, com views e idade | RSS público do YouTube |
 | Seu canal · Goodivers | seus vídeos e views, sempre à vista | RSS público do YouTube |
 
@@ -319,6 +319,7 @@ export GOODIVERS_LEMBRETE=1
 |---|---|---|
 | `OPENROUTER_API_KEY` | sua chave (obrigatória só p/ gerar) | — |
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
+| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | Reddit via API OAuth oficial — app tipo "script" criado em [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) | endpoint público (best-effort) |
 | `GOODIVERS_CONTEXTO` | contexto extra do canal injetado em toda geração (equipamento, estilo de edição, tempo disponível…) | nenhum |
 | `GOODIVERS_DIR` | onde salvar cache e config | `~/.goodivers` |
 | `GOODIVERS_ORIGINAL` | `1` mostra o radar cru em inglês por padrão (sem tradução/LLM) | desligado |
