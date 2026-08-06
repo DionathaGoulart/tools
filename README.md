@@ -22,6 +22,8 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | **Imagens** | | |
 | [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | [images/goodprofile](./images/goodprofile) | `goodprofile` | Encaixa imagens nos tamanhos prontos de perfil/rede social: presets de avatar/capa/favicon, corte com foco, troca de cor, centralização e máscara redonda |
+| **Jogos** | | |
+| [games/goodpet](./games/goodpet) | `goodpet` | Tamagotchi no terminal: adote um ovo, alimente, brinque e cuide — ele evolui (ou morre) mesmo com o terminal fechado |
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
@@ -52,6 +54,7 @@ bash ~/Desktop/tools/goodjob/setup.sh
 bash ~/Desktop/tools/goodjob/setup.sh --skill     # skill /goodjob do Claude Code
 bash ~/Desktop/tools/images/goodpixel/setup.sh
 bash ~/Desktop/tools/images/goodprofile/setup.sh
+bash ~/Desktop/tools/games/goodpet/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
@@ -193,6 +196,28 @@ goodivers canais add @x  # monitorar outro canal
 
 ---
 
+## Jogos
+
+### [games/goodpet](./games/goodpet)
+Tamagotchi no terminal. Você adota um ovo que choca e evolui (bebê → criança →
+adulto) conforme o cuidado; fome, felicidade, energia e higiene caem por
+timestamp **mesmo com o terminal fechado** — descuido vira doença, doença sem
+cura vira lápide. Card rápido por subcomando ou modo vivo (`watch`) com o bicho
+animado e teclas de ação. Zero dependências, zero rede: o pet mora em
+`~/.goodpet/pet.json`.
+
+```bash
+goodpet new Bilu     # adota um ovo
+goodpet              # card: arte + barras + fase
+goodpet feed         # alimenta · play brinca · clean dá banho
+goodpet sleep        # dormir recupera energia · wake acorda
+goodpet heal         # remédio quando doente
+goodpet watch        # modo vivo: tela animada, F/P/L/S/H/Q
+goodpet log          # últimos eventos + totais de cuidado
+```
+
+---
+
 ## Senhas
 
 ### [goodpen](./goodpen) — cofre de senhas em duas versões
@@ -255,6 +280,12 @@ subcomandos, gerando com o Claude da sessão (sem chave).
 |---|---|---|
 | goodpixel | `goodpixel` | `[imagens...]` · `-w/--width` · `-c/--colors` · `--palette mono\|gameboy\|cga\|pico8` · `-d` dither · `-s/--scale` · `--temas` |
 | goodprofile | `goodprofile` | `[imagens...] [preset\|kit\|LxA]` · `presets` catálogo · `--modo cobrir\|conter\|esticar` · `--gravidade`/`--foco X,Y` · `--centralizar`/`--margem` · `--cor-de/--cor-para` · `--tint` · `--pb` · `--circulo`/`--raio` · `--formato png\|jpg\|webp` · `--temas` |
+
+### Jogos
+
+| Ferramenta | Prefixo | Subcomandos principais |
+|---|---|---|
+| goodpet | `goodpet` | (card do pet) · `new [nome]` · `feed` · `play` · `clean` · `sleep`/`wake` · `heal` · `watch` · `log` · `temas` |
 
 ### Senhas
 
@@ -338,6 +369,10 @@ tools/
       setup.sh         ← adiciona ao PATH
     goodprofile/       ← imagem → tamanhos de perfil/rede social
       goodprofile        ← o CLI
+      setup.sh         ← adiciona ao PATH
+  games/
+    goodpet/           ← tamagotchi no terminal (o pet vive em ~/.goodpet)
+      goodpet            ← o CLI
       setup.sh         ← adiciona ao PATH
 ```
 
