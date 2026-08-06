@@ -13,7 +13,7 @@
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel images/goodprofile games/goodpet goodnerd)
+NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel images/goodprofile goodnerd)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -29,7 +29,6 @@ DESCS=(
   "skill /dark no Claude Code: gera com o Claude, sem chave"
   "imagem (png/jpg/svg/…) -> pixel art, paletas clássicas"
   "imagem -> tamanhos prontos de perfil/rede social (avatar, capa, favicon)"
-  "tamagotchi de terminal: um bichinho que evolui e cobra cuidado"
   "teatro de hacker fake no terminal, pra impressionar leigos"
 )
 

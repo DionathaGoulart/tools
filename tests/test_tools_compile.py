@@ -25,7 +25,6 @@ PY_TOOLS = [
     "goodzap/goodzap",
     "images/goodpixel/goodpixel",
     "images/goodprofile/goodprofile",
-    "games/goodpet/goodpet",
 ]
 
 
