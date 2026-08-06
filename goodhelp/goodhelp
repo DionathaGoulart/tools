@@ -59,6 +59,7 @@ CATALOGO=(
   "ia|dark|copiloto do @darkning.art (horror art)|"
   "imagens|goodpixel|imagem -> pixel art, paletas clássicas|"
   "imagens|goodprofile|tamanhos prontos de perfil/rede social|"
+  "jogos|goodpet|tamagotchi de terminal, cuide ou ele morre|"
   "senhas|cofre|cofre de senhas standalone (goodpen)|goodpen/standalone/build.sh"
   "senhas|pass|password-store com backup em pendrive|goodpen/pass-store/setup.sh"
 )
