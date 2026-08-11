@@ -5,7 +5,9 @@
 #   bash setup.sh     ← one-time install: writes the source line into your shell rc
 #   source setup.sh   ← what the rc line runs on every new terminal (adds to PATH)
 
-TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# quando o load.sh chama, o diretório vem pronto: dentro de uma função o zsh
+# troca $0 pelo nome da função e a auto-localização daria o diretório errado
+TOOLS_DIR="${GOODTOOLS_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
 
 SOURCED=0
 if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
@@ -31,16 +33,17 @@ if [ "$SOURCED" -eq 1 ]; then
   unset _gh_dir
   unset TOOLS_DIR SOURCED
 else
-  LINE="[ -f \"$TOOLS_DIR/setup.sh\" ] && source \"$TOOLS_DIR/setup.sh\""
-  case "$(basename "${SHELL:-bash}")" in
-    zsh) RC="$HOME/.zshrc" ;;
-    *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
-  esac
+  # instalação: um bloco único no rc, ancorado no symlink ~/.goodtools, em vez
+  # de uma linha com caminho absoluto por ferramenta (ver lib/rcblock.sh)
+  ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
+  # shellcheck source=../lib/rcblock.sh
+  . "$ROOT/lib/rcblock.sh"
+  RC="$(gt_rc)"
 
-  if grep -qsF "goodnerd/setup.sh" "$RC"; then
+  if gt_has "$RC" "goodnerd"; then
     echo "goodnerd: already installed in $RC"
   else
-    printf '\n# tools/goodnerd — comando goodnerd (teatro de hacker fake)\n%s\n' "$LINE" >> "$RC"
+    gt_add "$ROOT" "goodnerd"
     echo "goodnerd: installed in $RC"
   fi
   echo "goodnerd: open a new terminal or run:  source ${RC/#$HOME/~}"

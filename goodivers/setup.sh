@@ -10,7 +10,9 @@
 # Optional: set GOODIVERS_LEMBRETE=1 before sourcing to print a reminder once
 # per day when you open a terminal, if you haven't checked the radar yet.
 
-TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# quando o load.sh chama, o diretório vem pronto: dentro de uma função o zsh
+# troca $0 pelo nome da função e a auto-localização daria o diretório errado
+TOOLS_DIR="${GOODTOOLS_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
 
 SOURCED=0
 if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
@@ -67,16 +69,17 @@ elif [ "${1:-}" = "--skill" ]; then
   echo "goodivers: skill /goodivers instalada em ~/.claude/skills/goodivers"
   echo "goodivers: o skill usa o CLI pra coletar — instale-o também se ainda não tiver (bash setup.sh)"
 else
-  LINE="[ -f \"$TOOLS_DIR/setup.sh\" ] && source \"$TOOLS_DIR/setup.sh\""
-  case "$(basename "${SHELL:-bash}")" in
-    zsh) RC="$HOME/.zshrc" ;;
-    *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
-  esac
+  # instalação: um bloco único no rc, ancorado no symlink ~/.goodtools, em vez
+  # de uma linha com caminho absoluto por ferramenta (ver lib/rcblock.sh)
+  ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
+  # shellcheck source=../lib/rcblock.sh
+  . "$ROOT/lib/rcblock.sh"
+  RC="$(gt_rc)"
 
-  if grep -qsF "goodivers/setup.sh" "$RC"; then
+  if gt_has "$RC" "goodivers"; then
     echo "goodivers: already installed in $RC"
   else
-    printf '\n# tools/goodivers — copiloto do canal (Helldivers 2)\n# export GOODIVERS_LEMBRETE=1  # descomente pra lembrete diário\n%s\n' "$LINE" >> "$RC"
+    gt_add "$ROOT" "goodivers"
     echo "goodivers: installed in $RC"
   fi
   echo "goodivers: open a new terminal or run:  source ${RC/#$HOME/~}"

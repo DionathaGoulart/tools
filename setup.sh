@@ -7,11 +7,17 @@
 # Teclas: ↑↓ move · ←→ troca de página · espaço/Enter marca · 1-9 marca visível · a todos · n nenhum
 #         Enter (ou espaço) no botão [INSTALAR] confirma · q sai
 # Tema:   TOOLS_TEMA / RETRO_TEMA (ver .harness/styleguide-terminal.md)
-# "Instalada" = a linha `source .../setup.sh` existe em algum rc do shell
+# "Instalada" = o nome está na lista do bloco `# >>> good tools >>>` do rc
 # (exceção: goodivers-skill = symlink em ~/.claude/skills/goodivers).
-# Desinstalar remove do rc as linhas da ferramenta (backup: <rc>.tools-backup).
+# Desinstalar tira o nome da lista (backup: <rc>.tools-backup).
+#
+# O rc recebe UM bloco só, ancorado no symlink ~/.goodtools — mover o repo é um
+# `ln -sfn` e nada no rc muda. Quem instalou no formato antigo (uma linha com
+# caminho absoluto por ferramenta) migra sozinho aqui. Ver lib/rcblock.sh.
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/rcblock.sh
+. "$ROOT/lib/rcblock.sh"
 
 NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel images/goodprofile goodnerd)
 DESCS=(
@@ -43,7 +49,9 @@ instalada() {
     goodivers-skill) [ -L "$SKILL_GOODIVERS" ] || [ -d "$SKILL_GOODIVERS" ] ;;
     goodjob-skill) [ -L "$SKILL_GOODJOB" ] || [ -d "$SKILL_GOODJOB" ] ;;
     dark-skill) [ -L "$SKILL_DARK" ] || [ -d "$SKILL_DARK" ] ;;
-    *) grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null ;;
+    # bloco novo (lista do goodtools_load) ou formato antigo ainda por migrar
+    *) gt_has "$(gt_rc)" "$1" ||
+       grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null ;;
   esac
 }
 
@@ -279,6 +287,12 @@ done
 printf '\033[H\033[2J'
 if [ "$MODO" = install ]; then
   retro_modulo "install_runner" "${#MARCADAS[@]} item(s)"
+  # um backup por execução, não um por ferramenta: cada setup.sh chamado abaixo
+  # reescreve o mesmo bloco do rc
+  for rc in "${RCS[@]}"; do
+    [ -f "$rc" ] && cp "$rc" "$rc.tools-backup"
+  done
+  export GT_NO_BACKUP=1
   for t in "${MARCADAS[@]}"; do
     printf '  %s>%s %s%s%s\n' "$ACC30" "$RESET" "$ACC$BOLD" "$(retro_upper "$t")" "$RESET"
     case "$t" in
@@ -316,16 +330,14 @@ else
       fi
       continue
     fi
-    T_UP="$(printf %s "$t" | tr '[:lower:]' '[:upper:]')"
+    # tira o nome da lista do bloco; a última ferramenta leva junto o bloco
+    # inteiro e o symlink âncora (ver lib/rcblock.sh)
     for rc in "${RCS[@]}"; do
       [ -f "$rc" ] || continue
-      grep -qsF "$t/setup.sh" "$rc" || continue
-      awk -v t="$t" -v T="$T_UP" '
-        index($0, t "/setup.sh")      { next }
-        index($0, "# tools/" t)       { next }
-        index($0, T "_LEMBRETE=")     { next }
-        { print }
-      ' "$rc" > "$rc.tmp$$" && mv "$rc.tmp$$" "$rc"
+      gt_has "$rc" "$t" || grep -qsF "$t/setup.sh" "$rc" || continue
+      GOODTOOLS_RC="$rc"
+      gt_remove "$ROOT" "$t"
+      unset GOODTOOLS_RC
       printf '  %s−%s %s%s%s removida de %s%s%s\n' "$ALERTA" "$RESET" "$ACC" "$t" "$RESET" "$FG40" "${rc/#$HOME/~}" "$RESET"
     done
   done

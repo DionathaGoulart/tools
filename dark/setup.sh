@@ -10,7 +10,9 @@
 # Optional: set DARK_LEMBRETE=1 before sourcing to print a reminder once
 # per day when you open a terminal, if you haven't checked the radar yet.
 
-TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# quando o load.sh chama, o diretório vem pronto: dentro de uma função o zsh
+# troca $0 pelo nome da função e a auto-localização daria o diretório errado
+TOOLS_DIR="${GOODTOOLS_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
 
 SOURCED=0
 if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
@@ -67,16 +69,17 @@ elif [ "${1:-}" = "--skill" ]; then
   echo "dark: skill /dark instalada em ~/.claude/skills/dark"
   echo "dark: o skill usa o CLI pra coletar — instale-o também se ainda não tiver (bash setup.sh)"
 else
-  LINE="[ -f \"$TOOLS_DIR/setup.sh\" ] && source \"$TOOLS_DIR/setup.sh\""
-  case "$(basename "${SHELL:-bash}")" in
-    zsh) RC="$HOME/.zshrc" ;;
-    *)   RC="$HOME/.bashrc"; [ -f "$RC" ] || RC="$HOME/.bash_profile" ;;
-  esac
+  # instalação: um bloco único no rc, ancorado no symlink ~/.goodtools, em vez
+  # de uma linha com caminho absoluto por ferramenta (ver lib/rcblock.sh)
+  ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
+  # shellcheck source=../lib/rcblock.sh
+  . "$ROOT/lib/rcblock.sh"
+  RC="$(gt_rc)"
 
-  if grep -qsF "dark/setup.sh" "$RC"; then
+  if gt_has "$RC" "dark"; then
     echo "dark: already installed in $RC"
   else
-    printf '\n# tools/dark — copiloto do Instagram @darkning.art (horror art)\n# export DARK_LEMBRETE=1  # descomente pra lembrete diário\n%s\n' "$LINE" >> "$RC"
+    gt_add "$ROOT" "dark"
     echo "dark: installed in $RC"
   fi
   echo "dark: open a new terminal or run:  source ${RC/#$HOME/~}"
