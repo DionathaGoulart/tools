@@ -25,36 +25,67 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | **Senhas** | | |
 | [goodpen](./goodpen) | `cofre` / `pass` | Cofre de senhas criptografado, backup em pendrive (2 versões) |
 
-Toda ferramenta responde a `<ferramenta> help` (ex: `goodivers help`, `goodpomo help`) — e `goodhelp` lista as que você tem instaladas. Ele não se instala sozinho: vem junto, automaticamente, ao instalar qualquer ferramenta. O contador `N/M` conta só o que o instalador da raiz oferece; o goodpen tem setup próprio e só entra na conta depois de instalado.
+Toda ferramenta responde a `<ferramenta> help` (ex: `goodivers help`, `goodpomo help`) — e `goodhelp` lista as que você tem instaladas. Ele não se instala sozinho: vem junto, automaticamente, ao instalar qualquer ferramenta. O contador `N/M` conta só o que o instalador da raiz oferece; o goodpen tem setup próprio e só entra na conta depois de instalado. `goodhelp doctor` checa a instalação inteira quando algo não aparece no `PATH`.
 
 ## Instalação
+
+Clone onde quiser — o repo não precisa ficar em lugar nenhum específico:
+
+```bash
+git clone https://github.com/DionathaGoulart/tools.git
+cd tools
+```
 
 Jeito rápido: o instalador interativo da raiz lista tudo, você marca o que quer (`1-9` marca, `a` todos, `n` nenhum, `Enter` instala). Ele se ajusta à altura do terminal (mostra mais itens por página em janelas altas) e marca com `[✓]` verde o que já está instalado:
 
 ```bash
-bash ~/Desktop/tools/setup.sh        # instalar (marque e dê Enter)
-bash ~/Desktop/tools/setup.sh -u     # desinstalar (lista só as instaladas)
+bash setup.sh        # instalar (marque e dê Enter)
+bash setup.sh -u     # desinstalar (lista só as instaladas)
 ```
 
 Ou individualmente — cada ferramenta tem um `setup.sh` que a adiciona ao `PATH`:
 
 ```bash
-bash ~/Desktop/tools/goodcheats/setup.sh
-bash ~/Desktop/tools/goodpomo/setup.sh
-bash ~/Desktop/tools/goodnerd/setup.sh
-bash ~/Desktop/tools/goodprof/setup.sh
-bash ~/Desktop/tools/goodbio/setup.sh
-bash ~/Desktop/tools/goodvocab/setup.sh
-bash ~/Desktop/tools/goodzap/setup.sh
-bash ~/Desktop/tools/goodivers/setup.sh
-bash ~/Desktop/tools/goodivers/setup.sh --skill   # skill /goodivers do Claude Code
-bash ~/Desktop/tools/goodjob/setup.sh
-bash ~/Desktop/tools/goodjob/setup.sh --skill     # skill /goodjob do Claude Code
-bash ~/Desktop/tools/images/goodpixel/setup.sh
-bash ~/Desktop/tools/images/goodprofile/setup.sh
+bash goodcheats/setup.sh
+bash goodpomo/setup.sh
+bash goodnerd/setup.sh
+bash goodprof/setup.sh
+bash goodbio/setup.sh
+bash goodvocab/setup.sh
+bash goodzap/setup.sh
+bash goodivers/setup.sh
+bash goodivers/setup.sh --skill   # skill /goodivers do Claude Code
+bash goodjob/setup.sh
+bash goodjob/setup.sh --skill     # skill /goodjob do Claude Code
+bash images/goodpixel/setup.sh
+bash images/goodprofile/setup.sh
 ```
 
-Depois abra um terminal novo (ou `source ~/.zshrc`). Os `setup.sh` detectam o próprio caminho — se clonar o repo em outro lugar, funciona igual. A desinstalação remove as linhas do seu rc (com backup em `<rc>.tools-backup`); o goodpen tem setup próprio e fica de fora do instalador.
+Depois abra um terminal novo (ou `source ~/.zshrc`). O goodpen tem setup próprio e fica de fora do instalador.
+
+### Onde isso mexe
+
+O instalador escreve **um bloco só** no seu rc (`~/.zshrc` ou `~/.bashrc`), ancorado num symlink `~/.goodtools` que aponta pro repo:
+
+```bash
+# >>> good tools >>>
+export GOODTOOLS_ROOT="$HOME/.goodtools"
+if [ -r "$GOODTOOLS_ROOT/load.sh" ]; then
+  . "$GOODTOOLS_ROOT/load.sh"
+  goodtools_load goodcheats goodivers images/goodpixel
+else
+  echo "good tools: $GOODTOOLS_ROOT não resolve — repo moveu ou sumiu?" >&2
+fi
+# <<< good tools <<<
+```
+
+Consequências práticas:
+
+- **Mudou o repo de lugar?** Um comando, e o rc não muda: `ln -sfn /caminho/novo/tools ~/.goodtools`
+- **Alguma coisa quebrou?** O shell avisa na abertura, com o conserto na mensagem — nunca falha calado. `goodhelp doctor` mostra âncora, bloco do rc, PATH e skills, item por item.
+- **Instalou na versão antiga** (uma linha com caminho absoluto por ferramenta)? Rodar qualquer `setup.sh` migra sozinho: as linhas velhas saem, o que ainda existe entra na lista do bloco.
+- **Desinstalar** tira o nome da lista; a última ferramenta leva o bloco e o symlink junto. Backup do rc em `<rc>.tools-backup`.
+- **Windows sem Developer Mode**, onde o symlink não rola: o bloco cai pro caminho absoluto do repo e o instalador avisa. Funciona igual, só que mover o repo pede reinstalar.
 
 **Ferramentas de IA** também precisam de uma chave grátis da [OpenRouter](https://openrouter.ai/keys). No seu rc:
 
@@ -273,10 +304,12 @@ também aceita seu `<TOOL>_TEMA`). `NO_COLOR` desliga as cores.
 ```
 tools/
   setup.sh           ← instalador interativo: marca e instala/desinstala qualquer ferramenta
+  load.sh            ← o que o rc chama a cada shell novo (goodtools_load)
   .harness/
     styleguide.md          ← style guide do portfólio (origem do visual)
     styleguide-terminal.md ← como ele vira UI de terminal (spec que todas seguem)
   lib/
+    rcblock.sh         ← escreve/remove o bloco do rc e a âncora ~/.goodtools
     retro.sh           ← tema compartilhado das ferramentas em bash
     retro.py           ← tema compartilhado das ferramentas em python
     llm.py             ← cliente OpenRouter compartilhado (ferramentas de IA)
