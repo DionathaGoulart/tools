@@ -66,6 +66,13 @@ jobs:
           shellcheck --version
           make lint-sh
 
+      # rc block: install, migration from the old absolute-path format, uninstall,
+      # and the loader. Needs real symlinks, so it skips the Windows runner.
+      - name: rcblock tests
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: bash tests/test_rcblock.sh
+
       # functional smoke test for goodharness (bundle presets, init, config)
       # jq is preinstalled on ubuntu and macos runners; windows runs it via Git Bash
       - name: goodharness tests
