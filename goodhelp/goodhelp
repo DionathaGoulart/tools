@@ -4,6 +4,7 @@
 #
 # usage: goodhelp                lista as ferramentas instaladas
 #        goodhelp <ferramenta>   abre a ajuda dela (ex: goodhelp goodivers)
+#        goodhelp doctor         checa a saúde da instalação (raiz, rc, PATH)
 #        goodhelp temas          lista as paletas do terminal
 #        goodhelp -h | --help
 #
@@ -129,11 +130,131 @@ listar() {
   echo
 }
 
+# ---------- doctor ----------
+# Confere o que o shell realmente vê: âncora, bloco do rc, e cada ferramenta da
+# lista. Existe porque a falha clássica é silenciosa — o repo muda de lugar e a
+# família some sem uma mensagem sequer.
+DOC_PROBLEMAS=0
+
+doc_ok()   { printf '  %s✓%s %-22s %s%s%s\n' "$OK" "$RESET" "$1" "$FG70" "${2:-}" "$RESET"; }
+doc_falha() {
+  printf '  %s✗%s %-22s %s%s%s\n' "$ALERTA" "$RESET" "$1" "$ALERTA" "${2:-}" "$RESET"
+  DOC_PROBLEMAS=$((DOC_PROBLEMAS + 1))
+}
+
+doctor() {
+  local rc lista tool dir alvo raiz link n=0
+
+  # rcblock dá gt_rc/gt_list/gt_legacy — mesma fonte de verdade do instalador
+  if [ -r "$ROOT/lib/rcblock.sh" ]; then
+    # shellcheck source=../lib/rcblock.sh
+    . "$ROOT/lib/rcblock.sh"
+  else
+    echo "goodhelp: lib/rcblock.sh não encontrada em $ROOT" >&2
+    return 2
+  fi
+
+  echo
+  retro_topo
+  retro_chrome "root@goodhelp: ~/doctor" "saúde da instalação"
+  retro_sep
+  retro_modulo "doctor" "o que o shell enxerga"
+
+  retro_secao "âncora"
+  link="$GT_LINK"
+  if [ -L "$link" ]; then
+    alvo="$(readlink "$link")"
+    if [ -d "$link" ]; then
+      doc_ok "${link/#$HOME/~}" "-> ${alvo/#$HOME/~}"
+    else
+      doc_falha "${link/#$HOME/~}" "aponta pra $alvo, que não existe"
+    fi
+  elif [ -d "$link" ]; then
+    doc_ok "${link/#$HOME/~}" "diretório (sem symlink)"
+  else
+    doc_falha "${link/#$HOME/~}" "não existe — rode: bash $ROOT/setup.sh"
+  fi
+
+  raiz="${GOODTOOLS_ROOT:-}"
+  if [ -z "$raiz" ]; then
+    doc_falha "GOODTOOLS_ROOT" "não definida neste shell (rc sem o bloco?)"
+  elif [ -d "$raiz" ]; then
+    doc_ok "GOODTOOLS_ROOT" "${raiz/#$HOME/~}"
+  else
+    doc_falha "GOODTOOLS_ROOT" "${raiz/#$HOME/~} não resolve"
+  fi
+
+  echo
+  retro_secao "rc"
+  rc="$(gt_rc)"
+  if [ ! -f "$rc" ]; then
+    doc_falha "${rc/#$HOME/~}" "não existe"
+  else
+    lista="$(gt_list "$rc")"
+    if [ -n "$lista" ]; then
+      doc_ok "${rc/#$HOME/~}" "bloco good tools presente"
+    else
+      doc_falha "${rc/#$HOME/~}" "sem o bloco — rode: bash $ROOT/setup.sh"
+    fi
+    if grep -qs '^\[ -f "[^"]*/setup\.sh" \]' "$rc"; then
+      doc_falha "formato antigo" "linhas soltas no rc — reinstale pra migrar"
+    fi
+  fi
+
+  echo
+  retro_secao "ferramentas"
+  if [ -z "${lista:-}" ]; then
+    retro_aviso "vazio" "nenhuma ferramenta na lista do bloco"
+  fi
+  for tool in ${lista:-}; do
+    n=$((n + 1))
+    dir="${GOODTOOLS_ROOT:-$link}/$tool"
+    if [ ! -d "$dir" ]; then
+      doc_falha "$tool" "diretório não existe"
+    elif [ ! -r "$dir/setup.sh" ]; then
+      doc_falha "$tool" "sem setup.sh"
+    else
+      case ":$PATH:" in
+        *":$dir:"*) doc_ok "$tool" "no PATH" ;;
+        *) doc_falha "$tool" "fora do PATH — abra um terminal novo" ;;
+      esac
+    fi
+  done
+
+  echo
+  retro_secao "skills (claude code)"
+  for tool in goodivers goodjob dark; do
+    alvo="$HOME/.claude/skills/$tool"
+    if [ -L "$alvo" ]; then
+      if [ -d "$alvo" ]; then
+        doc_ok "/$tool" "-> $(readlink "$alvo" | sed "s|^$HOME|~|")"
+      else
+        doc_falha "/$tool" "symlink quebrado: $(readlink "$alvo")"
+      fi
+    elif [ -d "$alvo" ]; then
+      doc_ok "/$tool" "cópia local"
+    fi
+  done
+
+  echo
+  if [ "$DOC_PROBLEMAS" -eq 0 ]; then
+    retro_ok "$n ferramenta(s) · nada quebrado"
+  else
+    retro_erro "$DOC_PROBLEMAS problema(s) — veja as linhas com ✗ acima"
+    retro_proximo "bash ${ROOT/#$HOME/~}/setup.sh" "quase sempre resolve:"
+  fi
+  retro_base
+  retro_sombra
+  echo
+  [ "$DOC_PROBLEMAS" -eq 0 ]
+}
+
 uso() {
   retro_modulo "goodhelp_help"
   retro_secao "comandos"
   retro_kv "goodhelp" "lista as ferramentas instaladas"
   retro_kv "goodhelp <ferramenta>" "abre a ajuda dela"
+  retro_kv "goodhelp doctor" "checa raiz, rc, PATH e skills"
   retro_kv "goodhelp temas" "paletas do terminal"
   echo
   retro_secao "env"
@@ -163,6 +284,7 @@ abrir_ajuda() { # $1 = nome da ferramenta
 case "${1:-}" in
   "")                   listar ;;
   -h|--help|help|ajuda) uso ;;
+  doctor|medico)        doctor ;;
   temas|tema)           retro_catalogo_temas GOODHELP_TEMA ;;
   -*)                   retro_erro "opção desconhecida '$1' (veja goodhelp -h)"; exit 2 ;;
   *)                    abrir_ajuda "$1" ;;
