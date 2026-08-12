@@ -19,6 +19,7 @@ PY_TOOLS = [
     "dark/dark",
     "goodivers/goodivers",
     "goodjob/goodjob",
+    "goodwash/goodwash",
     "goodvocab/goodvocab",
     "goodprof/goodprof",
     "goodbio/goodbio",
