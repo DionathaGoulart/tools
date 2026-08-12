@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/rcblock.sh
 . "$ROOT/lib/rcblock.sh"
 
-NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill images/goodpixel images/goodprofile goodnerd goodhunter)
+NOMES=(goodcheats goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill goodwash goodwash-skill images/goodpixel images/goodprofile goodnerd goodhunter)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "pomodoro no terminal com notificação e stats"
@@ -33,6 +33,8 @@ DESCS=(
   "skill /goodjob no Claude Code: gera com o Claude, sem chave"
   "copiloto do Instagram @darkning.art, horror art (OpenRouter)"
   "skill /dark no Claude Code: gera com o Claude, sem chave"
+  "reescreve texto de IA pra soar humano e sair da watermark (OpenRouter)"
+  "skill /goodwash no Claude Code: reescreve com o Claude, sem chave"
   "imagem (png/jpg/svg/…) -> pixel art, paletas clássicas"
   "imagem -> tamanhos prontos de perfil/rede social (avatar, capa, favicon)"
   "teatro de hacker fake no terminal, pra impressionar leigos"
@@ -43,6 +45,7 @@ RCS=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile")
 SKILL_GOODIVERS="$HOME/.claude/skills/goodivers"
 SKILL_GOODJOB="$HOME/.claude/skills/goodjob"
 SKILL_DARK="$HOME/.claude/skills/dark"
+SKILL_GOODWASH="$HOME/.claude/skills/goodwash"
 
 instalada() {
   # skills: symlink no macOS/Linux; no Windows (Git Bash) pode ser cópia da pasta
@@ -50,6 +53,7 @@ instalada() {
     goodivers-skill) [ -L "$SKILL_GOODIVERS" ] || [ -d "$SKILL_GOODIVERS" ] ;;
     goodjob-skill) [ -L "$SKILL_GOODJOB" ] || [ -d "$SKILL_GOODJOB" ] ;;
     dark-skill) [ -L "$SKILL_DARK" ] || [ -d "$SKILL_DARK" ] ;;
+    goodwash-skill) [ -L "$SKILL_GOODWASH" ] || [ -d "$SKILL_GOODWASH" ] ;;
     # bloco novo (lista do goodtools_load) ou formato antigo ainda por migrar
     *) gt_has "$(gt_rc)" "$1" ||
        grep -qsF "$1/setup.sh" "${RCS[@]}" 2>/dev/null ;;
@@ -300,6 +304,7 @@ if [ "$MODO" = install ]; then
       goodivers-skill) bash "$ROOT/goodivers/setup.sh" --skill ;;
       goodjob-skill)   bash "$ROOT/goodjob/setup.sh" --skill ;;
       dark-skill)      bash "$ROOT/dark/setup.sh" --skill ;;
+      goodwash-skill)  bash "$ROOT/goodwash/setup.sh" --skill ;;
       *)               bash "$ROOT/$t/setup.sh" ;;
     esac
   done
@@ -314,11 +319,12 @@ else
     [ -f "$rc" ] && cp "$rc" "$rc.tools-backup"
   done
   for t in "${MARCADAS[@]}"; do
-    if [ "$t" = goodivers-skill ] || [ "$t" = goodjob-skill ] || [ "$t" = dark-skill ]; then
+    if [ "$t" = goodivers-skill ] || [ "$t" = goodjob-skill ] || [ "$t" = dark-skill ] || [ "$t" = goodwash-skill ]; then
       # remove só se for symlink apontando pra este repo
       if [ "$t" = goodivers-skill ]; then LINKS="$SKILL_GOODIVERS"; ORIGEM="$ROOT/goodivers"; NOME_SKILL=goodivers
       elif [ "$t" = goodjob-skill ]; then LINKS="$SKILL_GOODJOB"; ORIGEM="$ROOT/goodjob"; NOME_SKILL=goodjob
-      else LINKS="$SKILL_DARK"; ORIGEM="$ROOT/dark"; NOME_SKILL=dark; fi
+      elif [ "$t" = dark-skill ]; then LINKS="$SKILL_DARK"; ORIGEM="$ROOT/dark"; NOME_SKILL=dark
+      else LINKS="$SKILL_GOODWASH"; ORIGEM="$ROOT/goodwash"; NOME_SKILL=goodwash; fi
       if [ -L "$LINKS" ]; then
         case "$(readlink "$LINKS")" in
           "$ORIGEM"*) rm -f "$LINKS"
