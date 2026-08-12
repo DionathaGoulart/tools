@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+goodwash — reescreve texto pra soar humano e sair da marca d'água estatística da IA.
+
+A watermark "lista verde / lista vermelha" (Kirchenbauer et al.) não carimba
+caracteres — ela enviesa a ESCOLHA DE TOKENS na geração: a partir de um hash do
+contexto + chave secreta, parte do vocabulário vira "verde" (preferida) e o
+resto "vermelha". O detector, com a mesma chave, mede se o texto usa tokens
+verdes acima do acaso. A consequência direta disso (documentada nos próprios
+papers de watermarking): reescrita genuína destrói o sinal, porque muda as
+escolhas de tokens e a estrutura do texto. O goodwash faz exatamente isso —
+reescrever de verdade, não trocar sinônimo por sinônimo.
+
+O modelo reescreve em intensidades (leve|media|profunda). `checar` roda offline
+(0 LLM) e aponta os "tells" de texto de IA — serve de guia pro que a reescrita
+precisa atacar; não é detecção da watermark real, que exige a chave secreta.
+
+O CLI gera via OpenRouter `:free`. No Claude Code, `/goodwash` reescreve com o
+Claude da sessão (sem chave).
+
+args: [leve|media|profunda] [texto|arquivo] [-o saida] · checar [texto] ·
+      temas · -m · help
+
+Requer: Python 3. OPENROUTER_API_KEY só pros comandos de geração (lavar).
+"""
+
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
+from retro import Retro  # noqa: E402
+from llm import LLM, LLMError  # noqa: E402
+
+ui = Retro(env_prefix="GOODWASH")
+
+
+def carregar_dotenv():
+    """Carrega KEY=VALOR de um .env ao lado do script. Não sobrescreve o que já
+    está exportado no shell (env real tem prioridade)."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        linhas = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+
+
+carregar_dotenv()
+
+DEFAULT_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+]
+
+INTENSIDADES = ("leve", "media", "profunda")
+VERBOS = ("lavar", "checar", "temas", "help")
+
+# --- tells de texto de IA (heurística offline, serve de guia pra reescrita) ---
+AI_FORMULAS = [
+    "além disso", "portanto", "dessa forma", "dessa maneira", "com isso",
+    "é importante notar", "é importante ressaltar", "vale ressaltar",
+    "vale a pena destacar", "cabe destacar", "no entanto", "por outro lado",
+    "em suma", "em resumo", "em conclusão", "em outras palavras", "ou seja",
+    "não apenas", "como resultado", "em última análise", "sem dúvida",
+    "de modo geral", "de maneira geral", "diante disso", "nesse contexto",
+    "dessa perspectiva", "no que diz respeito", "quando se trata de",
+    "delve", "leverage", "moreover", "furthermore", "additionally",
+    "in conclusion", "in summary", "it's important to note", "ultimately",
+    "not only", "as a result", "robust", "seamless", "empower", "utilize",
+]
+AI_BUZZ = [
+    "vale ressaltar", "fundamental", "essencial", "crucial", "indispensável",
+    "imprescindível", "mundo digital", "cada vez mais", "sem precedentes",
+    "de forma eficaz", "de forma eficiente", "no cenário atual", "panorama",
+    "tapestry", "game-changer", "paradigma", "sinergia", "mudança de jogo",
+    "solução inovadora", "experiência do usuário", "jornada", "ecossistema",
+]
+
+
+def die(msg):
+    linhas = str(msg).split("\n")
+    print(f"  {ui.ALERTA}[ ERRO ]{ui.RESET} {linhas[0]}", file=sys.stderr)
+    for extra in linhas[1:]:
+        print(f"          {ui.FG40}{extra.strip()}{ui.RESET}", file=sys.stderr)
+    sys.exit(1)
+
+
+def nota(texto):
+    print(f"  {ui.FG40}· {texto}{ui.RESET}", file=sys.stderr)
+
+
+def ler_entrada(args, resto):
+    """Texto de: argumento → arquivo → stdin. `leve|media|profunda` como 1º
+    argumento vira intensidade."""
+    intensidade = "media"
+    partes = list(resto)
+    if partes and partes[0] in INTENSIDADES:
+        intensidade = partes.pop(0)
+    if not partes:
+        if not sys.stdin.isatty():
+            return intensidade, sys.stdin.read().strip()
+        if args.arquivo:
+            caminho = Path(args.arquivo).expanduser()
+            if caminho.exists():
+                return intensidade, caminho.read_text(encoding="utf-8").strip()
+            die(f"arquivo não encontrado: {args.arquivo}")
+        return intensidade, ""
+    if len(partes) == 1:
+        caminho = Path(partes[0]).expanduser()
+        if caminho.exists():
+            return intensidade, caminho.read_text(encoding="utf-8").strip()
+    return intensidade, " ".join(partes).strip()
+
+
+def checar_tells(texto):
+    """Heurística offline de padrões comuns em texto de IA. Não é detecção da
+    watermark (que precisa da chave secreta) — é um guia do que reescrever."""
+    # troca pontuação por espaço (mantém o mesmo tamanho, então os índices ainda
+    # apontam pro texto original) pra pegar fórmula colada em vírgula/ponto/quebra.
+    baixo = " " + re.sub(r"[^\w\s]", " ", texto.lower()) + " "
+    achados = []
+    for f in AI_FORMULAS:
+        alvo = " " + f + " "
+        idx = baixo.find(alvo)
+        while idx >= 0:
+            centro = idx + len(f) // 2          # idx alinha ao texto original
+            ini = max(0, centro - 25)
+            ctx = texto[ini: ini + 50].strip()
+            achados.append((f, ctx))
+            idx = baixo.find(alvo, idx + len(f))
+    buzz = []
+    for b in AI_BUZZ:
+        if " " + b + " " in baixo:
+            buzz.append(b)
+    sentencas = re.findall(r"[^.!?…]+[.!?…]", texto)
+    comps = sorted(len(re.findall(r"\w+", s)) for s in sentencas)
+    var = (comps[-1] - comps[0]) if len(comps) > 1 else None
+    return achados, sorted(set(buzz)), var, len(sentencas)
+
+
+# ---------------------------------------------------------------- LLM (standalone)
+
+_llm = LLM("goodwash", DEFAULT_MODELS)
+
+
+def chamar_llm(messages, max_tokens=2200, temperature=0.8):
+    try:
+        return _llm.chat(messages, max_tokens=max_tokens, temperature=temperature)
+    except LLMError as e:
+        if e.kind == "no_key":
+            die("OPENROUTER_API_KEY não definida (necessária só pra reescrita no "
+                "CLI).\n"
+                "  1. Crie uma chave grátis em https://openrouter.ai/keys\n"
+                '  2. export OPENROUTER_API_KEY="sk-or-..."\n'
+                "  Ou use o skill /goodwash no Claude Code (reescrita sem chave).")
+        if e.kind == "auth":
+            die("OPENROUTER_API_KEY inválida (HTTP 401).")
+        die("Todos os modelos falharam:\n  " + "\n  ".join(e.errors))
+
+
+def listar_modelos_free():
+    try:
+        livres = _llm.free_models()
+    except LLMError as e:
+        die(e.message)
+    ui.modulo("free_models", "src: openrouter")
+    ui.kv("DISPONIVEIS", f"{len(livres)} MODELO(S)")
+    print()
+    ui.secao("modelos")
+    for m in livres:
+        ui.item("·", m)
+    print()
+    ui.proximo('export OPENROUTER_MODEL="modelo1,modelo2"', "pra trocar:")
+    print()
+
+
+def sys_lavar(intensidade):
+    base = ("Você é um editor humano rigoroso reescrevendo texto pra que ele soe "
+            "naturalmente escrito por uma pessoa — e não por uma IA. Texto de "
+            "modelo carrega rastros estatísticos: ritmo uniforme, frases de "
+            "comprimento equilibrado demais, transições fórmulas, vocabulário "
+            "previsível, tríades paralelas e clichês. Sua reescrita precisa "
+            "destruir esses rastros variando de verdade o léxico, a estrutura "
+            "das frases e o ritmo, preservando significado, tom e fatos. "
+            "Diretrizes: varie bastante o tamanho das frases; troque jargão e "
+            "palavras batidas por palavras comuns e precisas; quebre estruturas "
+            "paralelas; mude a ordem das palavras; use linguagem concreta e "
+            "específica; varie o tamanho dos parágrafos; evite transições "
+            "genéricas (além disso, portanto, é importante notar…); escreva "
+            "como uma pessoa real — contrações, expressões idiomáticas, leve "
+            "informalidade quando o tom permitir — nunca robótico. NÃO adicione "
+            "informação que não está no original, não invente fato, nome ou "
+            "número. Responda APENAS com o texto reescrito, sem prefácio nem "
+            "comentário.")
+    if intensidade == "leve":
+        return base + (" Intensidade LEVE: mantenha a estrutura e a ordem das "
+                       "ideias; mexa principalmente no vocabulário e quebre os "
+                       "paralelismos e transições mais óbvios. O texto deve "
+                       "parecer o mesmo, só com as arestas de IA lixadas.")
+    if intensidade == "profunda":
+        return base + (" Intensidade PROFUNDA: reescreva por completo. Quebre "
+                       "parágrafos em lugares diferentes, reordene ideias onde "
+                       "ficar natural, troque os ganchos e os fechamentos, "
+                       "varie o fluxo. O resultado deve parecer escrito do zero "
+                       "por um humano que conhece o assunto, mantendo exatamente "
+                       "os mesmos fatos e o tom.")
+    return base + (" Intensidade MÉDIA: reescreva frase a frase com naturalidade "
+                   "— reestruture as sentenças, varie o ritmo e o vocabulário, "
+                   "mas mantenha a ordem geral das ideias e os parágrafos.")
+
+
+def cmd_lavar(intensidade, texto, saida):
+    if not texto:
+        die("não recebi texto. Use:  goodwash \"seu texto\"  |  goodwash arquivo.txt  |"
+            "  echo \"texto\" | goodwash")
+    nota(f"reescrevendo ({intensidade}, ~{len(texto.split())} palavras)…")
+    result, model = chamar_llm(
+        [{"role": "system", "content": sys_lavar(intensidade)},
+         {"role": "user", "content": texto}],
+        max_tokens=3200, temperature=0.8)
+    ui.modulo("goodwash", f"lavado · model: {model} · intensidade: {intensidade}")
+    ui.kv("ENTRADA", f"{len(texto.split())} PALAVRAS")
+    ui.kv("SAIDA", f"{len(result.split())} PALAVRAS")
+    print()
+    for bloco in result.split("\n"):
+        print(f"  {bloco}" if bloco.strip() else "")
+    print()
+    if saida:
+        caminho = Path(saida).expanduser()
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        caminho.write_text(result.strip() + "\n", encoding="utf-8")
+        ui.ok(f"salvo em {caminho}")
+        print()
+
+
+def cmd_checar(texto):
+    if not texto:
+        die("não recebi texto. Use:  goodwash checar \"seu texto\"  |  goodwash "
+            "checar arquivo.txt  |  echo \"texto\" | goodwash checar")
+    formulas, buzz, var, n_frases = checar_tells(texto)
+    ui.modulo("goodwash_checar", "heurística offline · não é a watermark real")
+    ui.kv("FORMULAS DE TRANSICAO", str(len(formulas)))
+    ui.kv("PALAVRAS BATIDAS", ", ".join(buzz) if buzz else "nenhuma")
+    if var is None:
+        ui.kv("VAR. TAMANHO DAS FRASES", "— (SÓ UMA FRASE)")
+    else:
+        ui.kv("VAR. TAMANHO DAS FRASES", f"{var} PALAVRAS ENTRE A MENOR E A MAIOR")
+    ui.kv("FRASES", str(n_frases))
+    print()
+    if formulas:
+        ui.secao("transições/fórmulas encontradas")
+        for f, ctx in formulas[:12]:
+            ctx = re.sub(r"\s+", " ", ctx)
+            ui.item("·", f, f"— …{ctx}…")
+        if len(formulas) > 12:
+            print(f"  {ui.FG40}· +{len(formulas) - 12} outras{ui.RESET}")
+        print()
+    if buzz:
+        ui.secao("palavras batidas (trocáveis)")
+        ui.item("·", ", ".join(sorted(set(buzz))))
+        print()
+    ui.aviso("lembrete", "a watermark real precisa da chave secreta do detector "
+                          "e não dá pra medir localmente. Este check aponta os "
+                          "padrões de estilo que a reescrita deve atacar.")
+    ui.proximo("goodwash \"seu texto\"", "pra lavar:")
+    print()
+
+
+def uso():
+    ui.modulo("goodwash_help")
+    ui.secao("comandos")
+    ui.kv("goodwash \"texto\"", "REESCREVE (PADRAO: MEDIA)")
+    ui.kv("goodwash leve|profunda \"texto\"", "INTENSIDADE DA REESCRITA")
+    ui.kv("goodwash arquivo.txt", "REESCREVE UM ARQUIVO")
+    ui.kv("echo \"x\" | goodwash", "LE DO STDIN (PIPE)")
+    ui.kv("goodwash -o saida.txt \"texto\"", "SALVA A SAIDA EM ARQUIVO")
+    ui.kv("goodwash checar \"texto\"", "APONTA TELLS DE IA (OFFLINE, 0 LLM)")
+    ui.kv("goodwash temas", "PALETAS")
+    print()
+    ui.secao("flags")
+    ui.kv("-o, --saida <arq>", "SALVA A REESCRITA EM ARQUIVO")
+    ui.kv("--arquivo <arq>", "TEXTO DE ARQUIVO (SEM SUBCOMANDO)")
+    ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
+    ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
+    print()
+    ui.secao("env")
+    ui.kv("OPENROUTER_API_KEY", "SO PRA REESCRITA NO CLI (LAVAR)")
+    ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
+    ui.kv("GOODWASH_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("NO_COLOR", "DESLIGA AS CORES")
+    print()
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="goodwash",
+        description="Reescreve texto pra soar humano e destruir a assinatura "
+                    "estatística da watermark de IA (lista verde/vermelha).",
+        epilog="exemplos:  echo \"<texto>\" | goodwash   ·   goodwash arquivo.txt   ·   "
+               "goodwash profunda \"seu texto\"   ·   goodwash checar \"texto\"",
+        add_help=False,
+    )
+    ap.add_argument("comando", nargs="?", default="lavar",
+                    help="lavar (padrão): reescreve · checar: tells de IA (offline) · "
+                         "temas: paletas · ou texto/arquivo direto pra reescrever")
+    ap.add_argument("resto", nargs="*", help="intensidade (leve|media|profunda) e/ou texto")
+    ap.add_argument("-o", "--saida", default="", help="salva a reescrita em arquivo")
+    ap.add_argument("--arquivo", default="", help="lê o texto de um arquivo")
+    ap.add_argument("-m", "--modelos", action="store_true",
+                    help="lista modelos :free disponíveis")
+    ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
+    args = ap.parse_args()
+
+    if args.help or args.comando == "help":
+        uso()
+        return
+
+    if args.modelos:
+        listar_modelos_free()
+        return
+
+    if args.comando == "temas":
+        ui.catalogo_temas()
+        return
+
+    # comando que não é verbo reservado já é parte do texto de lavar (ex.:
+    # `goodwash "seu texto"`, `goodwash profunda "texto"`, `goodwash arquivo.txt`).
+    if args.comando in VERBOS:
+        comando, resto = args.comando, args.resto
+    else:
+        comando, resto = "lavar", [args.comando, *args.resto]
+
+    if comando == "checar":
+        _, texto = ler_entrada(args, resto)
+        cmd_checar(texto)
+        return
+
+    intensidade, texto = ler_entrada(args, resto)
+    cmd_lavar(intensidade, texto, args.saida)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        ui.aviso("interrompido")
+        print()
+        sys.exit(130)
