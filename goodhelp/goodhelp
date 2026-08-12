@@ -59,6 +59,7 @@ CATALOGO=(
   "ia|goodivers|copiloto do canal de Helldivers 2|"
   "ia|goodjob|radar de vagas + carta, CV e prep|"
   "ia|dark|copiloto do @darkning.art (horror art)|"
+  "ia|goodwash|reescreve texto de IA pra soar humano e sair da watermark|"
   "imagens|goodpixel|imagem -> pixel art, paletas clássicas|"
   "imagens|goodprofile|tamanhos prontos de perfil/rede social|"
   "senhas|cofre|cofre de senhas standalone (goodpen)|goodpen/standalone/build.sh"
@@ -224,7 +225,7 @@ doctor() {
 
   echo
   retro_secao "skills (claude code)"
-  for tool in goodivers goodjob dark; do
+  for tool in goodivers goodjob dark goodwash; do
     alvo="$HOME/.claude/skills/$tool"
     if [ -L "$alvo" ]; then
       if [ -d "$alvo" ]; then
