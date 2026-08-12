@@ -19,6 +19,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
 | [goodjob](./goodjob) | `goodjob` | Copiloto de busca de emprego: radar de vagas ao vivo (Gupy, LinkedIn, Remotive, RemoteOK) + aderência, carta, CV e prep |
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
+| [goodwash](./goodwash) | `goodwash` | Reescreve texto de IA pra soar humano e sair da marca d'água estatística (lista verde/vermelha) |
 | **Imagens** | | |
 | [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | [images/goodprofile](./images/goodprofile) | `goodprofile` | Encaixa imagens nos tamanhos prontos de perfil/rede social: presets de avatar/capa/favicon, corte com foco, troca de cor, centralização e máscara redonda |
@@ -57,6 +58,8 @@ bash goodivers/setup.sh
 bash goodivers/setup.sh --skill   # skill /goodivers do Claude Code
 bash goodjob/setup.sh
 bash goodjob/setup.sh --skill     # skill /goodjob do Claude Code
+bash goodwash/setup.sh
+bash goodwash/setup.sh --skill    # skill /goodwash do Claude Code
 bash images/goodpixel/setup.sh
 bash images/goodprofile/setup.sh
 ```
@@ -222,6 +225,19 @@ goodivers canais add @x  # monitorar outro canal
 # no Claude Code: /goodivers ideias · /goodivers pacote 3 · … (mesmos comandos)
 ```
 
+### [goodwash](./goodwash)
+Reescreve texto gerado por IA pra soar naturalmente humano — destruindo a assinatura estatística da marca d'água de texto ("lista verde / lista vermelha"). A watermark não carimba caracteres: ela enviesa a **escolha de tokens** na geração (lista "verde" privilegiada via hash do contexto + chave secreta), e o detector mede se o texto usa tokens verdes acima do acaso. Como o sinal mora nas escolhas de tokens, **reescrita genuína** (variar léxico, quebrar ritmo uniforme, desmontar paralelismos/tríades, trocar transições fórmula) apaga o viés — é o ataque documentado nos papers de watermarking. O goodwash reescreve de verdade (nada de trocar sinônimo por sinônimo), preservando fatos e tom, em três intensidades. `checar` aponta os "tells" de IA offline (0 LLM, sem chave); dever de casa honesto, não é detecção da watermark real (que exige a chave secreta).
+
+```bash
+goodwash "seu texto"           # reescrita média (padrão)
+goodwash leve "texto"          # leve: lixa arestas de IA
+goodwash profunda "texto"      # profunda: parece escrito do zero
+goodwash arquivo.txt           # de arquivo · echo "x" | goodwash · stdin
+goodwash -o saida.txt "texto"  # salva em arquivo
+goodwash checar "texto"        # tells de IA offline (0 LLM, sem chave)
+# no Claude Code: /goodwash [leve|media|profunda] <texto> · /goodwash checar <texto>
+```
+
 ---
 
 ## Senhas
@@ -275,9 +291,11 @@ uma abre a ajuda completa; `<tool> temas` lista as paletas do terminal.
 | goodzap | `goodzap` | `<arquivo.txt>` · `--roast` · `--reais` · `--html ARQ` · `-m` · `temas` |
 | goodivers | `goodivers` | (radar, PT-BR) · `--original` cru · `ideias` · `ideias --ver/--hist` · `inspirar` · `pacote <N\|"ideia">` · `titulos "<tema>"` · `buscar "<termo>"` · `canais` · `temas` |
 | dark | `dark` | (radar) · `ideias` · `pacote <N\|"ideia">` · `legendas "<tema>"` · `stories` · `buscar "<termo>"` · `refs` · `temas` |
+| goodwash | `goodwash` | (padrão `lavar`, média) · `leve\|media\|profunda` · `-o/--saida` · `--arquivo` · `checar` · `temas` |
 
 Comuns às de IA: `-m` (modelos `:free` no ar), env `OPENROUTER_API_KEY` /
-`OPENROUTER_MODEL`. Skills no Claude Code: `/goodivers` e `/dark` usam os mesmos
+`OPENROUTER_MODEL`. Skills no Claude Code: `/goodivers`, `/dark` e `/goodwash`
+usam os mesmos
 subcomandos, gerando com o Claude da sessão (sem chave).
 
 ### Imagens
@@ -354,6 +372,11 @@ tools/
     goodivers          ← o CLI
     skill/SKILL.md     ← skill /goodivers do Claude Code (gera com o Claude da sessão)
     setup.sh           ← CLI no PATH (+ lembrete opcional) · --skill instala só o skill
+    .env.example       ← modelo de config local
+  goodwash/          ← reescritor anti-watermark de texto de IA (OpenRouter :free)
+    goodwash           ← o CLI (lavar|checar|temas)
+    skill/SKILL.md     ← skill /goodwash do Claude Code (reescreve com o Claude da sessão)
+    setup.sh           ← CLI no PATH · --skill instala só o skill
     .env.example       ← modelo de config local
   goodpen/           ← cofre de senhas (duas versões)
     README.md          ← comparação e regra de escolha
