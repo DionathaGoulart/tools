@@ -22,8 +22,8 @@ que exige a chave secreta do detector.
 O CLI gera via OpenRouter `:free`. No Claude Code, `/goodwash` reescreve com o
 Claude da sessão (sem chave).
 
-args: [leve|media|profunda] [texto|arquivo] [-o saida] · checar [texto] ·
-      temas · -m · help
+args: [leve|media|profunda] [texto|arquivo] [-o saida] [--ate N [--tentativas N]]
+      · avaliar [--llm] [texto] · checar [texto] · temas · -m · help
 
 Requer: Python 3. OPENROUTER_API_KEY só pros comandos de geração (lavar).
 """
@@ -498,13 +498,16 @@ def checar_tells(texto):
 
 
 def avaliar_texto(texto):
-    """Avaliação de autoria: sete eixos, veredito e confiança.
+    """Avaliação de autoria: onze eixos, veredito e confiança.
 
     Reaproveita os três eixos do ``checar`` e soma paralelismo/tríade, voz
-    passiva, marcas humanas (coloquialismo e 1ª pessoa), variedade de pontuação
-    e uniformidade de parágrafo. Cada eixo vira 0..1 de "cara de IA"; o peso de
-    um eixo indisponível (texto curto, poucas frases) é redistribuído entre os
-    que sobraram, em vez de contar como zero.
+    passiva, marcas humanas (coloquialismo e 1ª pessoa, PT/EN), variedade de
+    pontuação, uniformidade de parágrafo, estrutura markdown de resposta de
+    chat, ancoragem concreta e repetitividade lexical. Cada eixo vira 0..1 de
+    "cara de IA"; o peso de um eixo indisponível (texto curto, poucas frases,
+    prosa sem markdown) é redistribuído entre os que sobraram, em vez de
+    contar como zero. O selo "PROVAVELMENTE HUMANO" exige evidência positiva
+    (marca humana ou ancoragem); score baixo sem ela sai "SEM TELLS DE IA".
 
     ATENÇÃO, e isso vale mais que o número: detector de texto de IA erra, e
     erra pro lado feio. Prosa formal, técnica ou traduzida é o caso clássico de
