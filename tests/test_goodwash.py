@@ -67,7 +67,10 @@ class TestLerEntrada(unittest.TestCase):
         self.assertEqual(texto, "meu texto")
 
     def test_le_arquivo_quando_caminho_existe(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        # encoding explícito: no Windows o default do tempfile é o do locale
+        # (cp1252) e a tool lê UTF-8
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False,
+                                         encoding="utf-8") as fh:
             fh.write("conteudo do arquivo")
             caminho = fh.name
         try:
@@ -79,6 +82,14 @@ class TestLerEntrada(unittest.TestCase):
     def test_texto_solto_nao_vira_arquivo(self):
         _inten, texto = GW.ler_entrada(_Args(), ["arquivo-que-nao-existe.txt"])
         self.assertEqual(texto, "arquivo-que-nao-existe.txt")
+
+    def test_texto_gigante_nao_vira_caminho(self):
+        # no linux/py3.12, Path(<texto inteiro>).exists() levantava
+        # ENAMETOOLONG em vez de responder False — `goodwash avaliar "<texto
+        # longo>"` morria antes de ler o texto
+        texto = "palavra " * 400
+        _inten, saida = GW.ler_entrada(_Args(), [texto])
+        self.assertEqual(saida, texto.strip())
 
 
 def _formulas(texto):
@@ -664,14 +675,30 @@ class TestRoteamentoCli(unittest.TestCase):
     def test_arquivo_ganha_do_stdin_vazio(self):
         # regressão: fora de um terminal (cron, CI, xargs) o stdin nunca é tty,
         # então o stdin vazio era lido primeiro e engolia o --arquivo, matando o
-        # comando com "não recebi texto".
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        # comando com "não recebi texto". encoding explícito: no Windows o
+        # default do tempfile é o do locale (cp1252) e a tool lê UTF-8.
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False,
+                                         encoding="utf-8") as fh:
             fh.write("além disso, a solução é crucial e fundamental.")
             caminho = fh.name
         try:
             out = _rodar("checar", "--arquivo", caminho, entrada=b"")
             self.assertEqual(out.returncode, 0, out.stderr.decode(errors="replace"))
             self.assertIn(b"FORMULAS", out.stdout)
+        finally:
+            os.unlink(caminho)
+
+    def test_arquivo_nao_utf8_morre_limpo(self):
+        # arquivo latin-1 não pode virar traceback cru — tem que morrer com
+        # mensagem de conversão
+        with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as fh:
+            fh.write("além disso é crucial".encode("latin-1"))
+            caminho = fh.name
+        try:
+            out = _rodar("checar", "--arquivo", caminho, entrada=b"")
+            self.assertEqual(out.returncode, 1)
+            self.assertIn(b"UTF-8", out.stderr)
+            self.assertNotIn(b"Traceback", out.stderr)
         finally:
             os.unlink(caminho)
 

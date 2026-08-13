@@ -130,6 +130,24 @@ def nota(texto):
     print(f"  {ui.FG40}· {texto}{ui.RESET}", file=sys.stderr)
 
 
+def _e_arquivo(caminho):
+    """``exists()`` sem explodir: um texto inteiro passado como argumento vira
+    um "caminho" acima do limite do SO e, no Python ≤3.12, ``exists()``
+    levanta ENAMETOOLONG em vez de responder False (o 3.13 mudou isso)."""
+    try:
+        return caminho.exists()
+    except OSError:
+        return False
+
+
+def _ler_arquivo(caminho):
+    """Lê UTF-8 e morre com mensagem limpa (não traceback) em outro encoding."""
+    try:
+        return caminho.read_text(encoding="utf-8").strip()
+    except UnicodeDecodeError:
+        die(f"{caminho} não está em UTF-8 — converta antes (ex.: iconv -t utf-8).")
+
+
 def ler_entrada(args, resto):
     """Texto de: argumento → --arquivo → stdin. `leve|media|profunda` como 1º
     argumento vira intensidade.
@@ -145,16 +163,16 @@ def ler_entrada(args, resto):
     if not partes:
         if args.arquivo:
             caminho = Path(args.arquivo).expanduser()
-            if caminho.exists():
-                return intensidade, caminho.read_text(encoding="utf-8").strip()
+            if _e_arquivo(caminho):
+                return intensidade, _ler_arquivo(caminho)
             die(f"arquivo não encontrado: {args.arquivo}")
         if not sys.stdin.isatty():
             return intensidade, sys.stdin.read().strip()
         return intensidade, ""
     if len(partes) == 1:
         caminho = Path(partes[0]).expanduser()
-        if caminho.exists():
-            return intensidade, caminho.read_text(encoding="utf-8").strip()
+        if _e_arquivo(caminho):
+            return intensidade, _ler_arquivo(caminho)
     return intensidade, " ".join(partes).strip()
 
 
