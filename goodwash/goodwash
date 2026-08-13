@@ -7,14 +7,17 @@ A watermark "lista verde / lista vermelha" (Kirchenbauer et al.) não carimba
 caracteres — ela enviesa a ESCOLHA DE TOKENS na geração: a partir de um hash do
 contexto + chave secreta, parte do vocabulário vira "verde" (preferida) e o
 resto "vermelha". O detector, com a mesma chave, mede se o texto usa tokens
-verdes acima do acaso. A consequência direta disso (documentada nos próprios
-papers de watermarking): reescrita genuína destrói o sinal, porque muda as
-escolhas de tokens e a estrutura do texto. O goodwash faz exatamente isso —
-reescrever de verdade, não trocar sinônimo por sinônimo.
+verdes acima do acaso. Reescrever de verdade DILUI esse sinal, porque muda as
+escolhas de tokens e a estrutura do texto — mas não zera: o follow-up dos
+próprios autores (arXiv:2306.04634) mostra que, depois de paráfrase humana
+forte, a watermark ainda aparece observando ~800 tokens. Ou seja: em texto
+curto some, em texto longo só perde força. O goodwash reescreve de verdade —
+não troca sinônimo por sinônimo — e mede o resultado.
 
-O modelo reescreve em intensidades (leve|media|profunda). `checar` roda offline
-(0 LLM) e aponta os "tells" de texto de IA — serve de guia pro que a reescrita
-precisa atacar; não é detecção da watermark real, que exige a chave secreta.
+O modelo reescreve em intensidades (leve|media|profunda) e o `lavar` roda o
+`checar` na entrada e na saída pra mostrar o delta. `checar` roda offline
+(0 LLM) e dá um score 0-100 de "cara de IA" — estilo, não a watermark real,
+que exige a chave secreta do detector.
 
 O CLI gera via OpenRouter `:free`. No Claude Code, `/goodwash` reescreve com o
 Claude da sessão (sem chave).
@@ -29,6 +32,7 @@ import argparse
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
@@ -66,7 +70,7 @@ DEFAULT_MODELS = [
 ]
 
 INTENSIDADES = ("leve", "media", "profunda")
-VERBOS = ("lavar", "checar", "temas", "help")
+VERBOS = ("lavar", "checar", "avaliar", "temas", "help")
 
 # --- tells de texto de IA (heurística offline, serve de guia pra reescrita) ---
 AI_FORMULAS = [
@@ -82,12 +86,36 @@ AI_FORMULAS = [
     "not only", "as a result", "robust", "seamless", "empower", "utilize",
 ]
 AI_BUZZ = [
-    "vale ressaltar", "fundamental", "essencial", "crucial", "indispensável",
+    "fundamental", "essencial", "crucial", "indispensável",
     "imprescindível", "mundo digital", "cada vez mais", "sem precedentes",
     "de forma eficaz", "de forma eficiente", "no cenário atual", "panorama",
     "tapestry", "game-changer", "paradigma", "sinergia", "mudança de jogo",
     "solução inovadora", "experiência do usuário", "jornada", "ecossistema",
 ]
+
+# fórmulas que também existem como predicado normal em PT: "trabalho COM ISSO
+# há anos", "POR OUTRO LADO da rua". Só contam como transição quando abrem a
+# oração — senão viravam falso positivo em cima de texto humano.
+FORMULAS_INICIO_DE_ORACAO = {"com isso", "por outro lado", "diante disso", "não apenas"}
+ABRE_ORACAO = ".!?…,;:—–-"
+
+# abreviações que terminam em ponto sem terminar a frase (o split usaria o ponto
+# como fim de frase e inflaria a variação de ritmo).
+ABREVIACOES = {
+    "dr", "dra", "sr", "sra", "srta", "prof", "profa", "etc", "ex", "obs",
+    "pág", "pag", "art", "vs", "eua", "ed", "fig", "núm", "num", "cf", "aprox",
+    "min", "máx", "max", "av", "jan", "fev", "mar", "abr", "jun", "jul", "ago",
+    "set", "out", "nov", "dez",
+}
+
+# limiares do veredito. Calibrados em amostras PT-BR: texto de modelo fica em
+# ~5-7 fórmulas/100 palavras com ritmo quase uniforme (CV < 0.35); texto humano
+# fica em ~1/100 com CV > 0.55.
+DENS_FORMULA_TETO = 4.0     # fórmulas/100 palavras que já saturam o eixo
+DENS_BUZZ_TETO = 2.5        # idem pras palavras batidas
+CV_UNIFORME = 0.30          # abaixo disso o ritmo é uniforme demais
+CV_HUMANO = 0.60            # acima disso o ritmo já varia como texto humano
+MIN_FRASES_RITMO = 4        # com menos frases o CV não diz nada
 
 
 def die(msg):
@@ -103,20 +131,25 @@ def nota(texto):
 
 
 def ler_entrada(args, resto):
-    """Texto de: argumento → arquivo → stdin. `leve|media|profunda` como 1º
-    argumento vira intensidade."""
+    """Texto de: argumento → --arquivo → stdin. `leve|media|profunda` como 1º
+    argumento vira intensidade.
+
+    `--arquivo` vem ANTES do stdin de propósito: fora de um terminal (cron, CI,
+    plugin de editor, `xargs`) o stdin nunca é tty, então checar o stdin antes
+    engolia a flag e o comando morria com "não recebi texto".
+    """
     intensidade = "media"
     partes = list(resto)
     if partes and partes[0] in INTENSIDADES:
         intensidade = partes.pop(0)
     if not partes:
-        if not sys.stdin.isatty():
-            return intensidade, sys.stdin.read().strip()
         if args.arquivo:
             caminho = Path(args.arquivo).expanduser()
             if caminho.exists():
                 return intensidade, caminho.read_text(encoding="utf-8").strip()
             die(f"arquivo não encontrado: {args.arquivo}")
+        if not sys.stdin.isatty():
+            return intensidade, sys.stdin.read().strip()
         return intensidade, ""
     if len(partes) == 1:
         caminho = Path(partes[0]).expanduser()
@@ -125,30 +158,364 @@ def ler_entrada(args, resto):
     return intensidade, " ".join(partes).strip()
 
 
+def sem_acento(texto):
+    """Dobra acento pra base ASCII: 'além' → 'alem'. Sem isso, texto digitado
+    sem acento ('alem disso') escapava inteiro da heurística."""
+    return "".join(c for c in unicodedata.normalize("NFD", texto)
+                   if not unicodedata.combining(c))
+
+
+def normalizar(texto):
+    """Devolve ``(norm, offsets)``.
+
+    ``norm`` é ``" palavra palavra … "``: minúsculo, sem acento, com pontuação e
+    QUALQUER espaçamento (inclusive quebra de linha e espaço duplo) reduzidos a
+    um espaço único. ``offsets[i]`` é o índice em ``texto`` onde começa a
+    palavra que contém ``norm[i]``, pra recortar o contexto original.
+
+    É isso que permite achar uma fórmula que no original está quebrada entre
+    duas linhas ("além\\ndisso") ou colada numa vírgula.
+    """
+    norm, offsets = [" "], [0]
+    for m in re.finditer(r"\w+", texto):
+        for ch in sem_acento(m.group(0).lower()):
+            norm.append(ch)
+            offsets.append(m.start())
+        norm.append(" ")
+        offsets.append(m.end())
+    return "".join(norm), offsets
+
+
+def normalizar_leve(texto):
+    """Minúsculo, sem acento, espaçamento colapsado — mas COM a pontuação. As
+    regex estruturais (tríade, correlativo, voz passiva) precisam da vírgula,
+    que o `normalizar` apaga."""
+    return re.sub(r"\s+", " ", sem_acento(texto.lower()))
+
+
+def normalizar_termo(termo):
+    """Passa uma entrada das listas pelo mesmo moedor que o texto, pra que
+    'game-changer' e "it's important to note" (que viravam entradas mortas
+    quando a pontuação sumia só de um lado) voltem a casar."""
+    return " ".join(re.findall(r"\w+", sem_acento(termo.lower())))
+
+
+def _flexao(palavra):
+    """Regex da palavra tolerando o plural/advérbio em PT — sem isso
+    'fundamentais', 'cruciais' e 'ecossistemas' passavam batido."""
+    if palavra.endswith("l"):
+        return re.escape(palavra[:-1]) + "(?:l|is|lmente)"
+    if palavra.endswith("ao"):                       # 'ão' depois do fold
+        return re.escape(palavra[:-2]) + "(?:ao|oes|aos|aes)"
+    if palavra.endswith("m"):
+        return re.escape(palavra[:-1]) + "(?:m|ns)"
+    if palavra.endswith(("r", "s", "z")):
+        return re.escape(palavra) + "(?:es)?"
+    return re.escape(palavra) + "s?"
+
+
+def _re_buzz(termo):
+    """Regex de um termo batido: palavras exatas, com flexão só na última."""
+    palavras = normalizar_termo(termo).split()
+    corpo = " ".join([re.escape(p) for p in palavras[:-1]] + [_flexao(palavras[-1])])
+    return re.compile(r"(?<= )" + corpo + r"(?= )")
+
+
+_BUZZ_RE = [(b, _re_buzz(b)) for b in AI_BUZZ]
+_FORMULAS_NORM = [(f, normalizar_termo(f)) for f in AI_FORMULAS]
+
+
+def _frases_pontuadas(texto):
+    """Divide em frases sem quebrar em abreviação ('Dr. Silva'), decimal ('3.5')
+    ou inicial ('J. R. R.'), e conta a última frase mesmo quando o texto não
+    termina em pontuação — antes disso um texto sem ponto final zerava o eixo
+    de ritmo inteiro."""
+    partes, ini = [], 0
+    for m in re.finditer(r"[.!?…]+(?=\s|$)", texto):
+        anterior = re.search(r"(\w+)\W*$", texto[:m.start()])
+        if anterior:
+            tok = sem_acento(anterior.group(1).lower())
+            # abreviação conhecida ou inicial de nome ('J.') não fecha frase
+            if tok in ABREVIACOES or (len(tok) == 1 and tok.isalpha()):
+                continue
+        trecho = texto[ini:m.end()].strip()
+        if trecho:
+            partes.append(trecho)
+        ini = m.end()
+    resto = texto[ini:].strip()
+    if resto:
+        partes.append(resto)
+    return partes
+
+
+def sentencas(texto):
+    """Frases do texto. Linha estrutural de markdown (bullet, item numerado,
+    cabeçalho) vira frase própria mesmo sem pontuação final — antes a lista
+    inteira colava numa "frase" gigante e inflava a variação de ritmo. O
+    marcador (`- `, `1. `, `## `) sai antes da contagem: senão o "1." abria
+    uma falsa frase de uma palavra."""
+    partes, corrido = [], []
+    for linha in texto.split("\n"):
+        if _linha_estrutural(linha):
+            if corrido:
+                partes.extend(_frases_pontuadas("\n".join(corrido)))
+                corrido = []
+            conteudo = RE_CABECALHO.sub("", RE_LINHA_LISTA.sub("", linha)).strip()
+            if conteudo:
+                partes.extend(_frases_pontuadas(conteudo))
+        else:
+            corrido.append(linha)
+    if corrido:
+        partes.extend(_frases_pontuadas("\n".join(corrido)))
+    return partes
+
+
+# --- sinais extras, só usados pelo `avaliar` ------------------------------
+# Estes rodam em `normalizar_leve` (minúsculo, sem acento, espaçamento colapsado)
+# e NÃO no `normalizar` do checar: tríade e correlativo dependem da vírgula, que
+# o outro apaga.
+
+# tríade "rápido, simples e barato" e pares correlativos — o paralelismo certinho
+# que o README prometia e o `checar` nunca mediu. Itens de 1-2 palavras: o padrão
+# antigo (`{0,3}` palavras no meio) engolia o rabo de qualquer oração coordenada.
+RE_TRIADE = re.compile(r"\b(\w+), (\w+(?: \w+)?) e (\w+)\b")
+# item com cara de verbo conjugado ("fui na feira, comprei tomate e voltei") é
+# coordenação de oração, não tríade retórica. Mínimo de 4 letras pra não pegar
+# "meu"/"seu" no falso sufixo -eu.
+_RE_ITEM_VERBAL = re.compile(r"(?:ei|ou|amos|aram|emos|eu|iu|iram)$")
+RE_CORRELATIVO = re.compile(
+    r"\bnao (?:apenas|so) .{1,60}? mas (?:tambem|sim)\b|"
+    r"\btanto .{1,60}? quanto\b|\bnot only .{1,60}? but also\b")
+# ser/estar + particípio: "é considerado", "foram utilizados". Roda em
+# `normalizar_minima` (acento PRESERVADO): com o fold, "é" virava "e" e a
+# conjunção casava — "limpo e organizado" contava como passiva.
+RE_PASSIVA = re.compile(
+    r"\b(?:é|foi|são|eram|era|foram|será|serão|sendo|ser|está|estão)"
+    r" \w+(?:ad|id|íd)[oa]s?\b")
+# marcas que modelo raramente produz sozinho: fala coloquial e 1ª pessoa, em PT
+# e EN. O "to" (tô sem acento) saiu: casava com o "to" inglês e virava crédito
+# aleatório em texto EN.
+RE_COLOQUIAL = re.compile(
+    r"\b(?:pra|pro|pras|pros|ta|ne|ce|vc|dai|putz|caramba|meio que|"
+    r"sei la|tipo assim|no fim das contas|acho que|sinceramente|enfim|"
+    r"honestly|whatever|anyway|yeah|kinda|gonna|i guess|i mean|no joke)\b")
+RE_PRIMEIRA_PESSOA = re.compile(
+    r"\b(?:eu|meu|minha|meus|minhas|comigo|mim|me|i|my|mine)\b")
+PONTUACAO_EXPRESSIVA = "—–();:…!?\"'"
+
+# --- estrutura markdown: a forma clássica de resposta de chat ---------------
+# Cabeçalho, item de lista e rótulo em negrito ("**Foco**: …"). Humano também
+# anota em bullet — por isso bullet sozinho pesa pouco e o rótulo em negrito
+# (que quase só IA produz em prosa) pesa mais.
+RE_CABECALHO = re.compile(r"^\s*#{1,6} ")
+RE_LINHA_LISTA = re.compile(r"^\s*(?:[-*•] |\d{1,2}[.)] )")
+RE_ROTULO_NEGRITO = re.compile(r"\*\*[^*\n]{1,60}\*\*\s*[:—–-]")
+
+
+def _linha_estrutural(linha):
+    return bool(RE_CABECALHO.match(linha) or RE_LINHA_LISTA.match(linha))
+
+
+def normalizar_minima(texto):
+    """Minúsculo com ACENTO PRESERVADO e espaçamento colapsado — pra regex que
+    precisa distinguir 'é' (verbo) de 'e' (conjunção)."""
+    return re.sub(r"\s+", " ", texto.lower())
+
+
+def _triades_retoricas(leve):
+    """Tríades curtas sem cara de oração ('rápido, simples e barato')."""
+    achadas = []
+    for m in RE_TRIADE.finditer(leve):
+        itens = [m.group(1), m.group(2).split()[0], m.group(3)]
+        if any(len(w) > 3 and _RE_ITEM_VERBAL.search(w) for w in itens):
+            continue
+        achadas.append(m.group(0))
+    return achadas
+
+
+def _eixo_markdown(texto):
+    """``(valor 0..1, listas, cabecalhos, rotulos)``. Valor ``None`` em prosa
+    corrida — ausência de markdown não é evidência de nada."""
+    linhas = [ln for ln in texto.split("\n") if ln.strip()]
+    listas = sum(1 for ln in linhas if RE_LINHA_LISTA.match(ln))
+    cabecalhos = sum(1 for ln in linhas if RE_CABECALHO.match(ln))
+    rotulos = len(RE_ROTULO_NEGRITO.findall(texto))
+    if not (listas or rotulos):
+        return None, listas, cabecalhos, rotulos
+    valor = 0.6 * min(1.0, rotulos / 3.0)
+    if cabecalhos and listas:
+        valor += 0.4          # cabeçalho + lista = o esqueleto de resposta de IA
+    elif listas:
+        valor += 0.15         # bullet sozinho: humano também anota assim
+    return min(1.0, valor), listas, cabecalhos, rotulos
+
+
+def _abre_oracao(texto, pos):
+    """True se `pos` começa uma oração — início do texto ou logo depois de
+    pontuação. Separa 'Com isso, o time cresceu' de 'trabalho com isso'."""
+    anterior = texto[:pos].rstrip()
+    return not anterior or anterior[-1] in ABRE_ORACAO
+
+
+def _cv(valores):
+    """Coeficiente de variação (desvio-padrão / média) dos tamanhos de frase.
+    Substitui o antigo `maior - menor`, que uma única frase atípica destruía e
+    que não dizia nada sem saber o tamanho do texto."""
+    if len(valores) < 2:
+        return None
+    media = sum(valores) / len(valores)
+    if media <= 0:
+        return None
+    dp = (sum((v - media) ** 2 for v in valores) / len(valores)) ** 0.5
+    return dp / media
+
+
 def checar_tells(texto):
     """Heurística offline de padrões comuns em texto de IA. Não é detecção da
-    watermark (que precisa da chave secreta) — é um guia do que reescrever."""
-    # troca pontuação por espaço (mantém o mesmo tamanho, então os índices ainda
-    # apontam pro texto original) pra pegar fórmula colada em vírgula/ponto/quebra.
-    baixo = " " + re.sub(r"[^\w\s]", " ", texto.lower()) + " "
-    achados = []
-    for f in AI_FORMULAS:
-        alvo = " " + f + " "
-        idx = baixo.find(alvo)
+    watermark (que precisa da chave secreta) — é um guia do que reescrever.
+
+    Devolve um dict com as ocorrências e, principalmente, com densidades
+    (por 100 palavras) e um ``score`` 0-100 — contagem crua não dizia nada sem
+    o tamanho do texto: 5 fórmulas em 80 palavras e 5 em 2000 são coisas
+    opostas.
+    """
+    norm, offsets = normalizar(texto)
+    total_palavras = len(re.findall(r"\w+", texto))
+
+    formulas = []
+    for original, alvo in _FORMULAS_NORM:
+        if not alvo:
+            continue
+        padrao = " " + alvo + " "
+        exige_abertura = original in FORMULAS_INICIO_DE_ORACAO
+        idx = norm.find(padrao)
         while idx >= 0:
-            centro = idx + len(f) // 2          # idx alinha ao texto original
-            ini = max(0, centro - 25)
-            ctx = texto[ini: ini + 50].strip()
-            achados.append((f, ctx))
-            idx = baixo.find(alvo, idx + len(f))
-    buzz = []
-    for b in AI_BUZZ:
-        if " " + b + " " in baixo:
-            buzz.append(b)
-    sentencas = re.findall(r"[^.!?…]+[.!?…]", texto)
-    comps = sorted(len(re.findall(r"\w+", s)) for s in sentencas)
-    var = (comps[-1] - comps[0]) if len(comps) > 1 else None
-    return achados, sorted(set(buzz)), var, len(sentencas)
+            ini_orig = offsets[idx + 1]           # 1º char da fórmula no original
+            if not exige_abertura or _abre_oracao(texto, ini_orig):
+                corte = max(0, ini_orig - 20)
+                ctx = re.sub(r"\s+", " ", texto[corte:corte + 60]).strip()
+                formulas.append((original, ctx))
+            idx = norm.find(padrao, idx + len(alvo))
+
+    buzz = sorted({original for original, rx in _BUZZ_RE if rx.search(norm)})
+
+    frases = sentencas(texto)
+    comprimentos = [len(re.findall(r"\w+", f)) for f in frases]
+    cv = _cv(comprimentos) if len(frases) >= MIN_FRASES_RITMO else None
+
+    por100 = (100.0 / total_palavras) if total_palavras else 0.0
+    dens_formulas = len(formulas) * por100
+    dens_buzz = len(buzz) * por100
+
+    eixo_f = min(1.0, dens_formulas / DENS_FORMULA_TETO)
+    eixo_b = min(1.0, dens_buzz / DENS_BUZZ_TETO)
+    if cv is None:                                 # sem frases suficientes
+        eixo_r = None
+        score = round(100 * (0.60 * eixo_f + 0.40 * eixo_b))
+    else:
+        eixo_r = min(1.0, max(0.0, (CV_HUMANO - cv) / (CV_HUMANO - CV_UNIFORME)))
+        score = round(100 * (0.40 * eixo_f + 0.25 * eixo_b + 0.35 * eixo_r))
+
+    return {
+        "formulas": formulas,
+        "buzz": buzz,
+        "frases": len(frases),
+        "palavras": total_palavras,
+        "comprimentos": comprimentos,
+        "cv": cv,
+        "dens_formulas": dens_formulas,
+        "dens_buzz": dens_buzz,
+        "score": score,
+        "veredito": "ALTO" if score >= 60 else ("MEDIO" if score >= 30 else "BAIXO"),
+    }
+
+
+def avaliar_texto(texto):
+    """Avaliação de autoria: sete eixos, veredito e confiança.
+
+    Reaproveita os três eixos do ``checar`` e soma paralelismo/tríade, voz
+    passiva, marcas humanas (coloquialismo e 1ª pessoa), variedade de pontuação
+    e uniformidade de parágrafo. Cada eixo vira 0..1 de "cara de IA"; o peso de
+    um eixo indisponível (texto curto, poucas frases) é redistribuído entre os
+    que sobraram, em vez de contar como zero.
+
+    ATENÇÃO, e isso vale mais que o número: detector de texto de IA erra, e
+    erra pro lado feio. Prosa formal, técnica ou traduzida é o caso clássico de
+    falso positivo — ela usa as mesmas transições e a mesma voz passiva que o
+    eixo pune. Serve pra você medir o próprio texto, nunca pra acusar alguém.
+    """
+    base = checar_tells(texto)
+    leve = normalizar_leve(texto)
+    palavras = base["palavras"]
+    por100 = (100.0 / palavras) if palavras else 0.0
+
+    triades = _triades_retoricas(leve)
+    correlativos = len(RE_CORRELATIVO.findall(leve))
+    paralelismos = len(triades) + correlativos
+    # uma enumeração isolada é escrita normal ("pão, leite e ovos") — a primeira
+    # tríade é de graça no eixo; só a repetição vira tell. Correlativo conta sempre.
+    paral_efetivo = correlativos + max(0, len(triades) - 1)
+    passivas = len(RE_PASSIVA.findall(normalizar_minima(texto)))
+    humanas = len(RE_COLOQUIAL.findall(leve)) + len(RE_PRIMEIRA_PESSOA.findall(leve))
+    tipos_pont = len({c for c in texto if c in PONTUACAO_EXPRESSIVA})
+    eixo_md, md_listas, md_cabecalhos, md_rotulos = _eixo_markdown(texto)
+
+    paragrafos = [p for p in re.split(r"\n\s*\n", texto) if p.strip()]
+    cv_par = _cv([len(re.findall(r"\w+", p)) for p in paragrafos]) if len(paragrafos) >= 3 else None
+
+    def _clamp(v):
+        return min(1.0, max(0.0, v))
+
+    # (rótulo, valor 0..1 de "cara de IA" ou None se não dá pra medir, peso)
+    eixos = [
+        ("transições fórmula", min(1.0, base["dens_formulas"] / DENS_FORMULA_TETO), 0.22),
+        ("palavras batidas", min(1.0, base["dens_buzz"] / DENS_BUZZ_TETO), 0.13),
+        ("ritmo das frases",
+         None if base["cv"] is None else _clamp((CV_HUMANO - base["cv"]) / (CV_HUMANO - CV_UNIFORME)),
+         0.22),
+        ("paralelismo/tríade", min(1.0, paral_efetivo * por100 / 1.5), 0.12),
+        ("voz passiva", min(1.0, passivas * por100 / 2.5), 0.10),
+        ("marcas humanas", 1.0 - min(1.0, humanas * por100 / 3.0), 0.13),
+        ("variedade de pontuação", _clamp((4 - tipos_pont) / 3.0), 0.08),
+        ("uniformidade dos parágrafos",
+         None if cv_par is None else _clamp((CV_HUMANO - cv_par) / (CV_HUMANO - CV_UNIFORME)),
+         0.10),
+        ("estrutura markdown", eixo_md, 0.12),
+    ]
+    disponiveis = [(nome, val, peso) for nome, val, peso in eixos if val is not None]
+    total_peso = sum(p for _n, _v, p in disponiveis) or 1.0
+    score = round(100 * sum(v * p for _n, v, p in disponiveis) / total_peso)
+
+    # confiança: cresce com o tamanho do texto e com a distância do meio-termo
+    tamanho = min(1.0, palavras / 300.0)
+    decisao = abs(score - 50) / 50.0
+    confianca = round(100 * tamanho * (0.35 + 0.65 * decisao))
+
+    if palavras < 60:
+        veredito = "INCERTO"          # texto curto demais pra qualquer eixo valer
+    elif score >= 65:
+        veredito = "PROVAVELMENTE IA"
+    elif score <= 35:
+        veredito = "PROVAVELMENTE HUMANO"
+    else:
+        veredito = "INCERTO"
+
+    return {
+        **base,
+        "score_autoria": score,
+        "veredito_autoria": veredito,
+        "confianca": confianca,
+        "eixos": [(nome, val, peso) for nome, val, peso in eixos],
+        "paralelismos": paralelismos,
+        "passivas": passivas,
+        "marcas_humanas": humanas,
+        "tipos_pontuacao": tipos_pont,
+        "cv_paragrafos": cv_par,
+        "paragrafos": len(paragrafos),
+        "md_listas": md_listas,
+        "md_cabecalhos": md_cabecalhos,
+        "md_rotulos": md_rotulos,
+    }
 
 
 # ---------------------------------------------------------------- LLM (standalone)
@@ -222,22 +589,196 @@ def sys_lavar(intensidade):
                    "mas mantenha a ordem geral das ideias e os parágrafos.")
 
 
-def cmd_lavar(intensidade, texto, saida):
+# o modelo foi instruído a responder só com o texto, mas os :free costumam abrir
+# com uma frase de serviço — que ia inteira pro arquivo do -o.
+_PREAMBULO = re.compile(
+    r"^(aqui (está|vai)|segue|claro|certo|com certeza|entendi|perfeito|"
+    r"here (is|'s)|sure|certainly|of course)\b[^\n]*:\s*$",
+    re.IGNORECASE)
+
+
+def limpar_saida(texto):
+    """Tira cerca de markdown e a linha de preâmbulo do modelo."""
+    t = texto.strip()
+    cerca = re.match(r"^```[\w-]*\n(.*)\n```$", t, re.DOTALL)
+    if cerca:
+        t = cerca.group(1).strip()
+    linhas = t.split("\n")
+    if len(linhas) > 1 and len(linhas[0]) < 120 and _PREAMBULO.match(linhas[0].strip()):
+        t = "\n".join(linhas[1:]).lstrip()
+    return t.strip()
+
+
+def _delta(rotulo, antes, depois, casas=0, menor_melhor=True):
+    """Linha 'antes → depois' com o sinal de melhora/piora."""
+    fmt = f"{{:.{casas}f}}"
+    seta = "OK" if ((depois < antes) if menor_melhor else (depois > antes)) else (
+        "==" if depois == antes else "!!")
+    ui.kv(rotulo, f"{fmt.format(antes)} -> {fmt.format(depois)}  [{seta}]")
+
+
+SYS_AVALIAR = (
+    "Você é um perito em análise de autoria de texto. Recebe um texto e julga "
+    "se ele foi escrito por um modelo de linguagem ou por uma pessoa. Julgue "
+    "por evidência de estilo: ritmo das frases, previsibilidade do vocabulário, "
+    "transições fórmula, paralelismos certinhos, voz passiva, ausência de "
+    "detalhe concreto/idiossincrasia, uniformidade dos parágrafos. Prosa formal "
+    "ou técnica bem escrita NÃO é prova de IA — considere o gênero antes de "
+    "julgar, e prefira 'incerto' a chutar. Responda APENAS com um objeto JSON: "
+    '{"veredito": "ia"|"humano"|"incerto", "confianca": 0-100, '
+    '"motivos": ["motivo curto", ...], "trechos": ["trecho citado do texto", ...]}')
+
+
+def _avaliar_llm(texto):
+    """Segunda opinião do modelo. Devolve o dict ou None se não deu."""
+    try:
+        parsed, model = _llm.chat(
+            [{"role": "system", "content": SYS_AVALIAR},
+             {"role": "user", "content": texto}],
+            max_tokens=900, temperature=0.2, json_tipo="objeto")
+        return parsed, model
+    except LLMError as e:
+        if e.kind == "no_key":
+            nota("sem OPENROUTER_API_KEY — só a avaliação offline.")
+        else:
+            nota(f"segunda opinião falhou: {e.message}")
+        return None, None
+
+
+def cmd_avaliar(texto, usar_llm):
     if not texto:
-        die("não recebi texto. Use:  goodwash \"seu texto\"  |  goodwash arquivo.txt  |"
-            "  echo \"texto\" | goodwash")
-    nota(f"reescrevendo ({intensidade}, ~{len(texto.split())} palavras)…")
+        die("não recebi texto. Use:  goodwash avaliar \"seu texto\"  |  goodwash "
+            "avaliar arquivo.txt  |  echo \"texto\" | goodwash avaliar")
+    r = avaliar_texto(texto)
+    ui.modulo("goodwash_avaliar", "análise de autoria · heurística de estilo")
+    ui.kv("VEREDITO", r["veredito_autoria"])
+    ui.kv("CARA DE IA", ui.barra(r["score_autoria"], 100))
+    ui.kv("CONFIANCA", f"{r['confianca']}%")
+    ui.kv("TAMANHO", f"{r['palavras']} PALAVRAS · {r['frases']} FRASES · "
+                     f"{r['paragrafos']} PARAGRAFO(S)")
+    print()
+    ui.secao("eixos (quanto maior, mais cara de ia)")
+    for nome, valor, peso in r["eixos"]:
+        if valor is None:
+            ui.item("·", nome, "— sem dados nesse texto")
+        else:
+            ui.item("·", nome, f"{ui.barra(round(valor * 100), 100, 12)}  peso {peso:.0%}")
+    print()
+    ui.secao("evidência")
+    ui.kv("FORMULAS DE TRANSICAO", f"{len(r['formulas'])} ({r['dens_formulas']:.1f}/100 PALAVRAS)")
+    ui.kv("PALAVRAS BATIDAS", ", ".join(r["buzz"]) if r["buzz"] else "nenhuma")
+    ui.kv("PARALELISMO/TRIADE", str(r["paralelismos"]))
+    ui.kv("VOZ PASSIVA", str(r["passivas"]))
+    ui.kv("MARCAS HUMANAS", f"{r['marcas_humanas']} (COLOQUIAL + 1a PESSOA)")
+    ui.kv("TIPOS DE PONTUACAO", str(r["tipos_pontuacao"]))
+    if r["md_listas"] or r["md_rotulos"] or r["md_cabecalhos"]:
+        ui.kv("ESTRUTURA MARKDOWN",
+              f"{r['md_listas']} ITEM(NS) DE LISTA · {r['md_cabecalhos']} "
+              f"CABECALHO(S) · {r['md_rotulos']} ROTULO(S) EM NEGRITO")
+    if r["cv"] is not None:
+        ui.kv("CV DAS FRASES", f"{r['cv']:.2f}")
+    if r["cv_paragrafos"] is not None:
+        ui.kv("CV DOS PARAGRAFOS", f"{r['cv_paragrafos']:.2f}")
+    print()
+    if usar_llm:
+        nota("pedindo segunda opinião ao modelo…")
+        parecer, model = _avaliar_llm(texto)
+        if parecer:
+            ui.secao(f"segunda opinião do modelo ({model})")
+            ui.kv("VEREDITO", str(parecer.get("veredito", "?")).upper())
+            ui.kv("CONFIANCA", f"{parecer.get('confianca', '?')}%")
+            for m in (parecer.get("motivos") or [])[:6]:
+                ui.item("·", str(m))
+            for t in (parecer.get("trechos") or [])[:4]:
+                ui.item("»", f"\"{str(t)[:90]}\"")
+            print()
+    ui.aviso("não é prova", "detector de texto de IA erra, e erra pro lado feio: "
+                            "prosa formal, técnica ou traduzida dá falso positivo "
+                            "porque usa as mesmas transições e a mesma voz passiva. "
+                            "Use pra medir o SEU texto — nunca pra acusar alguém.")
+    ui.proximo("goodwash profunda \"seu texto\"", "pra reescrever:")
+    print()
+
+
+ESCALADA = {"leve": "media", "media": "profunda", "profunda": "profunda"}
+
+
+def _reescrever(intensidade, texto):
+    """Uma passada de reescrita. Devolve ``(texto_limpo, model, truncado)``."""
+    # ~2.6 tokens por palavra em PT-BR com folga pra reescrita mais longa que o
+    # original. Antes era um teto fixo de 3200, que cortava texto grande no meio
+    # e ainda assim imprimia (e gravava com -o) como se tivesse dado certo.
+    teto = min(16000, max(1200, int(len(texto.split()) * 2.6) + 400))
     result, model = chamar_llm(
         [{"role": "system", "content": sys_lavar(intensidade)},
          {"role": "user", "content": texto}],
-        max_tokens=3200, temperature=0.8)
-    ui.modulo("goodwash", f"lavado · model: {model} · intensidade: {intensidade}")
-    ui.kv("ENTRADA", f"{len(texto.split())} PALAVRAS")
+        max_tokens=teto, temperature=0.8)
+    return limpar_saida(result), model, _llm.last_finish_reason == "length"
+
+
+def cmd_lavar(intensidade, texto, saida, ate=None, tentativas=1):
+    if not texto:
+        die("não recebi texto. Use:  goodwash \"seu texto\"  |  goodwash arquivo.txt  |"
+            "  echo \"texto\" | goodwash")
+    palavras = len(texto.split())
+    antes = avaliar_texto(texto)
+
+    # loop de auto-avaliação: reescreve, mede o próprio resultado e insiste com a
+    # intensidade escalada enquanto não bater a meta. Fica na melhor tentativa.
+    atual, alvo = intensidade, (ate if ate is not None else 0)
+    melhor = melhor_aval = melhor_model = None
+    truncado = False
+    for volta in range(1, max(1, tentativas) + 1):
+        nota(f"reescrevendo ({atual}, ~{palavras} palavras"
+             + (f", tentativa {volta}/{tentativas}" if tentativas > 1 else "") + ")…")
+        result, model, cortou = _reescrever(atual, texto)
+        aval = avaliar_texto(result)
+        if melhor is None or aval["score_autoria"] < melhor_aval["score_autoria"]:
+            melhor, melhor_aval, melhor_model, truncado = result, aval, model, cortou
+        if melhor_aval["score_autoria"] <= alvo:
+            break
+        if volta < tentativas:
+            nota(f"score {aval['score_autoria']} acima da meta {alvo} — "
+                 f"subindo pra {ESCALADA[atual]}")
+            atual = ESCALADA[atual]
+    result, depois, model = melhor, melhor_aval, melhor_model
+
+    ui.modulo("goodwash", f"lavado · model: {model} · intensidade: {atual}")
+    ui.kv("ENTRADA", f"{palavras} PALAVRAS")
     ui.kv("SAIDA", f"{len(result.split())} PALAVRAS")
     print()
+    ui.secao("auto-avaliação: antes -> depois")
+    _delta("CARA DE IA (0-100)", antes["score_autoria"], depois["score_autoria"])
+    _delta("FORMULAS/100 PALAVRAS", antes["dens_formulas"], depois["dens_formulas"], 1)
+    _delta("PALAVRAS BATIDAS", len(antes["buzz"]), len(depois["buzz"]))
+    _delta("PARALELISMO/TRIADE", antes["paralelismos"], depois["paralelismos"])
+    _delta("VOZ PASSIVA", antes["passivas"], depois["passivas"])
+    _delta("MARCAS HUMANAS", antes["marcas_humanas"], depois["marcas_humanas"],
+           menor_melhor=False)
+    if antes["cv"] is not None and depois["cv"] is not None:
+        _delta("VARIACAO DE RITMO (CV)", antes["cv"], depois["cv"], 2, menor_melhor=False)
+    ui.kv("VEREDITO", f"{antes['veredito_autoria']} -> {depois['veredito_autoria']}")
+    print()
+    # honestidade: o delta é Goodhart por construção — a reescrita ataca
+    # exatamente os eixos que o score mede. Cair é o esperado, não uma prova.
+    nota("o delta mede os mesmos eixos que a reescrita ataca — cair é esperado e "
+         "não vale como aprovação em detector externo (GPTZero, Turnitin).")
     for bloco in result.split("\n"):
         print(f"  {bloco}" if bloco.strip() else "")
     print()
+    if truncado:
+        ui.aviso("truncado", "o modelo bateu o teto de tokens e a reescrita foi "
+                             "cortada. Divida o texto em partes menores.")
+        print()
+    if ate is not None and depois["score_autoria"] > ate:
+        ui.aviso("meta não batida", f"parei em {depois['score_autoria']} depois de "
+                                    f"{tentativas} tentativa(s); a meta era {ate}. "
+                                    "Aumente --tentativas ou edite na mão.")
+        print()
+    elif depois["score_autoria"] >= antes["score_autoria"]:
+        ui.aviso("sem ganho", "a reescrita não reduziu os tells de estilo. Tente "
+                              "`goodwash profunda` ou `--ate 30 --tentativas 3`.")
+        print()
     if saida:
         caminho = Path(saida).expanduser()
         caminho.parent.mkdir(parents=True, exist_ok=True)
@@ -250,31 +791,40 @@ def cmd_checar(texto):
     if not texto:
         die("não recebi texto. Use:  goodwash checar \"seu texto\"  |  goodwash "
             "checar arquivo.txt  |  echo \"texto\" | goodwash checar")
-    formulas, buzz, var, n_frases = checar_tells(texto)
+    r = checar_tells(texto)
+    formulas, buzz = r["formulas"], r["buzz"]
     ui.modulo("goodwash_checar", "heurística offline · não é a watermark real")
-    ui.kv("FORMULAS DE TRANSICAO", str(len(formulas)))
+    ui.kv("CARA DE IA", f"{r['veredito']}  {ui.barra(r['score'], 100)}")
+    ui.kv("FORMULAS DE TRANSICAO",
+          f"{len(formulas)} ({r['dens_formulas']:.1f} POR 100 PALAVRAS)")
     ui.kv("PALAVRAS BATIDAS", ", ".join(buzz) if buzz else "nenhuma")
-    if var is None:
-        ui.kv("VAR. TAMANHO DAS FRASES", "— (SÓ UMA FRASE)")
+    if r["cv"] is None:
+        ui.kv("VARIACAO DE RITMO",
+              f"— (PRECISA DE {MIN_FRASES_RITMO}+ FRASES; TEM {r['frases']})")
     else:
-        ui.kv("VAR. TAMANHO DAS FRASES", f"{var} PALAVRAS ENTRE A MENOR E A MAIOR")
-    ui.kv("FRASES", str(n_frases))
+        if r["cv"] < CV_UNIFORME:
+            leitura = "UNIFORME DEMAIS"
+        elif r["cv"] < CV_HUMANO:
+            leitura = "MEIO UNIFORME"
+        else:
+            leitura = "VARIADO"
+        ui.kv("VARIACAO DE RITMO", f"CV {r['cv']:.2f} · {leitura}")
+    ui.kv("FRASES / PALAVRAS", f"{r['frases']} / {r['palavras']}")
     print()
     if formulas:
         ui.secao("transições/fórmulas encontradas")
         for f, ctx in formulas[:12]:
-            ctx = re.sub(r"\s+", " ", ctx)
             ui.item("·", f, f"— …{ctx}…")
         if len(formulas) > 12:
             print(f"  {ui.FG40}· +{len(formulas) - 12} outras{ui.RESET}")
         print()
     if buzz:
         ui.secao("palavras batidas (trocáveis)")
-        ui.item("·", ", ".join(sorted(set(buzz))))
+        ui.item("·", ", ".join(buzz))
         print()
-    ui.aviso("lembrete", "a watermark real precisa da chave secreta do detector "
-                          "e não dá pra medir localmente. Este check aponta os "
-                          "padrões de estilo que a reescrita deve atacar.")
+    ui.aviso("lembrete", "isto é score de ESTILO, não a watermark — ela precisa "
+                          "da chave secreta do detector e não dá pra medir "
+                          "localmente. Aponta o que a reescrita deve atacar.")
     ui.proximo("goodwash \"seu texto\"", "pra lavar:")
     print()
 
@@ -287,12 +837,18 @@ def uso():
     ui.kv("goodwash arquivo.txt", "REESCREVE UM ARQUIVO")
     ui.kv("echo \"x\" | goodwash", "LE DO STDIN (PIPE)")
     ui.kv("goodwash -o saida.txt \"texto\"", "SALVA A SAIDA EM ARQUIVO")
-    ui.kv("goodwash checar \"texto\"", "APONTA TELLS DE IA (OFFLINE, 0 LLM)")
+    ui.kv("goodwash avaliar \"texto\"", "IA OU HUMANO? VEREDITO + CONFIANCA")
+    ui.kv("goodwash avaliar --llm \"texto\"", "+ SEGUNDA OPINIAO DO MODELO")
+    ui.kv("goodwash checar \"texto\"", "SCORE DE CARA DE IA (OFFLINE, 0 LLM)")
+    ui.kv("goodwash --ate 30 \"texto\"", "REESCREVE ATE BATER O SCORE ALVO")
     ui.kv("goodwash temas", "PALETAS")
     print()
     ui.secao("flags")
     ui.kv("-o, --saida <arq>", "SALVA A REESCRITA EM ARQUIVO")
     ui.kv("--arquivo <arq>", "TEXTO DE ARQUIVO (SEM SUBCOMANDO)")
+    ui.kv("--ate <0-100>", "META DE SCORE NA AUTO-AVALIACAO")
+    ui.kv("--tentativas <n>", "QUANTAS REESCRITAS O LOOP --ATE TENTA (PADRAO 3)")
+    ui.kv("--llm", "SEGUNDA OPINIAO DO MODELO NO `AVALIAR`")
     ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
     ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
     print()
@@ -314,11 +870,18 @@ def main():
         add_help=False,
     )
     ap.add_argument("comando", nargs="?", default="lavar",
-                    help="lavar (padrão): reescreve · checar: tells de IA (offline) · "
-                         "temas: paletas · ou texto/arquivo direto pra reescrever")
+                    help="lavar (padrão): reescreve · avaliar: IA ou humano? · "
+                         "checar: tells de IA (offline) · temas: paletas · ou "
+                         "texto/arquivo direto pra reescrever")
     ap.add_argument("resto", nargs="*", help="intensidade (leve|media|profunda) e/ou texto")
     ap.add_argument("-o", "--saida", default="", help="salva a reescrita em arquivo")
     ap.add_argument("--arquivo", default="", help="lê o texto de um arquivo")
+    ap.add_argument("--ate", type=int, default=None, metavar="SCORE",
+                    help="reescreve até a auto-avaliação cair até esse score (0-100)")
+    ap.add_argument("--tentativas", type=int, default=1, metavar="N",
+                    help="máximo de reescritas do loop --ate (escala a intensidade)")
+    ap.add_argument("--llm", action="store_true",
+                    help="em `avaliar`: pede segunda opinião ao modelo")
     ap.add_argument("-m", "--modelos", action="store_true",
                     help="lista modelos :free disponíveis")
     ap.add_argument("-h", "--help", action="store_true", help="mostra esta ajuda")
@@ -348,8 +911,18 @@ def main():
         cmd_checar(texto)
         return
 
+    if comando == "avaliar":
+        _, texto = ler_entrada(args, resto)
+        cmd_avaliar(texto, args.llm)
+        return
+
+    if args.ate is not None and not 0 <= args.ate <= 100:
+        die("--ate espera um score entre 0 e 100.")
+    tentativas = max(1, args.tentativas)
+    if args.ate is not None and args.tentativas == 1:
+        tentativas = 3        # --ate sozinho não teria como insistir
     intensidade, texto = ler_entrada(args, resto)
-    cmd_lavar(intensidade, texto, args.saida)
+    cmd_lavar(intensidade, texto, args.saida, ate=args.ate, tentativas=tentativas)
 
 
 if __name__ == "__main__":
