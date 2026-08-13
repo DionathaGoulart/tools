@@ -417,6 +417,77 @@ class TestRegexCorrigidos(unittest.TestCase):
         self.assertGreaterEqual(r["marcas_humanas"], 5)
 
 
+class TestAncoragem(unittest.TestCase):
+    """Humano ancora em específico (número, nome, sigla); IA genérica evita."""
+
+    def test_conta_numero_nome_sigla(self):
+        # Gartner (meio de frase), 58, 2024, ONU
+        self.assertEqual(
+            GW._ancoras_concretas("A Gartner mediu 58 bilhões em 2024, diz a ONU."), 4)
+
+    def test_inicio_de_frase_ou_linha_nao_e_nome(self):
+        # maiúscula de início de frase/linha não diz nada
+        self.assertEqual(
+            GW._ancoras_concretas("Comece agora. Depois revise tudo.\nUse a técnica."), 0)
+
+    def test_marcador_de_lista_nao_e_numero(self):
+        r = GW.avaliar_texto("1. Use a técnica\n2. Desative tudo\n3. Revise depois")
+        self.assertEqual(r["ancoras"], 0)
+
+    def test_rttr_none_em_texto_curto(self):
+        self.assertIsNone(GW.avaliar_texto("Texto curto demais pra régua.")["rttr"])
+
+
+class TestVereditoComEvidencia(unittest.TestCase):
+    """O selo 'humano' exige evidência POSITIVA — IA moderna instruída a soar
+    casual zera os eixos lexicais e ganhava 'PROVAVELMENTE HUMANO' de graça."""
+
+    IA_CASUAL = ("Olha, gestão de tempo não é sobre acordar às 5 da manhã. "
+                 "Sério. É sobre saber o que importa.\n\n"
+                 "Passei anos tentando apps de produtividade. Todos. Nenhum "
+                 "resolveu. O que resolveu foi bem mais simples: escolher três "
+                 "coisas por dia. Só três.\n\n"
+                 "Parece pouco? É. Mas é o que cabe num dia real, com reunião "
+                 "surpresa, e-mail urgente e aquele colega que \"só precisa de "
+                 "cinco minutinhos\".\n\n"
+                 "E o descanso conta como tarefa. Não é frescura. Cérebro "
+                 "cansado decide mal, e decisão ruim custa caro. Então anota "
+                 "aí: três coisas, pausas de verdade, e o resto espera. "
+                 "Funciona porque é simples. E o simples a gente mantém.")
+
+    def test_ausencia_de_tells_nao_vira_humano(self):
+        r = GW.avaliar_texto(self.IA_CASUAL)
+        self.assertLessEqual(r["score_autoria"], 35)
+        self.assertEqual(r["veredito_autoria"], "SEM TELLS DE IA")
+
+    def test_marcas_humanas_dao_o_selo(self):
+        self.assertEqual(GW.avaliar_texto(TestAvaliar.HUMANO)["veredito_autoria"],
+                         "PROVAVELMENTE HUMANO")
+
+    def test_ancoragem_da_o_selo_sem_coloquialidade(self):
+        # prosa formal ancorada em fato (número, nome próprio) é humana sem
+        # precisar de gíria — jornalismo não fala "né"
+        ancorado = ("O mercado de aplicativos de produtividade movimentou 58 "
+                    "bilhões de dólares no ano passado, segundo a consultoria "
+                    "Gartner. O número esconde um paradoxo que pesquisadores da "
+                    "Universidade de Stanford vêm documentando desde 2019: "
+                    "quanto mais ferramentas um trabalhador adota, menor tende "
+                    "a ser sua produção efetiva.\n\n"
+                    "O fenômeno tem nome — \"productivity paradox\" — e "
+                    "explicação conhecida. Cada aplicativo cobra um custo de "
+                    "manutenção: configurar, organizar, migrar dados, aprender "
+                    "atalhos. Esse custo raramente entra na conta de quem "
+                    "instala.\n\n"
+                    "A pesquisadora Gloria Mark, autora de estudo seminal "
+                    "sobre atenção, mediu o tempo médio de foco contínuo em "
+                    "trabalhadores de escritório: 47 segundos. Em 2004, eram "
+                    "dois minutos e meio. Os aplicativos, projetados para "
+                    "capturar atenção, dificilmente são neutros nesse declínio.")
+        r = GW.avaliar_texto(ancorado)
+        self.assertGreaterEqual(r["dens_ancoras"], 1.5)
+        self.assertEqual(r["veredito_autoria"], "PROVAVELMENTE HUMANO")
+
+
 class TestLimparSaida(unittest.TestCase):
     """Os modelos :free abrem com frase de serviço apesar do prompt — e ela ia
     inteira pro arquivo do ``-o``."""

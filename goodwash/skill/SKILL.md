@@ -109,23 +109,29 @@ evidência de estilo, nesses eixos:
 | Parágrafos | todos do mesmo tamanho |
 | Pontuação | só ponto e vírgula; nenhum travessão, parêntese, reticência |
 | Estrutura markdown | listicle com rótulo em negrito ("**Foco**: …"), cabeçalho + bullets no formato resposta-de-chat |
+| Ancoragem concreta | AUSÊNCIA de número específico, nome próprio, data, sigla — humano ancora no concreto, IA genérica evita |
+| Repetitividade lexical | vocabulário que gira em círculos; pouca palavra nova conforme o texto avança |
 
 Cuidado com dois falsos positivos estruturais: enumeração banal ("pão, leite e
 ovos") e oração coordenada ("comprei tomate e voltei") NÃO são tríade retórica;
 bullet sozinho NÃO é listicle de IA — humano também anota assim.
 
-Entregue: **veredito** (provavelmente IA / incerto / provavelmente humano),
-**confiança** em %, os eixos que mais pesaram e **trechos citados do texto** como
-evidência. Prefira "incerto" a chutar.
+Entregue: **veredito** (provavelmente IA / incerto / sem tells de IA /
+provavelmente humano), **confiança** em %, os eixos que mais pesaram e
+**trechos citados do texto** como evidência. Prefira "incerto" a chutar.
 
-Três regras que você não pode quebrar aqui:
+Quatro regras que você não pode quebrar aqui:
 
 1. **Texto curto (menos de ~60 palavras) é sempre incerto.** Não existe sinal
    suficiente. Diga isso.
 2. **Prosa formal, técnica, acadêmica ou traduzida dá falso positivo** — ela usa
    as mesmas transições e a mesma voz passiva. Considere o gênero antes de
    julgar e baixe a confiança.
-3. **Feche sempre com o aviso:** isto não é prova, detectores de texto de IA
+3. **"Humano" exige evidência positiva** (coloquialidade, 1ª pessoa, ancoragem
+   em número/nome/data concretos). Texto limpo de tells mas sem evidência é
+   "sem tells de IA", não "provavelmente humano" — IA instruída a soar casual
+   zera os tells lexicais e ganharia o selo de graça.
+4. **Feche sempre com o aviso:** isto não é prova, detectores de texto de IA
    erram, e o resultado não serve pra acusar ninguém — só pra a pessoa medir o
    próprio texto.
 

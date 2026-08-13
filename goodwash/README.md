@@ -106,7 +106,14 @@ levaram até ele:
 | Estrutura markdown | rótulo em negrito ("**Foco**: …"), cabeçalho + lista | 12% |
 | Voz passiva | "foi considerado", "são utilizados" | 10% |
 | Uniformidade dos parágrafos | CV do tamanho dos parágrafos | 10% |
+| Ancoragem concreta | número, nome próprio, sigla por 100 palavras — humano ancora, IA genérica evita | 8% |
+| Repetitividade lexical | root TTR numa janela de 200 tokens | 8% |
 | Variedade de pontuação | quantos tipos expressivos (`—`, `(`, `;`, `…`) | 8% |
+
+As transições fórmula combinam lista literal com **famílias por padrão**
+("é importante/fundamental/essencial + notar/ressaltar/destacar/lembrar…",
+"ademais", "dito isso", "em síntese") — variante trivial não escapa mais da
+lista fixa.
 
 Eixo que não dá pra medir (texto curto, menos de 4 frases, menos de 3
 parágrafos, prosa corrida sem markdown) tem o peso **redistribuído** entre os
@@ -116,7 +123,11 @@ tríade; bullet sozinho pesa pouco no eixo de markdown — humano também anota
 assim. Linha de bullet/cabeçalho conta como frase própria no ritmo. Confiança cresce com o tamanho do texto e com a distância do
 meio-termo; abaixo de 60 palavras o veredito é sempre `INCERTO`.
 
-Faixas: `≥65` provavelmente IA · `36-64` incerto · `≤35` provavelmente humano.
+Faixas: `≥65` provavelmente IA · `36-64` incerto · `≤35` **com evidência
+positiva** (marca humana ou ancoragem concreta) provavelmente humano. Score
+baixo **sem** evidência positiva sai como `SEM TELLS DE IA` — não é selo de
+humanidade: IA moderna instruída a soar casual zera os eixos lexicais, e
+ausência de tell não prova autor.
 
 ```bash
 goodwash avaliar "texto"          # offline, 0 LLM, sem chave

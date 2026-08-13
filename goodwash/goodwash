@@ -366,6 +366,41 @@ def _triades_retoricas(leve):
     return achadas
 
 
+# --- ancoragem concreta e repetitividade lexical (eixos não-lexicais) -------
+# Humano ancora em específico (número, nome próprio, sigla, data); IA genérica
+# evita. E texto de modelo tende a vocabulário mais repetitivo que humano no
+# mesmo tamanho — root TTR numa janela fixa, senão a régua muda com o texto.
+RE_NUMERO = re.compile(r"\b\d+(?:[.,]\d+)?%?\b")
+RE_SIGLA = re.compile(r"\b[A-Z]{2,}\b")
+RE_NOME_PROPRIO = re.compile(r"\b[A-ZÀ-Ý][a-zà-ÿçü]{2,}")
+_ANTES_NAO_CONTA = ".!?…:*#>\"'"
+RTTR_IA = 6.5           # root TTR abaixo disso: repetitivo como texto de modelo
+RTTR_HUMANO = 8.5       # acima disso: variedade lexical de texto humano
+RTTR_JANELA = 200       # tokens; janela fixa pra régua não crescer com o texto
+RTTR_MINIMO = 40        # com menos tokens o rTTR não diz nada
+
+
+def _ancoras_concretas(texto):
+    """Números + siglas + nomes próprios FORA de início de frase/linha (ali a
+    maiúscula não diz nada)."""
+    total = len(RE_NUMERO.findall(texto)) + len(RE_SIGLA.findall(texto))
+    for m in RE_NOME_PROPRIO.finditer(texto):
+        antes = texto[:m.start()].rstrip(" \t")
+        if not antes or antes.endswith("\n") or antes[-1] in _ANTES_NAO_CONTA:
+            continue
+        total += 1
+    return total
+
+
+def _root_ttr(texto):
+    """Tipos / raiz(tokens) nos primeiros ``RTTR_JANELA`` tokens, ou ``None``
+    quando a janela é curta demais pra régua valer."""
+    toks = re.findall(r"\w+", sem_acento(texto.lower()))[:RTTR_JANELA]
+    if len(toks) < RTTR_MINIMO:
+        return None
+    return len(set(toks)) / (len(toks) ** 0.5)
+
+
 def _eixo_markdown(texto):
     """``(valor 0..1, listas, cabecalhos, rotulos)``. Valor ``None`` em prosa
     corrida — ausência de markdown não é evidência de nada."""
@@ -492,6 +527,14 @@ def avaliar_texto(texto):
     tipos_pont = len({c for c in texto if c in PONTUACAO_EXPRESSIVA})
     eixo_md, md_listas, md_cabecalhos, md_rotulos = _eixo_markdown(texto)
 
+    # marcadores de lista saem antes da ancoragem: o "1." de item numerado não
+    # é um número do conteúdo
+    sem_marc = "\n".join(RE_CABECALHO.sub("", RE_LINHA_LISTA.sub("", ln))
+                         for ln in texto.split("\n"))
+    ancoras = _ancoras_concretas(sem_marc)
+    dens_ancoras = ancoras * por100
+    rttr = _root_ttr(texto)
+
     paragrafos = [p for p in re.split(r"\n\s*\n", texto) if p.strip()]
     cv_par = _cv([len(re.findall(r"\w+", p)) for p in paragrafos]) if len(paragrafos) >= 3 else None
 
@@ -513,6 +556,10 @@ def avaliar_texto(texto):
          None if cv_par is None else _clamp((CV_HUMANO - cv_par) / (CV_HUMANO - CV_UNIFORME)),
          0.10),
         ("estrutura markdown", eixo_md, 0.12),
+        ("ancoragem concreta", 1.0 - min(1.0, dens_ancoras / 2.0), 0.08),
+        ("repetitividade lexical",
+         None if rttr is None else _clamp((RTTR_HUMANO - rttr) / (RTTR_HUMANO - RTTR_IA)),
+         0.08),
     ]
     disponiveis = [(nome, val, peso) for nome, val, peso in eixos if val is not None]
     total_peso = sum(p for _n, _v, p in disponiveis) or 1.0
@@ -528,7 +575,14 @@ def avaliar_texto(texto):
     elif score >= 65:
         veredito = "PROVAVELMENTE IA"
     elif score <= 35:
-        veredito = "PROVAVELMENTE HUMANO"
+        # "humano" exige evidência POSITIVA (marca humana ou ancoragem
+        # concreta). Só ausência de tells vira "SEM TELLS DE IA": IA moderna
+        # instruída a soar casual zera os eixos lexicais e ganharia o selo
+        # humano de graça — o pior erro possível aqui.
+        if humanas * por100 >= 1.5 or dens_ancoras >= 1.5:
+            veredito = "PROVAVELMENTE HUMANO"
+        else:
+            veredito = "SEM TELLS DE IA"
     else:
         veredito = "INCERTO"
 
@@ -547,6 +601,9 @@ def avaliar_texto(texto):
         "md_listas": md_listas,
         "md_cabecalhos": md_cabecalhos,
         "md_rotulos": md_rotulos,
+        "ancoras": ancoras,
+        "dens_ancoras": dens_ancoras,
+        "rttr": rttr,
     }
 
 
@@ -707,6 +764,10 @@ def cmd_avaliar(texto, usar_llm):
         ui.kv("ESTRUTURA MARKDOWN",
               f"{r['md_listas']} ITEM(NS) DE LISTA · {r['md_cabecalhos']} "
               f"CABECALHO(S) · {r['md_rotulos']} ROTULO(S) EM NEGRITO")
+    ui.kv("ANCORAGEM CONCRETA",
+          f"{r['ancoras']} (NUMERO, NOME PROPRIO, SIGLA)")
+    if r["rttr"] is not None:
+        ui.kv("VARIEDADE LEXICAL", f"rTTR {r['rttr']:.1f}")
     if r["cv"] is not None:
         ui.kv("CV DAS FRASES", f"{r['cv']:.2f}")
     if r["cv_paragrafos"] is not None:
