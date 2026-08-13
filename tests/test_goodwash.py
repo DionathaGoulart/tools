@@ -174,6 +174,32 @@ class TestChecarRegressoes(unittest.TestCase):
         self.assertIn("Além disso", ctx)
 
 
+class TestFormulasFamilia(unittest.TestCase):
+    """Lista literal perdia variantes triviais ("é importante LEMBRAR", "é
+    FUNDAMENTAL destacar"). As famílias por padrão cobrem a combinação."""
+
+    def test_pega_variantes_fora_da_lista(self):
+        achadas = _formulas("É importante lembrar que o prazo mudou. "
+                            "É fundamental destacar o custo disso.")
+        self.assertTrue(any(f.startswith("e importante lembrar") for f in achadas))
+        self.assertTrue(any(f.startswith("e fundamental destacar") for f in achadas))
+
+    def test_nao_duplica_literal_da_lista(self):
+        # o span coberto pelo literal não pode contar de novo pra família
+        r = GW.checar_tells("É importante notar que o prazo mudou.")
+        self.assertEqual(len(r["formulas"]), 1)
+        self.assertIn("é importante notar", {f for f, _ in r["formulas"]})
+
+    def test_conectivos_datados(self):
+        achadas = _formulas("Ademais, o prazo encurtou. Dito isso, seguimos. "
+                            "Nesse sentido, a medida funciona. Em síntese, deu certo.")
+        self.assertEqual(len(achadas), 4)
+
+    def test_em_primeiro_lugar_so_abrindo_oracao(self):
+        self.assertEqual(_formulas("Ele chegou em primeiro lugar na corrida."), set())
+        self.assertTrue(_formulas("Em primeiro lugar, o custo caiu."))
+
+
 class TestScore(unittest.TestCase):
     """O score existe porque contagem crua não dizia nada: 5 fórmulas em 80
     palavras e 5 em 2000 são coisas opostas."""

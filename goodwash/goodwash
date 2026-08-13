@@ -224,6 +224,39 @@ def _re_buzz(termo):
 _BUZZ_RE = [(b, _re_buzz(b)) for b in AI_BUZZ]
 _FORMULAS_NORM = [(f, normalizar_termo(f)) for f in AI_FORMULAS]
 
+# famílias de fórmula por PADRÃO — lista fixa perde a corrida de variantes:
+# "é importante LEMBRAR" e "é FUNDAMENTAL destacar" escapavam da lista literal.
+# Os padrões rodam no texto normalizado (minúsculo, sem acento, um espaço).
+# O bool diz se a família só conta abrindo oração ("chegou em primeiro lugar"
+# na corrida não é transição).
+AI_FORMULAS_PADRAO = [
+    (r"e (?:importante|fundamental|essencial|crucial|valido|interessante) "
+     r"(?:notar|ressaltar|destacar|lembrar|mencionar|observar|frisar|salientar)"
+     r"(?: que)?", False),
+    (r"vale (?:a pena )?(?:ressaltar|destacar|lembrar|mencionar|notar|frisar|"
+     r"salientar)", False),
+    (r"cabe (?:ressaltar|destacar|lembrar|mencionar|notar|frisar|salientar)", False),
+    (r"nes[st]e (?:sentido|ambito)", True),
+    (r"em (?:primeiro|segundo|terceiro) lugar", True),
+    (r"ademais", True),
+    (r"sendo assim", True),
+    (r"dito isso", True),
+    (r"posto isso", True),
+    (r"outrossim", True),
+    (r"nao obstante", True),
+    (r"em sintese", True),
+]
+
+# literais primeiro (rótulo canônico ganha na sobreposição), famílias depois
+# com rótulo = trecho casado.
+_FORMULAS_TODAS = (
+    [(orig, re.compile("(?<= )" + re.escape(alvo) + "(?= )"),
+      orig in FORMULAS_INICIO_DE_ORACAO)
+     for orig, alvo in _FORMULAS_NORM if alvo]
+    + [(None, re.compile("(?<= )" + padrao + "(?= )"), abre)
+       for padrao, abre in AI_FORMULAS_PADRAO]
+)
+
 
 def _frases_pontuadas(texto):
     """Divide em frases sem quebrar em abreviação ('Dr. Silva'), decimal ('3.5')
@@ -382,20 +415,19 @@ def checar_tells(texto):
     norm, offsets = normalizar(texto)
     total_palavras = len(re.findall(r"\w+", texto))
 
-    formulas = []
-    for original, alvo in _FORMULAS_NORM:
-        if not alvo:
-            continue
-        padrao = " " + alvo + " "
-        exige_abertura = original in FORMULAS_INICIO_DE_ORACAO
-        idx = norm.find(padrao)
-        while idx >= 0:
-            ini_orig = offsets[idx + 1]           # 1º char da fórmula no original
-            if not exige_abertura or _abre_oracao(texto, ini_orig):
-                corte = max(0, ini_orig - 20)
-                ctx = re.sub(r"\s+", " ", texto[corte:corte + 60]).strip()
-                formulas.append((original, ctx))
-            idx = norm.find(padrao, idx + len(alvo))
+    formulas, cobertos = [], []
+    for rotulo, rx, exige_abertura in _FORMULAS_TODAS:
+        for m in rx.finditer(norm):
+            # família não conta em cima de trecho já coberto por um literal
+            if any(m.start() < fim and ini < m.end() for ini, fim in cobertos):
+                continue
+            ini_orig = offsets[m.start()]         # 1º char da fórmula no original
+            if exige_abertura and not _abre_oracao(texto, ini_orig):
+                continue
+            cobertos.append((m.start(), m.end()))
+            corte = max(0, ini_orig - 20)
+            ctx = re.sub(r"\s+", " ", texto[corte:corte + 60]).strip()
+            formulas.append((rotulo or m.group(0).strip(), ctx))
 
     buzz = sorted({original for original, rx in _BUZZ_RE if rx.search(norm)})
 
