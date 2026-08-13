@@ -36,10 +36,12 @@ def _amb_sem_chave():
     return amb
 
 
-def _rodar(*argv, entrada=None):
+def _rodar(*argv, entrada=None, amb_extra=None):
+    amb = _amb_sem_chave()
+    amb.update(amb_extra or {})
     return subprocess.run(
         [sys.executable, CAMINHO, *argv],
-        capture_output=True, env=_amb_sem_chave(), input=entrada,
+        capture_output=True, env=amb, input=entrada,
     )
 
 
@@ -117,6 +119,14 @@ class TestRoteamentoCli(unittest.TestCase):
 
     def test_temas_exit0(self):
         self.assertEqual(_rodar("temas").returncode, 0)
+
+    def test_temas_sobrevive_codepage_legado(self):
+        # o catálogo desenha '►' (U+25BA), que não existe em cp1252. No windows a
+        # stdout de um pipe usa o encoding do locale, então isso morria com
+        # UnicodeEncodeError (exit 1). retro.py fixa utf-8 na saída.
+        out = _rodar("temas", amb_extra={"PYTHONIOENCODING": "cp1252"})
+        self.assertEqual(out.returncode, 0, out.stderr.decode(errors="replace"))
+        self.assertIn("►".encode(), out.stdout)
 
     def test_texto_posicional_roteia_pra_lavar(self):
         # regressão do bug crítico: NÃO pode ser exit 2 (argparse); tem que chegar

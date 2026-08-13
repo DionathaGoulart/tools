@@ -23,6 +23,26 @@ import shutil
 import sys
 import unicodedata
 
+
+def _forcar_utf8() -> None:
+    """The UI draws in box-drawing/block glyphs (─ █ ► ●), none of which exist in
+    the legacy Windows codepages. When stdout is a pipe on Windows, python picks
+    the locale encoding (cp1252) and a plain print() dies with UnicodeEncodeError.
+    Pin UTF-8 (errors="replace" as a last resort) so no tool can crash on output."""
+    for fluxo in (sys.stdout, sys.stderr):
+        if fluxo is None:
+            continue
+        atual = (getattr(fluxo, "encoding", None) or "").lower().replace("-", "")
+        if atual == "utf8":
+            continue
+        try:
+            fluxo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass       # StringIO/detached stream: nothing to reconfigure
+
+
+_forcar_utf8()
+
 # each theme: (background, foreground, accent) — hex, no '#'
 TEMAS: dict[str, tuple[str, str, str]] = {
     "vault-gold": ("111111", "e0e0e0", "c8a96e"),
