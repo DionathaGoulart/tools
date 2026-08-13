@@ -93,6 +93,11 @@ class LLM:
         self.default_models = list(default_models)
         self.referer = referer
         self.timeout = timeout
+        # ``finish_reason`` da última resposta aceita: "length" significa que o
+        # modelo bateu ``max_tokens`` e a resposta veio cortada. Fica como
+        # atributo (e não no retorno de ``chat``) pra não mexer na assinatura
+        # que as outras ferramentas já usam. ``None`` num acerto de cache.
+        self.last_finish_reason = None
 
     def modelos(self):
         """The model list to try: ``OPENROUTER_MODEL`` (comma-separated) or the
@@ -188,6 +193,7 @@ class LLM:
         Raises :class:`LLMError` (``no_key`` / ``auth`` / ``all_failed``).
         """
         ttl = self._resolve_ttl(cache_ttl)
+        self.last_finish_reason = None
         ckey = None
         if ttl > 0:
             ckey = self._cache_key(messages, max_tokens, temperature, json_tipo)
@@ -216,10 +222,12 @@ class LLM:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
-                content = (data["choices"][0]["message"].get("content") or "").strip()
+                escolha = data["choices"][0]
+                content = (escolha["message"].get("content") or "").strip()
                 if not content:
                     erros.append(f"{model}: resposta vazia")
                     continue
+                self.last_finish_reason = escolha.get("finish_reason")
                 if json_tipo is None:
                     if ckey:
                         self._cache_put(ckey, content, model)
