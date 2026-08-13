@@ -80,7 +80,8 @@ como `abortado` e ela fica de fora.
 ## Instalação
 
 ```bash
-bash ~/Desktop/tools/goodpomo/setup.sh
+# do diretório do repo (git clone … && cd tools)
+bash goodpomo/setup.sh
 ```
 
 Abra um terminal novo (ou `source ~/.zshrc`) e rode `goodpomo`.

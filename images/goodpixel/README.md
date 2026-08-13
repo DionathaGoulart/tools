@@ -60,12 +60,13 @@ Se nenhum dos dois existir, o comando avisa qual instalar.
 ## Instalação
 
 ```bash
-bash ~/Desktop/tools/images/goodpixel/setup.sh
+# do diretório do repo (git clone … && cd tools)
+bash images/goodpixel/setup.sh
 ```
 
 Depois abra um terminal novo (ou `source ~/.zshrc`). O `setup.sh` detecta o próprio
 caminho — clonar o repo em outro lugar funciona igual. Desinstalar: `bash
-~/Desktop/tools/setup.sh -u`.
+bash setup.sh -u`.
 
 ## Tema
 

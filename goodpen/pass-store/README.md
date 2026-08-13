@@ -18,7 +18,8 @@ pendrive (git bare repo)  ←→  ~/.password-store (local)
 ## Setup rápido
 
 ```bash
-bash ~/Desktop/tools/goodpen/pass-store/setup.sh
+# do diretório do repo (git clone … && cd tools)
+bash goodpen/pass-store/setup.sh
 ```
 
 O script faz tudo:

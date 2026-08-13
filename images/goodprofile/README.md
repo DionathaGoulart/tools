@@ -70,7 +70,8 @@ funciona.
 ## Instalação
 
 ```bash
-bash ~/Desktop/tools/images/goodprofile/setup.sh
+# do diretório do repo (git clone … && cd tools)
+bash images/goodprofile/setup.sh
 ```
 
 ## Tema

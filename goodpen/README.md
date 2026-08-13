@@ -33,7 +33,7 @@ cofre web      # interface no navegador
 cofre temas    # paletas do terminal (COFRE_TEMA, fallback RETRO_TEMA)
 
 # pass-store — pass + gpg + git com pendrive como cofre
-bash ~/Desktop/tools/goodpen/pass-store/setup.sh
+bash goodpen/pass-store/setup.sh
 ```
 
 O terminal do `cofre` segue o [style guide retro](../.harness/styleguide-terminal.md).

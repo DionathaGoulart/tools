@@ -77,11 +77,11 @@ Precisa de Python 3. A camada `--roast` também precisa de uma chave da
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/goodzap/.env.example ~/Desktop/tools/goodzap/.env
+cp goodzap/.env.example goodzap/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
-bash ~/Desktop/tools/goodzap/setup.sh
+bash goodzap/setup.sh
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.

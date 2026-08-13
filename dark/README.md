@@ -42,6 +42,7 @@ dark stories         # 4. domingo: planejar os stories da semana
 ## Instalação
 
 ```bash
+# do diretório do repo (git clone … && cd tools)
 bash setup.sh            # CLI no PATH (escreve 1 linha no seu rc)
 bash setup.sh --skill    # só o skill /dark do Claude Code (symlink)
 ```

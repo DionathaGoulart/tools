@@ -99,7 +99,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 Ou, por ferramenta, copie o `.env.example` da pasta pra `.env` e preencha (o `.env` não é versionado; o env do shell tem prioridade):
 
 ```bash
-cp ~/Desktop/tools/goodprof/.env.example ~/Desktop/tools/goodprof/.env
+cp goodprof/.env.example goodprof/.env
 ```
 
 > ⚠️ Prompts enviados a modelos `:free` podem ser usados pra treino. Nenhuma ferramenta manda dado sensível por padrão — mas leia a nota de privacidade no README de cada uma antes de colar coisa pessoal.

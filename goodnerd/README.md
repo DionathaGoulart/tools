@@ -51,6 +51,7 @@ de texto simples, sem animação.
 ## Instalar
 
 ```bash
+# do diretório do repo (git clone … && cd tools)
 bash setup.sh          # adiciona o comando `goodnerd` ao seu PATH
 ```
 

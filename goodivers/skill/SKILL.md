@@ -20,7 +20,7 @@ chave da OpenRouter é necessária aqui.
 ## Pré-requisitos e coleta
 
 - CLI no PATH como `goodivers`; se não estiver, use
-  `~/Desktop/tools/goodivers/goodivers` direto.
+  `~/.goodtools/goodivers/goodivers` direto.
 - Snapshot do radar: `goodivers --json` (respeita cache de 6h). Use `-f` só
   se o usuário pedir dado fresco ("recoleta", "-f", "fresh").
 - Busca no YouTube: `goodivers buscar "<termo>" --json [-s] [--br]`

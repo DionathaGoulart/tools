@@ -9,7 +9,7 @@ Versão "programinha" do cofre de senhas: **um executável só, zero dependênci
 Compile (requer [Go](https://go.dev/dl/)) e coloque o binário no PATH:
 
 ```bash
-cd ~/Desktop/tools/goodpen/standalone
+cd goodpen/standalone
 go build -o cofre .        # só pro seu sistema
 bash build.sh              # ou todas as plataformas de uma vez → dist/
 ```

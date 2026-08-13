@@ -53,11 +53,11 @@ Precisa de Python 3 e uma chave da [OpenRouter](https://openrouter.ai/keys)
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/goodbio/.env.example ~/Desktop/tools/goodbio/.env
+cp goodbio/.env.example goodbio/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
-bash ~/Desktop/tools/goodbio/setup.sh
+bash goodbio/setup.sh
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.

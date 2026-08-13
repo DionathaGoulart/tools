@@ -273,9 +273,10 @@ funcionam juntos.
 CLI e skill instalam separado — um, outro ou os dois:
 
 ```bash
-bash ~/Desktop/tools/goodivers/setup.sh          # só o CLI (PATH no rc)
-bash ~/Desktop/tools/goodivers/setup.sh --skill  # só o skill (symlink em ~/.claude/skills)
-bash ~/Desktop/tools/setup.sh                    # instalador do repo: marque goodivers e/ou goodivers-skill
+# do diretório do repo (git clone … && cd tools)
+bash goodivers/setup.sh          # só o CLI (PATH no rc)
+bash goodivers/setup.sh --skill  # só o skill (symlink em ~/.claude/skills)
+bash setup.sh                    # instalador do repo: marque goodivers e/ou goodivers-skill
 ```
 
 O CLI precisa estar no PATH pro skill funcionar — é ele que coleta.
@@ -290,16 +291,16 @@ Precisa de Python 3. Chave da [OpenRouter](https://openrouter.ai/keys)
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/goodivers/.env.example ~/Desktop/tools/goodivers/.env
+cp goodivers/.env.example goodivers/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez) — direto:
-bash ~/Desktop/tools/goodivers/setup.sh
+bash goodivers/setup.sh
 #    ou pelo instalador interativo do repo (goodivers e goodivers-skill separados):
-bash ~/Desktop/tools/setup.sh
+bash setup.sh
 
 # 3. (opcional) skill /goodivers no Claude Code — gera com o Claude, sem chave:
-bash ~/Desktop/tools/goodivers/setup.sh --skill
+bash goodivers/setup.sh --skill
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.

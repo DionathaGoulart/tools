@@ -75,11 +75,11 @@ Precisa de Python 3 e uma chave da [OpenRouter](https://openrouter.ai/keys)
 #    a) no seu rc (~/.zshrc, ~/.bashrc, ~/.bash_profile):
 export OPENROUTER_API_KEY="sk-or-..."
 #    b) ou num .env dentro desta pasta:
-cp ~/Desktop/tools/goodvocab/.env.example ~/Desktop/tools/goodvocab/.env
+cp goodvocab/.env.example goodvocab/.env
 #    e edite o .env com sua chave (o .env não é versionado).
 
 # 2. coloca o comando no PATH (uma vez):
-bash ~/Desktop/tools/goodvocab/setup.sh
+bash goodvocab/setup.sh
 ```
 
 > A variável exportada no shell tem prioridade sobre o `.env`.

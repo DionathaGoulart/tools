@@ -19,7 +19,7 @@ chave da OpenRouter é necessária aqui.
 
 ## Pré-requisitos e coleta
 
-- CLI no PATH como `dark`; se não estiver, use `~/Desktop/tools/dark/dark` direto.
+- CLI no PATH como `dark`; se não estiver, use `~/.goodtools/dark/dark` direto.
 - Snapshot do radar: `dark --json` (respeita cache de 6h). Use `-f` só se o
   usuário pedir dado fresco ("recoleta", "-f", "fresh").
 - Busca no YouTube (proxy de demanda pra reels): `dark buscar "<termo>" --json [-s]`

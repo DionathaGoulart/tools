@@ -34,7 +34,8 @@ goodhunter --json       # saída em JSON (combina com scan/list)
 ## Instalação
 
 ```bash
-bash ~/Desktop/tools/goodhunter/setup.sh
+# do diretório do repo (git clone … && cd tools)
+bash goodhunter/setup.sh
 ```
 
 Abra um terminal novo e rode `goodhunter`.

@@ -22,7 +22,8 @@ tty caem pra texto puro.
 ## Instalação (uma vez)
 
 ```bash
-bash ~/Desktop/tools/goodcheats/setup.sh
+# do diretório do repo (git clone … && cd tools)
+bash goodcheats/setup.sh
 ```
 
 Isso adiciona a linha de `source` no seu `~/.zshrc` (ou `~/.bashrc`). Depois

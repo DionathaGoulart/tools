@@ -20,7 +20,7 @@ chave da OpenRouter é necessária aqui.
 ## Pré-requisitos e coleta
 
 - CLI no PATH como `goodjob`; se não estiver, use
-  `~/Desktop/tools/goodjob/goodjob` direto.
+  `~/.goodtools/goodjob/goodjob` direto.
 - Snapshot do radar: `goodjob radar --json` (respeita cache de 6h). Use `-f`
   só se o usuário pedir dado fresco ("recoleta", "-f", "fresh").
 - Busca avulsa: `goodjob buscar "<termo>" --json [--remoto] [--local "<cidade>"]`.
