@@ -19,7 +19,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [goodivers](./goodivers) | `goodivers` | Copiloto do canal de Helldivers 2: radar ao vivo do jogo + ideias, títulos e thumbs |
 | [goodjob](./goodjob) | `goodjob` | Copiloto de busca de emprego: radar de vagas ao vivo (Gupy, LinkedIn, Remotive, RemoteOK) + aderência, carta, CV e prep |
 | [dark](./dark) | `dark` | Copiloto do Instagram @darkning.art (horror art): radar do nicho + ideias, pacotes, captions e stories em inglês |
-| [goodwash](./goodwash) | `goodwash` | Reescreve texto de IA pra soar humano e sair da marca d'água estatística (lista verde/vermelha) |
+| [goodwash](./goodwash) | `goodwash` | Avalia se um texto é de IA (veredito + confiança) e reescreve pra soar humano, se auto-avaliando até bater a meta |
 | **Imagens** | | |
 | [images/goodpixel](./images/goodpixel) | `goodpixel` | Transforma imagens (png/jpg/svg/webp/…) em pixel art com paletas clássicas |
 | [images/goodprofile](./images/goodprofile) | `goodprofile` | Encaixa imagens nos tamanhos prontos de perfil/rede social: presets de avatar/capa/favicon, corte com foco, troca de cor, centralização e máscara redonda |
@@ -226,7 +226,7 @@ goodivers canais add @x  # monitorar outro canal
 ```
 
 ### [goodwash](./goodwash)
-Reescreve texto gerado por IA pra soar naturalmente humano — destruindo a assinatura estatística da marca d'água de texto ("lista verde / lista vermelha"). A watermark não carimba caracteres: ela enviesa a **escolha de tokens** na geração (lista "verde" privilegiada via hash do contexto + chave secreta), e o detector mede se o texto usa tokens verdes acima do acaso. Como o sinal mora nas escolhas de tokens, **reescrita genuína** (variar léxico, quebrar ritmo uniforme, desmontar paralelismos/tríades, trocar transições fórmula) apaga o viés — é o ataque documentado nos papers de watermarking. O goodwash reescreve de verdade (nada de trocar sinônimo por sinônimo), preservando fatos e tom, em três intensidades. `checar` aponta os "tells" de IA offline (0 LLM, sem chave); dever de casa honesto, não é detecção da watermark real (que exige a chave secreta).
+Reescreve texto gerado por IA pra soar naturalmente humano — diluindo a assinatura estatística da marca d'água de texto ("lista verde / lista vermelha"). A watermark não carimba caracteres: ela enviesa a **escolha de tokens** na geração (lista "verde" privilegiada via hash do contexto + chave secreta), e o detector mede se o texto usa tokens verdes acima do acaso. Como o sinal mora nas escolhas de tokens, **reescrita genuína** (variar léxico, quebrar ritmo uniforme, desmontar paralelismos/tríades, trocar transições fórmula) derruba o viés — é o ataque de paráfrase documentado nos papers. Honestidade sobre o limite: dilui, não zera — [arXiv:2306.04634](https://arxiv.org/abs/2306.04634) mostra a watermark ainda detectável após paráfrase humana forte observando ~800 tokens, então texto curto sai limpo e texto longo só perde confiança. O goodwash reescreve de verdade (nada de trocar sinônimo por sinônimo), preservando fatos e tom, em três intensidades — e **se auto-avalia**: roda o detector na entrada e na saída, mostra o delta de cada eixo, e com `--ate <score>` insiste escalando a intensidade (`leve`→`media`→`profunda`) até bater a meta. `avaliar` é o detector: 11 eixos offline (transições fórmula — lista literal + famílias por padrão —, ritmo, palavras batidas, marcas humanas, paralelismo/tríade, voz passiva, uniformidade de parágrafo, variedade de pontuação, estrutura markdown de resposta-de-chat, ancoragem concreta e repetitividade lexical), veredito, confiança e `--llm` pra segunda opinião do modelo. O selo "provavelmente humano" exige evidência positiva (marca humana ou ancoragem concreta) — score baixo sem evidência sai como `SEM TELLS DE IA`. É score de estilo, não detecção da watermark real (que exige a chave secreta) — e **não serve pra acusar ninguém**: prosa formal humana dá falso positivo, então a calibração prefere dizer *incerto* a chutar.
 
 ```bash
 goodwash "seu texto"           # reescrita média (padrão)
@@ -234,8 +234,11 @@ goodwash leve "texto"          # leve: lixa arestas de IA
 goodwash profunda "texto"      # profunda: parece escrito do zero
 goodwash arquivo.txt           # de arquivo · echo "x" | goodwash · stdin
 goodwash -o saida.txt "texto"  # salva em arquivo
-goodwash checar "texto"        # tells de IA offline (0 LLM, sem chave)
-# no Claude Code: /goodwash [leve|media|profunda] <texto> · /goodwash checar <texto>
+goodwash --ate 30 "texto"      # reescreve até a auto-avaliação bater a meta
+goodwash avaliar "texto"       # IA ou humano? veredito + confiança (offline)
+goodwash avaliar --llm "texto" # + segunda opinião do modelo
+goodwash checar "texto"        # score de cara de IA offline (0 LLM, sem chave)
+# no Claude Code: /goodwash [leve|media|profunda] <texto> · /goodwash avaliar|checar <texto>
 ```
 
 ---
@@ -291,7 +294,7 @@ uma abre a ajuda completa; `<tool> temas` lista as paletas do terminal.
 | goodzap | `goodzap` | `<arquivo.txt>` · `--roast` · `--reais` · `--html ARQ` · `-m` · `temas` |
 | goodivers | `goodivers` | (radar, PT-BR) · `--original` cru · `ideias` · `ideias --ver/--hist` · `inspirar` · `pacote <N\|"ideia">` · `titulos "<tema>"` · `buscar "<termo>"` · `canais` · `temas` |
 | dark | `dark` | (radar) · `ideias` · `pacote <N\|"ideia">` · `legendas "<tema>"` · `stories` · `buscar "<termo>"` · `refs` · `temas` |
-| goodwash | `goodwash` | (padrão `lavar`, média) · `leve\|media\|profunda` · `-o/--saida` · `--arquivo` · `checar` · `temas` |
+| goodwash | `goodwash` | (padrão `lavar`, média) · `leve\|media\|profunda` · `-o/--saida` · `--arquivo` · `--ate <0-100>` · `--tentativas <n>` · `avaliar [--llm]` · `checar` · `temas` |
 
 Comuns às de IA: `-m` (modelos `:free` no ar), env `OPENROUTER_API_KEY` /
 `OPENROUTER_MODEL`. Skills no Claude Code: `/goodivers`, `/dark` e `/goodwash`
