@@ -9,6 +9,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | **Terminal** | | |
 | [goodhelp](./goodhelp) | `goodhelp` | Mapa da família good*: lista o que está instalado e abre a ajuda de cada uma — vem junto automaticamente com qualquer ferramenta |
 | [goodcheats](./goodcheats) | `good` / `goodcheat` / `goodharness` | Kit de utilidades da família good: fetch de sistema + cheatsheets + styleguides |
+| [goodrepo](./goodrepo) | `goodrepo` | Padroniza um repo: menu que instala no `.harness/` os guias de README, licença, escrita, git, CHANGELOG, SECURITY e visual |
 | [goodpomo](./goodpomo) | `goodpomo` | Pomodoro com notificação nativa e estatísticas |
 | [goodnerd](./goodnerd) | `goodnerd` | Teatro de "hacker" fake no terminal, pra impressionar os leigos |
 | **IA** (OpenRouter `:free`) | | |
@@ -48,6 +49,7 @@ Ou individualmente — cada ferramenta tem um `setup.sh` que a adiciona ao `PATH
 
 ```bash
 bash goodcheats/setup.sh
+bash goodrepo/setup.sh
 bash goodpomo/setup.sh
 bash goodnerd/setup.sh
 bash goodprof/setup.sh
@@ -145,6 +147,22 @@ good harness list                       # predefinições de styleguide salvas
 good harness copy meu-tema ~/meu/site   # salva styleguide do projeto
 good harness install meu-tema .         # instala no projeto atual
 ```
+
+### [goodrepo](./goodrepo)
+Deixa todos os repos com a mesma cara. Rodado dentro de um projeto, abre um menu com os guias da
+família (padrão de README, licença, escrita, git e versões, CHANGELOG, SECURITY, checklist de
+publicação, styleguide visual e de CLI); os marcados vão para o `.harness/` do projeto, junto com
+um índice que diz por onde começar. Um manifesto guarda o que foi instalado, então `status` mostra
+o que ficou desatualizado e `update` traz a versão nova sem passar por cima do que você editou.
+
+```bash
+goodrepo                   # menu no projeto atual (raiz do git)
+goodrepo add readme git    # sem menu; dependências vêm junto
+goodrepo status            # instalado x fonte
+goodrepo update            # traz os guias novos
+```
+
+Os guias moram em [`goodrepo/guias/`](./goodrepo/guias). Detalhes no [README](./goodrepo/README.md).
 
 ### [goodpomo](./goodpomo)
 Pomodoro no terminal: barra de progresso ASCII, notificação nativa (com som no macOS) quando o tempo acaba, estatísticas dos últimos dias. `p` pausa, `q` aborta; a cada 4 focos ele sugere a pausa longa.
@@ -281,6 +299,7 @@ uma abre a ajuda completa; `<tool> temas` lista as paletas do terminal.
 | goodcheats | `good` | `good` (logo+infos) · `good cheat <sub>` · `good harness <sub>` · `good temas` · `good --refresh` · `good -c HEX` |
 | | `goodcheat` | `<topico>` · `-e` editar/criar · `-l` listar · `-s <termo>` buscar |
 | | `goodharness` | `init [dest] [--from N]` · `copy <nome> [--files a,b]` · `install <nome> [--link]` · `list` · `show <nome>` · `rm <nome>` · `config <show\|get\|set> [dest]` · `diff <nome>` · `update <nome>` · `sync [preset]` · `status` |
+| goodrepo | `goodrepo` | (menu) · `add <guia>...` · `list` · `status` · `update` · `rm <guia>...` · `-C <dir>` · `-f` |
 | goodpomo | `goodpomo` | `[min] [rotulo]` foco · `pausa [min]` · `-l` estatísticas · `temas` |
 | goodnerd | `goodnerd` | (operação completa) · `matrix [seg]` · `scan` · `crack` · `deploy` · `temas` · `--fast`/`--slow` |
 
@@ -349,6 +368,10 @@ tools/
     compose/           ← docker compose files prontos
     goodharness        ← biblioteca de styleguides
     styleguides/       ← predefinições de styleguide (uma por .md)
+  goodrepo/              ← padroniza repos: guias no .harness/
+    goodrepo               ← o CLI (menu, add, status, update, rm)
+    setup.sh           ← adiciona ao PATH
+    guias/             ← os guias, no mesmo layout que ganham no .harness/
   goodpomo/              ← pomodoro no terminal
     goodpomo               ← o CLI
     setup.sh           ← adiciona ao PATH
@@ -460,7 +483,7 @@ ou o prompt invalida o cache.
 
 - **python** — testes (3 OSes) + `ruff` (imports/nomes mortos + bugs óbvios)
 - **shell** — `bash -n` (sintaxe, 3 OSes) + `shellcheck --severity=warning` +
-  smoke test do goodharness
+  smoke tests do goodharness e do goodrepo
 
 Config dos linters: `ruff.toml` (inclui os entrypoints sem extensão) e
 `.shellcheckrc` (desliga SC2034/SC1090, ruído pro estilo desses scripts). Antes
