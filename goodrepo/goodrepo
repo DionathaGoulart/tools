@@ -1,0 +1,632 @@
+#!/usr/bin/env bash
+# goodrepo — padroniza um repo: instala os guias da família good no .harness/ do projeto
+#
+# usage: goodrepo                        menu: marca os guias e instala no projeto atual
+#        goodrepo add <guia>... [-f]     instala sem menu (dependências vêm junto)
+#        goodrepo list                   guias disponíveis ([✓] = instalado aqui)
+#        goodrepo status                 instalado x fonte: ok, desatualizado, editado, faltando
+#        goodrepo update [-f]            traz a versão nova dos guias instalados
+#        goodrepo rm <guia>... [-f]      remove guias (arquivo editado fica, a não ser com -f)
+#        goodrepo help
+#
+# opções: -C <dir>   projeto alvo (padrão: raiz do git do diretório atual, ou ele mesmo)
+#         -f         sobrescreve arquivo que não é do goodrepo ou foi editado (backup .bak antes)
+#
+# Os guias moram em goodrepo/guias/ (versionados no repo tools) com o mesmo layout que ganham
+# no projeto: styleguide*.md na raiz do .harness/, o resto em .harness/repo/. O manifesto
+# .harness/repo/.goodrepo guarda o hash de cada arquivo instalado; é por ele que `status` e
+# `update` sabem o que foi editado à mão e não passam por cima.
+
+TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+GUIAS="${GOODREPO_GUIAS:-$TOOL_DIR/guias}"
+
+# ---------- catálogo ----------
+# Ordem do menu. ARQS = caminhos relativos a guias/ (e ao .harness/ do projeto).
+# DEPS = guias que este cita por link; vêm junto pra nenhum link ficar quebrado.
+IDS=(readme styleguide licenca escrita git changelog seguranca publicar cli)
+DESCS=(
+  "padrão de README + modelos en e pt-BR"
+  "visual retro: base + skins retro e terminal"
+  "qual licença usar + textos CC BY-NC-SA 4.0 e MIT"
+  "escrita: idioma, tom, pontuação, nomes"
+  "commits, versões (0.x ou 1.0) e releases"
+  "como manter o CHANGELOG + modelos"
+  "como escrever o SECURITY.md + modelos"
+  "checklist pra abrir o repo (traz os guias de repo)"
+  "styleguide de saída de terminal, pra CLIs"
+)
+ARQS=(
+  "repo/padrao-readme.md repo/modelos/README.en.md repo/modelos/README.pt-BR.md"
+  "styleguide.md styleguides/retro.md styleguides/terminal.md"
+  "repo/licenca.md repo/licencas/CC-BY-NC-SA-4.0.txt repo/licencas/MIT.txt"
+  "repo/escrita.md"
+  "repo/git.md"
+  "repo/changelog.md repo/modelos/CHANGELOG.en.md repo/modelos/CHANGELOG.pt-BR.md"
+  "repo/seguranca.md repo/modelos/SECURITY.en.md repo/modelos/SECURITY.pt-BR.md"
+  "repo/publicar.md repo/modelos/.editorconfig"
+  "styleguide-cli.md"
+)
+DEPS=(
+  "escrita licenca"
+  ""
+  "readme"
+  ""
+  "changelog"
+  "escrita git"
+  "escrita"
+  "readme licenca escrita git changelog seguranca"
+  "styleguide"
+)
+# o que cada guia padroniza no repo (coluna do índice gerado)
+ALVOS=(
+  "\`README.md\`"
+  "a interface (cores, tipo, componentes)"
+  "\`LICENSE\` e o campo \`license\` dos manifestos"
+  "todo Markdown do repo"
+  "commits, tags, versão e releases"
+  "\`CHANGELOG.md\`"
+  "\`SECURITY.md\`"
+  "o checklist antes de abrir o repo"
+  "a saída de terminal da CLI"
+)
+# ordem de aplicação no índice: a base primeiro
+ORDEM_INDICE=(escrita readme licenca changelog seguranca git publicar styleguide cli)
+
+# ---------- tema retro (lib compartilhada) ----------
+TEMA="${GOOD_TEMA:-${RETRO_TEMA:-vault-gold}}"
+RETRO_LIB="$(cd "$TOOL_DIR/../lib" 2>/dev/null && pwd)/retro.sh"
+if [ -f "$RETRO_LIB" ]; then
+  # shellcheck source=../lib/retro.sh
+  . "$RETRO_LIB"
+  retro_init 76
+else
+  # degradação: sem a lib, tudo sai em texto puro e sem menu
+  RESET="" BOLD="" ACC="" ACC30="" FG40="" OK="" ALERTA="" DESENHA=0
+  retro_upper()   { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+  retro_modulo()  { printf '\n  [ MODULE: %s ]%s\n\n' "$(retro_upper "$1")" "${2:+  $(retro_upper "$2")}"; }
+  retro_secao()   { printf '  # %s\n' "$(retro_upper "$1")"; }
+  retro_kv()      { printf '  %-26s %s\n' "$1" "$2"; }
+  retro_ok()      { printf '  [ OK ] %s\n' "$(retro_upper "$1")"; }
+  retro_erro()    { printf '  [ ERRO ] %s\n' "$1"; }
+  retro_aviso()   { printf '  [ %s ] %s\n' "$(retro_upper "$1")" "${2:-}"; }
+  retro_proximo() { printf '  > %s  %s\n' "${2:-proximo passo:}" "$1"; }
+fi
+
+# ---------- helpers ----------
+die() { retro_erro "$*" >&2; exit 2; }
+
+uso() {
+  retro_modulo "goodrepo_help"
+  retro_secao "comandos"
+  retro_kv "goodrepo" "MENU NO PROJETO ATUAL"
+  retro_kv "add <guia>... [-f]" "INSTALA SEM MENU"
+  retro_kv "list" "GUIAS DISPONÍVEIS"
+  retro_kv "status" "INSTALADO X FONTE"
+  retro_kv "update [-f]" "TRAZ A VERSÃO NOVA"
+  retro_kv "rm <guia>... [-f]" "REMOVE GUIAS"
+  echo
+  retro_secao "opções"
+  retro_kv "-C <dir>" "PROJETO ALVO"
+  retro_kv "-f" "SOBRESCREVE (BACKUP .BAK)"
+  echo
+  retro_secao "guias"
+  local i
+  for i in "${!IDS[@]}"; do retro_kv "${IDS[$i]}" "${DESCS[$i]}"; done
+  echo
+  retro_proximo "goodrepo" "dentro de um projeto:"
+  echo
+}
+
+idx_de() { # $1 id -> índice em IDS, ou vazio
+  local i
+  for i in "${!IDS[@]}"; do
+    [ "${IDS[$i]}" = "$1" ] && { printf '%s' "$i"; return 0; }
+  done
+  return 1
+}
+
+hash_de() { # $1 arquivo -> hash hex
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else cksum "$1" | cut -d' ' -f1; fi
+}
+
+# fecha a lista com as dependências; sai na ordem do catálogo, uma por linha
+fechar_deps() {
+  local sel=" $* " mudou=1 id i d
+  while [ "$mudou" -eq 1 ]; do
+    mudou=0
+    for id in $sel; do
+      i="$(idx_de "$id")" || continue
+      for d in ${DEPS[$i]}; do
+        case "$sel" in *" $d "*) ;; *) sel="$sel$d "; mudou=1 ;; esac
+      done
+    done
+  done
+  for id in "${IDS[@]}"; do
+    case "$sel" in *" $id "*) printf '%s\n' "$id" ;; esac
+  done
+}
+
+# ---------- projeto alvo e manifesto ----------
+PROJ=""
+definir_alvo() { # $1 = -C (opcional)
+  if [ -n "${1:-}" ]; then
+    [ -d "$1" ] || die "diretório não existe: $1"
+    PROJ="$(cd "$1" && pwd)"
+  else
+    PROJ="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJ=""
+    [ -n "$PROJ" ] || PROJ="$(pwd)"
+    # fora de um repo, na home: quase certamente engano (criaria ~/.harness)
+    [ "$PROJ" = "$HOME" ] && die "rode dentro de um projeto (ou: goodrepo -C <dir>)"
+  fi
+  HARNESS="$PROJ/.harness"
+  MANIFESTO="$HARNESS/repo/.goodrepo"
+}
+
+# manifesto em memória: M_GUIAS = " id id ", M_ARQ[i] / M_HASH[i] em paralelo
+M_GUIAS=" "
+M_ARQ=()
+M_HASH=()
+ler_manifesto() {
+  M_GUIAS=" "; M_ARQ=(); M_HASH=()
+  [ -f "$MANIFESTO" ] || return 0
+  local tipo a b
+  while read -r tipo a b; do
+    case "$tipo" in
+      guia) M_GUIAS="$M_GUIAS$a " ;;
+      arq)  M_ARQ+=("$b"); M_HASH+=("$a") ;;
+    esac
+  done < "$MANIFESTO"
+}
+
+gravar_manifesto() {
+  local id i
+  if [ "$M_GUIAS" = " " ]; then
+    rm -f "$MANIFESTO"
+    return 0
+  fi
+  mkdir -p "$HARNESS/repo"
+  {
+    echo "# goodrepo: manifesto gerado, não edite (goodrepo status / update / rm usam)"
+    for id in $M_GUIAS; do echo "guia $id"; done
+    for i in "${!M_ARQ[@]}"; do
+      [ -n "${M_ARQ[$i]}" ] && echo "arq ${M_HASH[$i]} ${M_ARQ[$i]}"
+    done
+  } > "$MANIFESTO"
+}
+
+hash_gravado() { # $1 rel -> hash do manifesto, ou vazio
+  local i
+  for i in "${!M_ARQ[@]}"; do
+    [ "${M_ARQ[$i]}" = "$1" ] && { printf '%s' "${M_HASH[$i]}"; return 0; }
+  done
+  return 1
+}
+
+marcar_arq() { # $1 rel  $2 hash
+  local i
+  for i in "${!M_ARQ[@]}"; do
+    if [ "${M_ARQ[$i]}" = "$1" ]; then M_HASH[$i]="$2"; return 0; fi
+  done
+  M_ARQ+=("$1"); M_HASH+=("$2")
+}
+
+esquecer_arq() { # $1 rel
+  local i
+  for i in "${!M_ARQ[@]}"; do
+    [ "${M_ARQ[$i]}" = "$1" ] && M_ARQ[$i]=""
+  done
+}
+
+instalado() { case "$M_GUIAS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# estado de um arquivo instalado:
+#   faltando | ok | desatualizado | editado | alheio (existe, mas não é do goodrepo)
+estado_arq() { # $1 rel
+  local rel=$1 dst="$HARNESS/$1" src="$GUIAS/$1" gravado atual
+  [ -f "$dst" ] || { echo faltando; return; }
+  gravado="$(hash_gravado "$rel")" || gravado=""
+  atual="$(hash_de "$dst")"
+  if [ -z "$gravado" ]; then
+    if cmp -s "$src" "$dst"; then echo ok; else echo alheio; fi
+    return
+  fi
+  if [ "$atual" != "$gravado" ]; then echo editado; return; fi
+  if [ "$(hash_de "$src")" != "$gravado" ]; then echo desatualizado; return; fi
+  echo ok
+}
+
+# arquivos dos guias que seriam sobrescritos sem permissão (alheio ou editado)
+CONFLITOS=()
+achar_conflitos() { # ids...
+  CONFLITOS=()
+  local id i rel e
+  for id in "$@"; do
+    i="$(idx_de "$id")" || continue
+    for rel in ${ARQS[$i]}; do
+      e="$(estado_arq "$rel")"
+      case "$e" in alheio|editado) CONFLITOS+=("$rel") ;; esac
+    done
+  done
+}
+
+# ---------- instalação ----------
+# $1 = 1 força (backup .bak), 0 respeita; resto = ids já fechados com dependências
+N_NOVO=0 N_ATUAL=0 N_IGUAL=0 N_PULADO=0
+instalar() {
+  local forca=$1; shift
+  local id i rel src dst e
+  N_NOVO=0 N_ATUAL=0 N_IGUAL=0 N_PULADO=0
+  for id in "$@"; do
+    i="$(idx_de "$id")" || continue
+    for rel in ${ARQS[$i]}; do
+      src="$GUIAS/$rel"; dst="$HARNESS/$rel"
+      [ -f "$src" ] || die "guia incompleto na fonte: $src"
+      e="$(estado_arq "$rel")"
+      case "$e" in
+        faltando)
+          mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; N_NOVO=$((N_NOVO + 1)) ;;
+        ok)
+          N_IGUAL=$((N_IGUAL + 1)) ;;
+        desatualizado)
+          cp "$src" "$dst"; N_ATUAL=$((N_ATUAL + 1)) ;;
+        alheio|editado)
+          if [ "$forca" -eq 1 ]; then
+            cp "$dst" "$dst.bak"; cp "$src" "$dst"; N_ATUAL=$((N_ATUAL + 1))
+          else
+            retro_aviso "pulado" "$rel ($e; -f sobrescreve com backup .bak)"
+            N_PULADO=$((N_PULADO + 1))
+            continue
+          fi ;;
+      esac
+      marcar_arq "$rel" "$(hash_de "$dst")"
+    done
+    instalado "$id" || M_GUIAS="$M_GUIAS$id "
+  done
+  gravar_manifesto
+  gerar_indice
+}
+
+# índice .harness/repo/README.md: a porta de entrada pra quem (ou o agente que) vai aplicar
+gerar_indice() {
+  local idx="$HARNESS/repo/README.md" id i link hoje
+  if [ "$M_GUIAS" = " " ]; then
+    rm -f "$idx"
+    return 0
+  fi
+  mkdir -p "$HARNESS/repo"
+  hoje="$(date +%Y-%m-%d)"
+  {
+    echo "# Padrões do repo"
+    echo
+    echo "Gerado pelo \`goodrepo\` em $hoje. Estes guias dizem como este repo tem que ficar para"
+    echo "seguir o padrão da família good: README, licença, escrita, versões, visual. Não edite os"
+    echo "guias aqui: melhore na fonte (repo tools, \`goodrepo/guias/\`) e rode \`goodrepo update\`."
+    echo
+    echo "## Como aplicar"
+    echo
+    if instalado escrita; then
+      echo "1. Leia o [escrita.md](escrita.md) primeiro: vale para todo texto do repo."
+    else
+      echo "1. Leia os guias abaixo na ordem da tabela."
+    fi
+    echo "2. Para cada guia, compare o repo com o que o guia pede e ajuste o que estiver fora."
+    echo "3. Os arquivos em \`modelos/\` e \`licencas/\` são pontos de partida: copie para a raiz do"
+    echo "   projeto, troque todo \`{{...}}\` e confira com \`grep -rn '{{' .\` antes do commit."
+    echo
+    echo "Para pedir a um agente de IA: \"Leia o .harness/repo/README.md e padronize este repo"
+    echo "seguindo os guias instalados.\""
+    echo
+    echo "## Guias instalados"
+    echo
+    echo "| Guia | Padroniza |"
+    echo "|---|---|"
+    for id in "${ORDEM_INDICE[@]}"; do
+      instalado "$id" || continue
+      i="$(idx_de "$id")"
+      case "$id" in
+        styleguide) link="[styleguide.md](../styleguide.md) + \`../styleguides/\`" ;;
+        cli)        link="[styleguide-cli.md](../styleguide-cli.md)" ;;
+        *)          link="${ARQS[$i]%% *}"; link="${link#repo/}"; link="[$link]($link)" ;;
+      esac
+      echo "| $link | ${ALVOS[$i]} |"
+    done
+    echo
+    echo "\`goodrepo status\` mostra o que está desatualizado em relação à fonte ou foi editado aqui."
+  } > "$idx"
+}
+
+resumo_instalacao() { # ids...
+  local extra="" id
+  for id in "$@"; do
+    case " $PEDIDOS " in *" $id "*) ;; *) extra="$extra $id" ;; esac
+  done
+  [ -n "$extra" ] && retro_aviso "dependências" "vieram junto:$extra"
+  retro_kv "NOVOS" "$N_NOVO"
+  retro_kv "ATUALIZADOS" "$N_ATUAL"
+  retro_kv "JÁ IGUAIS" "$N_IGUAL"
+  [ "$N_PULADO" -gt 0 ] && retro_kv "PULADOS" "$N_PULADO"
+  echo
+  retro_ok "guias instalados"
+  retro_kv "DESTINO" "${HARNESS/#$HOME/~}"
+  retro_proximo ".harness/repo/README.md" "comece por:"
+  echo
+}
+
+# ---------- comandos ----------
+PEDIDOS=""
+cmd_add() {
+  local forca=$1; shift
+  [ "$#" -gt 0 ] || die "diga quais guias: goodrepo add readme licenca (ou goodrepo list)"
+  local id
+  for id in "$@"; do idx_de "$id" >/dev/null || die "guia desconhecido: $id (goodrepo list)"; done
+  PEDIDOS="$*"
+  ler_manifesto
+  local todos=()
+  while IFS= read -r id; do todos+=("$id"); done < <(fechar_deps "$@")
+  retro_modulo "goodrepo_add" "${PROJ##*/}"
+  instalar "$forca" "${todos[@]}"
+  resumo_instalacao "${todos[@]}"
+}
+
+cmd_list() {
+  ler_manifesto
+  retro_modulo "goodrepo_guias" "${PROJ##*/}"
+  local i marca cor
+  for i in "${!IDS[@]}"; do
+    marca="[ ]"; cor="$ACC30"
+    instalado "${IDS[$i]}" && { marca="[✓]"; cor="$OK"; }
+    printf '  %s%s%s %s%-11s%s %s%s%s\n' \
+      "$cor" "$marca" "$RESET" "$ACC$BOLD" "${IDS[$i]}" "$RESET" "$FG40" "${DESCS[$i]}" "$RESET"
+  done
+  echo
+}
+
+cmd_status() {
+  ler_manifesto
+  retro_modulo "goodrepo_status" "${PROJ##*/}"
+  if [ "$M_GUIAS" = " " ]; then
+    retro_aviso "vazio" "nenhum guia instalado aqui. goodrepo pra escolher."
+    echo
+    return 0
+  fi
+  local id i rel e detalhes n_ruim total=0
+  for id in $M_GUIAS; do
+    i="$(idx_de "$id")" || continue
+    detalhes=""; n_ruim=0
+    for rel in ${ARQS[$i]}; do
+      e="$(estado_arq "$rel")"
+      [ "$e" = ok ] && continue
+      n_ruim=$((n_ruim + 1))
+      detalhes="$detalhes$rel|$e "
+    done
+    if [ "$n_ruim" -eq 0 ]; then
+      retro_kv "$id" "OK"
+    else
+      retro_kv "$id" "$n_ruim ARQUIVO(S)"
+      local par
+      for par in $detalhes; do
+        printf '    %s%-13s%s %s\n' "$ALERTA" "$(retro_upper "${par#*|}")" "$RESET" "${par%|*}"
+      done
+      total=$((total + n_ruim))
+    fi
+  done
+  echo
+  if [ "$total" -gt 0 ]; then
+    retro_proximo "goodrepo update" "desatualizado ou faltando:"
+    retro_aviso "editado" "é mudança feita aqui; update não mexe (use -f com backup)"
+  else
+    retro_ok "tudo igual à fonte"
+  fi
+  echo
+}
+
+cmd_update() {
+  local forca=$1
+  ler_manifesto
+  [ "$M_GUIAS" = " " ] && die "nenhum guia instalado em ${PROJ/#$HOME/~}. goodrepo pra escolher."
+  PEDIDOS="$M_GUIAS"
+  local todos=() id
+  # shellcheck disable=SC2086  # M_GUIAS é lista de ids separados por espaço
+  while IFS= read -r id; do todos+=("$id"); done < <(fechar_deps $M_GUIAS)
+  retro_modulo "goodrepo_update" "${PROJ##*/}"
+  instalar "$forca" "${todos[@]}"
+  resumo_instalacao "${todos[@]}"
+}
+
+cmd_rm() {
+  local forca=$1; shift
+  [ "$#" -gt 0 ] || die "diga quais guias remover (goodrepo list)"
+  ler_manifesto
+  retro_modulo "goodrepo_rm" "${PROJ##*/}"
+  local id i rel e dst
+  for id in "$@"; do
+    i="$(idx_de "$id")" || die "guia desconhecido: $id"
+    instalado "$id" || { retro_aviso "não instalado" "$id"; continue; }
+    for rel in ${ARQS[$i]}; do
+      dst="$HARNESS/$rel"
+      e="$(estado_arq "$rel")"
+      case "$e" in
+        faltando) ;;
+        editado|alheio)
+          if [ "$forca" -eq 1 ]; then rm -f "$dst"
+          else retro_aviso "mantido" "$rel ($e; -f apaga)"; fi ;;
+        *) rm -f "$dst" ;;
+      esac
+      esquecer_arq "$rel"
+    done
+    M_GUIAS="${M_GUIAS/ $id / }"
+    retro_ok "$id removido"
+  done
+  gravar_manifesto
+  gerar_indice
+  # só as pastas que o goodrepo cria, e só se ficaram vazias
+  local d
+  for d in repo/modelos repo/licencas repo styleguides; do
+    rmdir "$HARNESS/$d" 2>/dev/null
+  done
+  echo
+}
+
+# ---------- menu ----------
+cortar() { # $1 texto  $2 limite
+  local s=$1 lim=$2
+  [ "${#s}" -le "$lim" ] && { printf '%s' "$s"; return; }
+  printf '%s…' "${s:0:$((lim - 1))}"
+}
+
+cmd_menu() {
+  local forca=$1
+  if [ "${DESENHA:-0}" -ne 1 ] || [ ! -t 0 ]; then
+    uso
+    return 0
+  fi
+  ler_manifesto
+  local n=${#IDS[@]} k t seq larg desc caixa marca conteudo cor
+  local SEL=() CUR=0 BTN=$n AVISO="" LARG_NOME=11 ROTULO="INSTALAR"
+  for (( k = 0; k < n; k++ )); do SEL+=(0); done
+
+  _draw() {
+    retro_topo
+    retro_chrome "root@goodrepo: ${PROJ/#$HOME/~}" "$n GUIAS"
+    retro_sep
+    for (( k = 0; k < n; k++ )); do
+      desc="$(cortar "${DESCS[$k]}" $((CF - LARG_NOME - 11)))"
+      marca="  "; [ "$CUR" = "$k" ] && marca="► "
+      caixa="[ ]"
+      if [ "${SEL[$k]}" = 1 ]; then caixa="[x]"
+      elif instalado "${IDS[$k]}"; then caixa="[✓]"; fi
+      larg=$(( 2 + 3 + 1 + 4 + LARG_NOME + 1 + ${#desc} ))
+      if [ "$CUR" = "$k" ]; then
+        conteudo="$(printf '%s%s%s%s %2d. %-*s %s%s' \
+          "$INV" "$BOLD" "$marca" "$caixa" "$((k + 1))" "$LARG_NOME" "${IDS[$k]}" \
+          "$desc$(retro_espacos $((CF - larg)))" "$RESET")"
+        larg=$CF
+      else
+        cor="$ACC30"
+        if [ "${SEL[$k]}" = 1 ]; then cor="$ACC"
+        elif instalado "${IDS[$k]}"; then cor="$OK"; fi
+        conteudo="$(printf '%s%s%s%s%s%s %2d. %s%-*s%s %s%s%s' \
+          "$ACC" "$marca" "$RESET" "$cor" "$caixa" "$RESET" "$((k + 1))" \
+          "$ACC" "$LARG_NOME" "${IDS[$k]}" "$RESET" "$FG40" "$desc" "$RESET")"
+      fi
+      retro_linha "$conteudo" "$larg"
+    done
+    retro_vazia
+    if [ "$CUR" = "$BTN" ]; then
+      retro_linha "$(printf '%s►%s %s%s  %s  %s' "$ACC" "$RESET" "$INV" "$BOLD" "$ROTULO" "$RESET")" \
+        $((2 + ${#ROTULO} + 4))
+    else
+      retro_linha "$(printf '  %s[  %s  ]%s' "$ACC30" "$ROTULO" "$RESET")" $((2 + ${#ROTULO} + 6))
+    fi
+    retro_sep
+    retro_status "[↑↓] MOVE · [SPC] MARCA · [A/N] TUDO/NADA" "[Q] SAI"
+    retro_base
+    retro_sombra
+    printf '  %s[%s✓%s]%s %sjá instalado · dependências vêm junto · vai para .harness/%s%s\n' \
+      "$FG40" "$OK" "$FG40" "$RESET" "$FG40" "$RESET" "$CLR"
+    [ -n "$AVISO" ] && printf '\n  %s[ AVISO ]%s %s%s' "$ALERTA" "$RESET" "$AVISO" "$CLR"
+  }
+
+  printf '\033[?25l\033[2J'
+  trap 'printf "\033[?25h"' EXIT INT TERM
+  while :; do
+    printf '\033[H%s\033[J' "$(_draw)"
+    IFS= read -rsn1 t || t=q
+    AVISO=""
+    if [ "$t" = $'\x1b' ]; then
+      seq=""
+      IFS= read -rsn2 -t 1 seq 2>/dev/null
+      case "$seq" in
+        '[A') if [ "$CUR" -eq 0 ]; then CUR=$BTN; else CUR=$((CUR - 1)); fi ;;
+        '[B') if [ "$CUR" -eq "$BTN" ]; then CUR=0; else CUR=$((CUR + 1)); fi ;;
+      esac
+      continue
+    fi
+    case "$t" in
+      k|K) if [ "$CUR" -eq 0 ]; then CUR=$BTN; else CUR=$((CUR - 1)); fi ;;
+      j|J) if [ "$CUR" -eq "$BTN" ]; then CUR=0; else CUR=$((CUR + 1)); fi ;;
+      [1-9])
+        k=$((t - 1))
+        if [ "$k" -lt "$n" ]; then
+          if [ "${SEL[$k]}" = 1 ]; then SEL[$k]=0; else SEL[$k]=1; fi
+          CUR=$k
+        fi ;;
+      a|A) for (( k = 0; k < n; k++ )); do SEL[$k]=1; done ;;
+      n|N) for (( k = 0; k < n; k++ )); do SEL[$k]=0; done ;;
+      " "|"")
+        if [ "$CUR" -eq "$BTN" ]; then
+          local marcados=()
+          for (( k = 0; k < n; k++ )); do [ "${SEL[$k]}" = 1 ] && marcados+=("${IDS[$k]}"); done
+          if [ "${#marcados[@]}" -eq 0 ]; then
+            AVISO="marque pelo menos um (espaço, 1-9, ou 'a' pra todos)"
+          else
+            break
+          fi
+        elif [ "${SEL[$CUR]}" = 1 ]; then SEL[$CUR]=0
+        else SEL[$CUR]=1; fi ;;
+      q|Q)
+        printf '\033[?25h\033[H\033[2J'
+        retro_aviso "cancelado" "nada foi alterado."
+        exit 0 ;;
+    esac
+  done
+  printf '\033[?25h\033[H\033[2J'
+  trap - EXIT INT TERM
+
+  # conflitos: arquivo que já existe e não é do goodrepo, ou foi editado aqui
+  local todos=() id
+  while IFS= read -r id; do todos+=("$id"); done < <(fechar_deps "${marcados[@]}")
+  if [ "$forca" -eq 0 ]; then
+    achar_conflitos "${todos[@]}"
+    if [ "${#CONFLITOS[@]}" -gt 0 ]; then
+      retro_modulo "goodrepo_conflito" "${#CONFLITOS[@]} arquivo(s)"
+      for id in "${CONFLITOS[@]}"; do printf '    %s.harness/%s%s\n' "$FG40" "$id" "$RESET"; done
+      echo
+      printf '  já existem e não vieram do goodrepo (ou foram editados).\n'
+      printf '  %s[S]%s sobrescreve com backup .bak · %s[P]%s pula esses · %s[C]%s cancela: ' \
+        "$ACC$BOLD" "$RESET" "$ACC$BOLD" "$RESET" "$ACC$BOLD" "$RESET"
+      IFS= read -rsn1 t || t=c
+      echo
+      case "$t" in
+        s|S) forca=1 ;;
+        p|P) ;;
+        *) retro_aviso "cancelado" "nada foi alterado."; exit 0 ;;
+      esac
+    fi
+  fi
+  PEDIDOS="${marcados[*]}"
+  retro_modulo "goodrepo_add" "${PROJ##*/}"
+  instalar "$forca" "${todos[@]}"
+  resumo_instalacao "${todos[@]}"
+}
+
+# ---------- dispatch ----------
+FORCA=0
+DIR_ALVO=""
+ARGS=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -f|--force) FORCA=1 ;;
+    -C|--dir) shift; [ "$#" -gt 0 ] || die "-C precisa de um diretório"; DIR_ALVO="$1" ;;
+    -h|--help) ARGS+=(help) ;;
+    *) ARGS+=("$1") ;;
+  esac
+  shift
+done
+
+[ -d "$GUIAS" ] || die "guias não encontrados em $GUIAS"
+
+CMD="${ARGS[0]:-menu}"
+definir_alvo "$DIR_ALVO"
+case "$CMD" in
+  menu)             cmd_menu "$FORCA" ;;
+  add|install)      cmd_add "$FORCA" "${ARGS[@]:1}" ;;
+  list|ls)          cmd_list ;;
+  status|st)        cmd_status ;;
+  update|up)        cmd_update "$FORCA" ;;
+  rm|remove)        cmd_rm "$FORCA" "${ARGS[@]:1}" ;;
+  help|ajuda)       uso ;;
+  *)                die "comando desconhecido: $CMD (goodrepo help)" ;;
+esac
