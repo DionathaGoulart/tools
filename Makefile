@@ -10,7 +10,7 @@ SHELL := bash
 # use make, since the Windows matrix runner has no make).
 SH_SCRIPTS := $(shell find . -path ./.git -prune -o -name '*.sh' -print) \
 	goodpomo/goodpomo goodnerd/goodnerd goodhelp/goodhelp lib/shims/python3 \
-	goodcheats/good goodcheats/goodcheat goodcheats/goodharness
+	goodcheats/good goodcheats/goodcheat goodcheats/goodharness goodrepo/goodrepo
 
 help:
 	@echo "targets: test  test-sh  lint  lint-py  lint-sh  syntax-sh  check  fix  install  uninstall  doctor"
@@ -18,9 +18,10 @@ help:
 test: ## python unit tests (stdlib unittest, no deps)
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
 
-test-sh: ## bash smoke tests (rc block, goodharness) — need symlinks, so no Windows
+test-sh: ## bash smoke tests (rc block, goodharness, goodrepo) — need symlinks, so no Windows
 	bash tests/test_rcblock.sh
 	bash tests/test_goodharness.sh
+	bash tests/test_goodrepo.sh
 
 lint: lint-py lint-sh ## every linter
 

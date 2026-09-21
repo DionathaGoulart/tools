@@ -49,6 +49,7 @@ CATALOGO=(
   "terminal|good|fetch de sistema + kit da família good|"
   "terminal|goodcheat|cheatsheets no terminal|"
   "terminal|goodharness|styleguides e harness de projeto|"
+  "terminal|goodrepo|padroniza o repo: guias de README, licença, visual no .harness/|"
   "terminal|goodpomo|pomodoro com notificação e stats|"
   "terminal|goodnerd|teatro de hacker fake, pra impressionar|"
   "segurança|goodhunter|detecta software de monitoramento no Windows|"
