@@ -8,7 +8,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from retro import Retro, TEMAS, TEMA_PADRAO, largura, mix  # noqa: E402
+from retro import Retro, TEMAS, TEMA_PADRAO, TEMAS_GOOD, largura, mix  # noqa: E402
 
 
 class TestLargura(unittest.TestCase):
@@ -56,6 +56,31 @@ class TestTema(unittest.TestCase):
         ui = Retro(tema="vault-gold")
         # total 0 não pode dividir por zero
         self.assertIn("%", ui.barra(3, 0))
+
+
+class TestSkinGood(unittest.TestCase):
+    def test_padrao_e_black(self):
+        ui = Retro(skin="good")
+        self.assertEqual(ui.tema, "black")
+        self.assertEqual((ui.bg, ui.acc), ("000000", "fbee23"))
+
+    def test_yellow_inverte_o_par(self):
+        ui = Retro(skin="good", tema="yellow")
+        self.assertEqual((ui.bg, ui.fg_hex, ui.acc), ("fbee23", "000000", "000000"))
+
+    def test_paleta_legada_cai_no_black(self):
+        self.assertEqual(Retro(skin="good", tema="vault-gold").tema, "black")
+
+    def test_catalogo_so_tem_o_par_da_marca(self):
+        self.assertEqual(set(Retro(skin="good").temas), set(TEMAS_GOOD))
+
+    def test_barra_sem_pontilhado(self):
+        self.assertNotIn("▒", Retro(skin="good").barra(1, 4))
+
+    def test_sem_skin_nada_muda(self):
+        ui = Retro(tema="vault-gold")
+        self.assertFalse(ui.good)
+        self.assertIn("▒", ui.barra(1, 4))
 
 
 if __name__ == "__main__":
