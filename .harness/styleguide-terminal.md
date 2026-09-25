@@ -117,3 +117,34 @@ pt-BR; system chrome in en-US.
   rounded corners.
 - DON'T use emoji as bullets or decoration.
 - DON'T print raw `label: value`; use `kv`.
+
+## 7. Good skin (`Retro(skin="good")`)
+
+Port of the helldivers2-api style guide (`helldivers2-api/.harness/styleguide.md`,
+skin `retro`, themes `black`/`yellow`) to the terminal. Opt-in per tool; used by
+`goodivers`. The legacy palettes above stay for every other tool.
+
+| token | `black` (default) | `yellow` | web equivalent |
+|---|---|---|---|
+| background | `#000000` | `#fbee23` | `base-100` |
+| `FG` / `FG70` / `ACC` | `#fbee23` | `#000000` | `base-content` / `accent` / `base-300` |
+| `FG40` / `ACC70` / `ACC50` | fg 60% over bg | fg 60% over bg | `muted-text` (§2.4) |
+| `ACC30` / `ACC15` | accent 30% | accent 30% | row hairline (`base-300` / 30) |
+| `INV` | yellow fill, black text | black fill, yellow text | `accent` + `accent-content` |
+| `OK` | `#4ade80` | `#166534` | `success-text` |
+| `ALERTA` | `#f87171` | `#b91c1c` | `error-text` |
+
+Recipes that change under the skin:
+
+- `modulo` → screen title: accent, bold, **italic**, uppercase; meta as
+  bracketed muted micro-text `[SRC: …]` (§3, §4.6). No `[ MODULE: X ]`.
+- `secao` → kicker with the `>` sigil, not `#`.
+- `chrome` → window-bar: `FILE.NAME` in muted caps on the left, meta, three
+  **square** WindowDots `■ ■ ■` on the right (§4.7, §4.8). No shell prompt titles.
+- Shadow → hard and solid: `█` column + `▀` row in the full shadow colour (§4.1).
+  No `▒` anywhere (dithering is forbidden, §4); the empty bar track is `█` at 30%.
+- Status dots are `■`, never `●` (§4.3, zero radius).
+
+`<TOOL>_TEMA` picks `black`/`yellow`; `RETRO_TEMA` only applies when it names one of
+the two, otherwise `black`. 8-color fallback: yellow ANSI (`33`) for `black`, black
+ANSI (`30`) for `yellow`.
