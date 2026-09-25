@@ -13,6 +13,11 @@ Usage from a tool that lives in ``tools/<name>/<name>``::
 Implements ``.harness/styleguide-terminal.md``: accent-only palette, square
 corners, heavy borders, flat offset shadow, uppercase labels, no gradients.
 ``NO_COLOR`` and non-tty output degrade to plain text.
+
+``Retro(skin="good")`` swaps in the Good brand skin — the helldivers2-api
+style guide (logo pair ``#fbee23`` + ``#000000``, themes ``black``/``yellow``,
+see ``.harness/styleguide-terminal.md`` §7). Tools that don't pass ``skin``
+are untouched.
 """
 
 from __future__ import annotations
@@ -57,6 +62,17 @@ TEMAS: dict[str, tuple[str, str, str]] = {
 }
 TEMA_PADRAO = "vault-gold"
 
+# Good brand skin (helldivers2-api .harness/styleguide.md §2): the logo pair,
+# one theme per order. Each: (background, foreground, accent, success-text,
+# error-text) — the -text tones are the ones that keep 4.5:1 on that background.
+TEMAS_GOOD: dict[str, tuple[str, str, str, str, str]] = {
+    "black": ("000000", "fbee23", "fbee23", "4ade80", "f87171"),
+    "yellow": ("fbee23", "000000", "000000", "166534", "b91c1c"),
+}
+TEMA_GOOD_PADRAO = "black"
+MUTED_GOOD = 60   # muted-text = 60% of base-content over base-100 (§2.4)
+LINHA_GOOD = 30   # hairlines/leaders = base-300 at 30% (§6.3 row separator)
+
 _ANSI = re.compile(r"\033\[[0-9;]*m")
 
 
@@ -95,6 +111,7 @@ class Retro:
         tema: str | None = None,
         largura_caixa: int = 52,
         env_var: str | None = None,
+        skin: str = "",
     ):
         # env_var overrides the default <PREFIX>_TEMA name — use it when the tool
         # already owns that variable for something else (vocab: VOCAB_PALETA).
@@ -105,8 +122,17 @@ class Retro:
             or os.environ.get("RETRO_TEMA")
             or TEMA_PADRAO
         )
-        self.tema = nome if nome in TEMAS else TEMA_PADRAO
-        self.bg, self.fg_hex, self.acc = TEMAS[self.tema]
+        self.good = skin == "good"
+        if self.good:
+            # RETRO_TEMA names a legacy palette for the other tools; anything
+            # outside the brand pair falls back to black (§0.2).
+            self.temas = {k: v[:3] for k, v in TEMAS_GOOD.items()}
+            padrao = TEMA_GOOD_PADRAO
+        else:
+            self.temas = TEMAS
+            padrao = TEMA_PADRAO
+        self.tema = nome if nome in self.temas else padrao
+        self.bg, self.fg_hex, self.acc = self.temas[self.tema]
 
         self.tty = sys.stdout.isatty()
         self.cor = self.tty and not os.environ.get("NO_COLOR")
@@ -134,13 +160,16 @@ class Retro:
     def _tokens(self) -> None:
         if not self.cor:
             for nome in (
-                "RESET BOLD DIM ACC ACC70 ACC50 ACC30 ACC15 FG FG70 FG40 INV OK ALERTA"
+                "RESET BOLD DIM ITAL ACC ACC70 ACC50 ACC30 ACC15 FG FG70 FG40 INV OK ALERTA"
             ).split():
                 setattr(self, nome, "")
             return
 
         self.RESET, self.BOLD, self.DIM = "\033[0m", "\033[1m", "\033[2m"
-        if self.truecolor:
+        self.ITAL = "\033[3m"
+        if self.good:
+            self._tokens_good()
+        elif self.truecolor:
             self.ACC = self._fg(self.acc)
             self.ACC70 = self._fg(mix(self.acc, self.bg, 70))
             self.ACC50 = self._fg(mix(self.acc, self.bg, 50))
@@ -162,6 +191,33 @@ class Retro:
             self.OK = "\033[1;32m"
             self.ALERTA = "\033[1;31m"
 
+    def _tokens_good(self) -> None:
+        """Good skin: two tones, no opacity ladder. Emphasis is the accent,
+        dimming is muted-text (a colour, §2.4), hairlines are base-300/30."""
+        if self.truecolor:
+            _, _, _, ok, erro = TEMAS_GOOD[self.tema]
+            muted = self._fg(mix(self.fg_hex, self.bg, MUTED_GOOD))
+            linha = self._fg(mix(self.acc, self.bg, LINHA_GOOD))
+            self.ACC = self._fg(self.acc)
+            self.ACC70 = self.ACC50 = muted
+            self.ACC30 = self.ACC15 = linha
+            self.FG = self.FG70 = self._fg(self.fg_hex)
+            self.FG40 = muted
+            self.INV = self._bg(self.acc) + self._fg(self.bg)
+            self.OK = self._fg(ok)
+            self.ALERTA = self._fg(erro)
+            return
+        # 8 colours: yellow is the closest ANSI to #fbee23; the light theme's
+        # ink is plain black on whatever background the terminal has.
+        cor = "33" if self.tema == "black" else "30"
+        self.ACC = f"\033[1;{cor}m"
+        self.ACC70 = self.ACC50 = self.FG40 = f"\033[{cor}m"
+        self.ACC30 = self.ACC15 = f"\033[2;{cor}m"
+        self.FG = self.FG70 = f"\033[{cor}m"
+        self.INV = f"\033[7;{cor}m"
+        self.OK = "\033[1;32m"
+        self.ALERTA = "\033[1;31m"
+
     # ---------- inline helpers ----------
     def acento(self, texto: str) -> str:
         return f"{self.ACC}{texto}{self.RESET}"
@@ -181,15 +237,25 @@ class Retro:
 
     # ---------- flat blocks ----------
     def modulo(self, rotulo: str, meta: str = "") -> None:
-        """``[ MODULE: X ]`` header — the module-card chrome of the style guide."""
+        """``[ MODULE: X ]`` header — the module-card chrome of the style guide.
+        Good skin: the screen-title (bold italic caps) + meta as bracketed
+        machine micro-text (§3, §4.6)."""
+        if self.good:
+            linha = f"\n  {self.ACC}{self.BOLD}{self.ITAL}{rotulo.upper()}{self.RESET}"
+            if meta:
+                linha += (f"  {self.ACC30}[{self.RESET}{self.FG40}{meta.upper()}"
+                          f"{self.RESET}{self.ACC30}]{self.RESET}")
+            print(linha + "\n")
+            return
         linha = f"\n  {self.ACC}{self.BOLD}[ MODULE: {rotulo.upper()} ]{self.RESET}"
         if meta:
             linha += f"  {self.ACC30}{meta.upper()}{self.RESET}"
         print(linha + "\n")
 
     def secao(self, rotulo: str) -> None:
-        """``# HEADING`` sub-section label."""
-        print(f"  {self.ACC}# {rotulo.upper()}{self.RESET}")
+        """``# HEADING`` sub-section label (good skin: the ``>`` kicker, §3)."""
+        sigil = ">" if self.good else "#"
+        print(f"  {self.ACC}{self.BOLD if self.good else ''}{sigil} {rotulo.upper()}{self.RESET}")
 
     def _pontos(self) -> int:
         return max(20, 44 if self.cols > 60 else self.cols - 12)
@@ -227,42 +293,66 @@ class Retro:
         print(f"  {self.ACC30}>{self.RESET} {prefixo}  {self.ACC}{self.BOLD}{comando}{self.RESET}")
 
     def barra(self, feito: int, total: int, larg: int = 24) -> str:
-        """ASCII progress bar: filled accent, rest accent/18, percentage."""
+        """ASCII progress bar: filled accent, rest accent/18, percentage.
+        Good skin: solid track, no dithering (§4)."""
         total = max(1, total)
         n = min(larg, feito * larg // total)
         pct = feito * 100 // total
+        trilho = "█" if self.good else "▒"
         return (
-            f"{self.ACC}{'█' * n}{self.ACC15}{'▒' * (larg - n)}{self.RESET}"
+            f"{self.ACC}{'█' * n}{self.ACC15}{trilho * (larg - n)}{self.RESET}"
             f"  {self.ACC}{self.BOLD}{pct:3d}%{self.RESET}"
         )
 
     # ---------- box (terminal window recipe) ----------
+    @property
+    def _sombra_col(self) -> str:
+        """Right-hand shadow cell. Good skin: the hard offset shadow is the
+        full --shadow colour, no blur, no dither (§4.1)."""
+        if self.good:
+            return f"{self.ACC}█{self.RESET}"
+        return f"{self.ACC15}▒{self.RESET}"
+
     def topo(self) -> None:
         print(f"{self.ACC}┏{'━' * (self.bw - 2)}┓{self.RESET}")
 
     def sep(self) -> None:
-        print(f"{self.ACC}┠{'─' * (self.bw - 2)}┨{self.RESET}{self.ACC15}▒{self.RESET}")
+        print(f"{self.ACC}┠{'─' * (self.bw - 2)}┨{self.RESET}{self._sombra_col}")
 
     def base(self) -> None:
-        print(f"{self.ACC}┗{'━' * (self.bw - 2)}┛{self.RESET}{self.ACC15}▒{self.RESET}")
+        print(f"{self.ACC}┗{'━' * (self.bw - 2)}┛{self.RESET}{self._sombra_col}")
 
     def sombra(self) -> None:
+        if self.good:
+            print(f" {self.ACC}{'▀' * self.bw}{self.RESET}")
+            return
         print(f" {self.ACC15}{'▒' * self.bw}{self.RESET}")
 
     def linha(self, conteudo: str = "") -> None:
         pad = max(0, self.cf - largura(conteudo))
         print(
             f"{self.ACC}┃{self.RESET} {conteudo}{' ' * pad} "
-            f"{self.ACC}┃{self.RESET}{self.ACC15}▒{self.RESET}"
+            f"{self.ACC}┃{self.RESET}{self._sombra_col}"
         )
 
     def chrome(self, titulo: str, meta: str = "") -> None:
-        """Window chrome bar: three accent dots, path title, right-hand meta."""
+        """Window chrome bar: three accent dots, path title, right-hand meta.
+        Good skin: the window-bar — FILE.NAME in muted caps on the left, meta,
+        then the three square WindowDots on the right (§4.7, §4.8)."""
+        if self.good:
+            dots = f"{self.ACC}■ ■ ■{self.RESET}"
+            nome = titulo.upper()
+            pad = max(1, self.cf - 7 - largura(nome) - largura(meta))
+            print(
+                f"{self.ACC}┃{self.RESET} {self.FG40}{self.BOLD}{nome}{self.RESET}{' ' * pad}"
+                f"{self.FG40}{meta}{self.RESET}  {dots} {self.ACC}┃{self.RESET}{self._sombra_col}"
+            )
+            return
         pad = max(1, self.cf - 7 - largura(titulo) - largura(meta))
         print(
             f"{self.ACC}┃{self.RESET} {self.ACC}●{self.RESET} {self.ACC50}●{self.RESET} "
             f"{self.ACC30}●{self.RESET}  {self.ACC50}{titulo}{self.RESET}{' ' * pad}"
-            f"{self.ACC30}{meta}{self.RESET} {self.ACC}┃{self.RESET}{self.ACC15}▒{self.RESET}"
+            f"{self.ACC30}{meta}{self.RESET} {self.ACC}┃{self.RESET}{self._sombra_col}"
         )
 
     def status(self, esquerda: str, direita: str = "") -> None:
@@ -270,7 +360,7 @@ class Retro:
         pad = max(1, self.cf - largura(esquerda) - largura(direita))
         print(
             f"{self.ACC}┃{self.INV}{self.BOLD} {esquerda}{' ' * pad}{direita} {self.RESET}"
-            f"{self.ACC}┃{self.RESET}{self.ACC15}▒{self.RESET}"
+            f"{self.ACC}┃{self.RESET}{self._sombra_col}"
         )
 
     def janela(self, titulo: str, linhas: list[str], meta: str = "", rodape: str = "") -> None:
@@ -293,7 +383,7 @@ class Retro:
     # ---------- theme catalog ----------
     def catalogo_temas(self) -> None:
         self.modulo("theme_catalog")
-        for nome, (hb, hf, ha) in TEMAS.items():
+        for nome, (hb, hf, ha) in self.temas.items():
             marca = "► " if nome == self.tema else "  "
             if self.truecolor:
                 swatch = (
