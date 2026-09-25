@@ -14,17 +14,16 @@ do YouTube em canal pequeno.
 
 A COLETA do radar é 100% sem LLM (só APIs públicas); por padrão o radar e o
 corpo de `patch <N>` são exibidos traduzidos pra PT-BR por uma chamada de LLM
-(use --original pra ver o dado cru em inglês, sem LLM). A tradução fica em
-cache pelo texto ORIGINAL: coleta nova só manda pra LLM o que mudou — radar
-igual ao anterior = zero chamada — e o que estreou aparece marcado [NOVO];
-a tradução de patch é permanente (patch publicado não muda). O comando `radar`
-responde NA HORA com a última coleta traduzida e verifica as fontes em seguida:
-nada mudou = uma linha de confirmação; mudou = traduz só o diff e reimprime o
-radar atualizado (-f pula a resposta instantânea). O modelo também
-entra em `ideias`, `pacote`, `titulos` e `inspirar`.
+(use --original pra ver o dado cru em inglês, sem LLM). Todo comando coleta
+AO VIVO — não existe cache de dado: radar, busca e patch batem nas fontes a
+cada chamada. O que fica em disco é só a tradução (por texto ORIGINAL: coleta
+nova manda pra LLM apenas o que ainda não foi traduzido, e o que estreou desde
+a coleta anterior aparece marcado [NOVO]; a de patch é permanente, patch
+publicado não muda). O modelo também entra em `ideias`, `pacote`, `titulos`
+e `inspirar`.
 
 args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
-       buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [-f] [--original]
+       buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [--original]
 
   temas — lista as paletas do tema retro (GOODIVERS_TEMA / RETRO_TEMA).
 
@@ -41,7 +40,6 @@ import os
 import re
 import sys
 import textwrap
-import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -78,10 +76,8 @@ carregar_dotenv()
 
 BASE_DIR = Path(os.environ.get("GOODIVERS_DIR", Path.home() / ".goodivers"))
 CONFIG_FILE = BASE_DIR / "config.json"   # canais monitorados
-RADAR_FILE = BASE_DIR / "radar.json"     # último snapshot do radar (cache)
+RADAR_FILE = BASE_DIR / "radar.json"     # coleta anterior (fallback de fonte fora do ar)
 RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # tradução do radar (por texto original)
-BUSCA_FILE = BASE_DIR / "busca.json"     # cache de buscas do YouTube (por termo+flags)
-PATCH_FILE = BASE_DIR / "patch.json"     # cache dos patch notes oficiais (Steam)
 PATCH_PT_FILE = BASE_DIR / "patch_pt.json"  # tradução de patch por gid (permanente)
 IDEIAS_FILE = BASE_DIR / "ideias.json"   # última leva de ideias (pra `pacote N`)
 IDEIAS_HIST_FILE = BASE_DIR / "ideias_hist.jsonl"  # histórico de levas (1 por linha)
@@ -122,10 +118,6 @@ SEED_CANAIS = [
     {"nome": "CommissarKai", "id": "UC5HEdXrvMyV24HE0c0LwO9Q"},       # gameplay/humor
 ]
 
-CACHE_RADAR_HORAS = 6   # validade do snapshot pros comandos de geração (o comando
-                        # `radar` em si sempre verifica as fontes, com qualquer idade)
-CACHE_BUSCA_HORAS = 6  # cache de buscas do YouTube (mesma janela do radar)
-CACHE_PATCH_HORAS = 6  # cache dos patch notes (patch não sai todo dia)
 OUTLIER_RATIO = 2.0  # views/dia ≥ 2x a mediana do próprio canal = [OUTLIER]
 
 
@@ -339,7 +331,7 @@ def fetch_patches():
 def fetch_patch_news():
     """Anúncios oficiais da Arrowhead no Steam com o corpo INTEIRO
     (maxlength=0). Uma coleta só serve tanto a lista quanto o resumo de um
-    patch específico — por isso sempre traz o corpo completo (fica em cache)."""
+    patch específico — por isso sempre traz o corpo completo."""
     url = ("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
            "?appid=553850&count=15&maxlength=0&format=json"
            "&feeds=steam_community_announcements")
@@ -357,21 +349,6 @@ def fetch_patch_news():
             "conteudo": steam_para_texto(n.get("contents") or ""),
         })
     return out
-
-
-def patches_cacheados(fresh=False):
-    """fetch_patch_news com cache em disco (TTL CACHE_PATCH_HORAS). Patch note
-    não muda toda hora, então a mesma coleta serve `patch` (lista) e
-    `patch N` (corpo) sem bater no Steam de novo. `fresh`/`-f` fura o cache."""
-    if not fresh:
-        entrada = carregar_json(PATCH_FILE, None)
-        if entrada:
-            ts = parse_iso(entrada.get("ts", ""))
-            if ts and (agora_utc() - ts).total_seconds() < CACHE_PATCH_HORAS * 3600:
-                return entrada.get("itens", [])
-    itens = fetch_patch_news()
-    salvar_json(PATCH_FILE, {"ts": agora_utc().isoformat(), "itens": itens})
-    return itens
 
 
 def escolher_patch(itens, alvo):
@@ -564,35 +541,6 @@ def fetch_busca(termo, semana=False, br=False):
     return out[:20]
 
 
-_busca_lock = threading.Lock()
-
-
-def _chave_busca(termo, semana, br):
-    return f"{termo.strip().lower()}|{int(bool(semana))}|{int(bool(br))}"
-
-
-def busca_cacheada(termo, semana=False, br=False, fresh=False):
-    """fetch_busca com cache por (termo, semana, br), TTL de CACHE_BUSCA_HORAS.
-    Thread-safe (o `inspirar` roda 3 buscas em paralelo): a rede fica FORA do
-    lock; só a leitura/escrita do arquivo é serializada e recarregada antes de
-    gravar, pra não sobrescrever a entrada de outra thread. `fresh` ignora o
-    cache e recoleta."""
-    chave = _chave_busca(termo, semana, br)
-    if not fresh:
-        with _busca_lock:
-            entrada = carregar_json(BUSCA_FILE, {}).get(chave)
-        if entrada:
-            ts = parse_iso(entrada.get("ts", ""))
-            if ts and (agora_utc() - ts).total_seconds() < CACHE_BUSCA_HORAS * 3600:
-                return entrada.get("vids", [])
-    vids = fetch_busca(termo, semana=semana, br=br)   # rede fora do lock
-    with _busca_lock:
-        cache = carregar_json(BUSCA_FILE, {})          # recarrega pra não clobber
-        cache[chave] = {"ts": agora_utc().isoformat(), "vids": vids}
-        salvar_json(BUSCA_FILE, cache)
-    return vids
-
-
 def marcar_outliers(canal):
     """views/dia de cada vídeo vs a mediana do próprio canal. Muito acima da
     mediana = o algoritmo está empurrando esse formato."""
@@ -624,12 +572,10 @@ def carregar_config():
     return cfg
 
 
-def coletar_radar(force=False):
+def coletar_radar():
+    """Coleta AO VIVO, sempre. A coleta anterior (radar.json) só entra como
+    fallback de uma fonte fora do ar — nunca no lugar da coleta nova."""
     cache = carregar_json(RADAR_FILE, None)
-    if cache and not force:
-        ts = parse_iso(cache.get("ts", ""))
-        if ts and (agora_utc() - ts).total_seconds() < CACHE_RADAR_HORAS * 3600:
-            return cache
 
     cfg = carregar_config()
     nota("coletando: guerra, patches, reddit e canais…")
@@ -892,23 +838,13 @@ def _traduzir_lista(textos):
     return out
 
 
-def textos_radar(s):
-    """Assinatura de conteúdo do snapshot: o conjunto dos textos que o radar
-    exibe. É o que decide se \"tem novidade\" entre duas coletas — views, score
-    e tempo restante mudam sempre e não contam como novidade."""
-    return {txt for obj, src, _ in _slots_traduziveis(s)
-            if (txt := str(obj.get(src) or "").strip())}
-
-
-def traduzir_radar(s, so_cache=False):
+def traduzir_radar(s):
     """Preenche campos *_pt no snapshot pra render em PT-BR. O cache em
     radar_pt.json é por TEXTO ORIGINAL e sobrevive entre coletas: uma coleta
     nova só manda pra LLM o que ainda não tem tradução — radar igual ao
     anterior = zero chamada. O que estreou nesta coleta ganha `novo=True` pro
-    render destacar (o destaque dura até a coleta seguinte). `so_cache=True`
-    nunca chama a LLM: aplica o que já tem traduzido e pronto (é a resposta
-    instantânea do radar). Sem key ou erro de rede: avisa e mantém o inglês
-    (nunca quebra)."""
+    render destacar (o destaque dura até a coleta seguinte). Sem key ou erro
+    de rede: avisa e mantém o inglês (nunca quebra)."""
     pares = [(obj, dst, txt) for obj, src, dst in _slots_traduziveis(s)
              if (txt := str(obj.get(src) or "").strip())]
     if not pares:
@@ -923,14 +859,6 @@ def traduzir_radar(s, so_cache=False):
         novos_txt = atuais - set(mapa)
     else:
         novos_txt = set()   # 1ª tradução: tudo seria "novo", nada a contrastar
-
-    if so_cache:
-        for obj, dst, txt in pares:
-            if mapa.get(txt):
-                obj[dst] = mapa[txt]
-            if txt in novos_txt:
-                obj["novo"] = True
-        return
 
     faltando = sorted(atuais - set(mapa))
     if faltando:
@@ -1102,36 +1030,11 @@ def outliers_com_id(s):
     return sorted(out, key=lambda x: -x["views"])
 
 
-def cmd_radar(fresh, como_json=False, original=False):
+def cmd_radar(como_json=False, original=False):
+    s = coletar_radar()
     if como_json:
-        imprimir_json(coletar_radar(force=fresh))   # --json é sempre cru
+        imprimir_json(s)          # --json é sempre cru
         return
-
-    cache = carregar_json(RADAR_FILE, None)
-    if cache and not fresh:
-        # resposta instantânea: última coleta (qualquer idade), traduzida só
-        # com o cache — zero LLM, zero rede até aqui
-        if not original:
-            traduzir_radar(cache, so_cache=True)
-        render_radar(cache)
-        nota("verificando as fontes agora…")
-        s = coletar_radar(force=True)
-        novos = textos_radar(s) - textos_radar(cache)
-        if textos_radar(s) == textos_radar(cache):
-            ui.aviso("radar", "VERIFICADO AGORA: SEM NOVIDADE — VALE O DE CIMA")
-            print()
-            return
-        if not original:
-            traduzir_radar(s)     # só o diff vai pra LLM
-        if novos:
-            ui.aviso("radar", f"{len(novos)} ITEM(NS) NOVO(S) — RADAR ATUALIZADO ABAIXO")
-        else:
-            ui.aviso("radar", "ITENS SAIRAM DO AR — RADAR ATUALIZADO ABAIXO")
-        render_radar(s)
-        return
-
-    # 1ª execução (sem cache) ou -f: coleta única, sem render duplo
-    s = coletar_radar(force=True)
     if not original:
         traduzir_radar(s)         # PT-BR é o padrão; --original pula a LLM
     render_radar(s)
@@ -1221,14 +1124,14 @@ def ver_ideias_hist(alvo):
     print()
 
 
-def cmd_ideias(fresh, ver=False, hist=False, alvo=""):
+def cmd_ideias(ver=False, hist=False, alvo=""):
     if hist:
         ver_ideias_hist(alvo)
         return
     if ver:
         ver_ideias_salvas()
         return
-    s = coletar_radar(force=fresh)
+    s = coletar_radar()
     refs = outliers_com_id(s)
     bloco_refs = ""
     if refs:
@@ -1275,7 +1178,7 @@ def cmd_ideias(fresh, ver=False, hist=False, alvo=""):
     print()
 
 
-def cmd_pacote(texto_ideia, fresh):
+def cmd_pacote(texto_ideia):
     if not texto_ideia:
         die('faltou a ideia.  Ex.:  goodivers pacote 3   ·   goodivers pacote "guia solo dif 10"')
     if texto_ideia.isdigit():
@@ -1285,7 +1188,7 @@ def cmd_pacote(texto_ideia, fresh):
             die(f"ideia {n} não existe — rode `goodivers ideias` primeiro (salvou {len(salvas)}).")
         d = salvas[n - 1]
         texto_ideia = f"{d.get('titulo', '')} — {d.get('angulo', '')}"
-    s = coletar_radar(force=fresh)
+    s = coletar_radar()
     prompt = (
         f"Monte o pacote de produção completo pra este vídeo: \"{texto_ideia}\".\n"
         "Devolva SOMENTE um objeto JSON (sem markdown) com as chaves:\n"
@@ -1346,10 +1249,10 @@ def cmd_pacote(texto_ideia, fresh):
     print()
 
 
-def cmd_titulos(tema, fresh):
+def cmd_titulos(tema):
     if not tema:
         die('faltou o tema.  Ex.:  goodivers titulos "melhor loadout contra automaton"')
-    s = coletar_radar(force=fresh)
+    s = coletar_radar()
     prompt = (
         f"Gere 8 títulos pro tema: \"{tema}\". Ângulos variados (número, pergunta, "
         "contraste, urgência da janela atual), todos ≤60 chars, keyword na frente, "
@@ -1381,13 +1284,13 @@ def render_busca(vids, limite=15):
                 f"{resumir(v['canal'], 20)} · {v['quando'] or '?'}{dur}")
 
 
-def cmd_buscar(termo, semana, br, como_json=False, fresh=False):
+def cmd_buscar(termo, semana, br, como_json=False):
     if not termo:
         die('faltou o termo.  Ex.:  goodivers buscar "helldivers 2 leaks" --semana')
     onde = "BR·pt" if br else "US·en"
     filtro = ", esta semana" if semana else ""
     nota(f"buscando no YouTube ({onde}{filtro})…")
-    vids = busca_cacheada(termo, semana=semana, br=br, fresh=fresh)
+    vids = fetch_busca(termo, semana=semana, br=br)
     if not vids:
         die("nenhum resultado (YouTube pode ter mudado o HTML — me avise).")
     if como_json:
@@ -1403,7 +1306,7 @@ def cmd_buscar(termo, semana, br, como_json=False, fresh=False):
     print()
 
 
-def cmd_patch(alvo, como_json=False, fresh=False, original=False):
+def cmd_patch(alvo, como_json=False, original=False):
     """Coletor de patch notes oficiais (Steam). Sem alvo lista os anúncios
     recentes; com um alvo (número/URL) baixa o corpo INTEIRO daquele patch,
     traduzido pra PT-BR por padrão (--original mostra o cru; --json também é
@@ -1414,7 +1317,7 @@ def cmd_patch(alvo, como_json=False, fresh=False, original=False):
     if not alvo:
         nota("coletando anúncios oficiais (Steam)…")
         try:
-            itens = patches_cacheados(fresh=fresh)
+            itens = fetch_patch_news()
         except Exception as e:
             die(f"falha ao buscar patches no Steam ({type(e).__name__}). Sem internet?")
         if not itens:
@@ -1436,7 +1339,7 @@ def cmd_patch(alvo, como_json=False, fresh=False, original=False):
 
     nota("carregando conteúdo completo do patch…")
     try:
-        itens = patches_cacheados(fresh=fresh)
+        itens = fetch_patch_news()
     except Exception as e:
         die(f"falha ao buscar o patch no Steam ({type(e).__name__}). Sem internet?")
     escolhido = escolher_patch(itens, alvo)
@@ -1466,13 +1369,13 @@ def cmd_patch(alvo, como_json=False, fresh=False, original=False):
     print()
 
 
-def cmd_inspirar(fresh):
-    s = coletar_radar(force=fresh)
+def cmd_inspirar():
+    s = coletar_radar()
     nota("varrendo o nicho gringo + o que já existe em PT-BR…")
     with ThreadPoolExecutor(max_workers=3) as ex:
-        f_semana = ex.submit(busca_cacheada, "helldivers 2", True, False, fresh)
-        f_leaks = ex.submit(busca_cacheada, "helldivers 2 leaks", True, False, fresh)
-        f_br = ex.submit(busca_cacheada, "helldivers 2", True, True, fresh)
+        f_semana = ex.submit(fetch_busca, "helldivers 2", True, False)
+        f_leaks = ex.submit(fetch_busca, "helldivers 2 leaks", True, False)
+        f_br = ex.submit(fetch_busca, "helldivers 2", True, True)
     gringos, br, falhas = [], [], []
     for nome, fut in (("busca EN", f_semana), ("busca leaks", f_leaks)):
         try:
@@ -1637,7 +1540,6 @@ def uso():
     ui.kv("goodivers temas", "PALETAS")
     print()
     ui.secao("flags")
-    ui.kv("-f, --fresh", "(RADAR) SEM RESPOSTA INSTANTANEA; (RESTO) FURA O CACHE")
     ui.kv("--original", "(RADAR, PATCH) DADO CRU EM INGLES, SEM LLM")
     ui.kv("--ver", "(IDEIAS) MOSTRA A ULTIMA LEVA SALVA")
     ui.kv("--hist [N]", "(IDEIAS) HISTORICO DE LEVAS")
@@ -1680,9 +1582,6 @@ def main():
                          "canais: gerencia canais monitorados · temas: paletas do tema "
                          "retro (GOODIVERS_TEMA / RETRO_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
-    ap.add_argument("-f", "--fresh", action="store_true",
-                    help="(radar) pula a resposta instantânea do cache; (buscas, "
-                         "patch, geração) ignora o cache de 6h e recoleta agora")
     ap.add_argument("-s", "--semana", action="store_true",
                     help="(buscar) só vídeos desta semana")
     ap.add_argument("--br", action="store_true",
@@ -1716,22 +1615,21 @@ def main():
     if args.modelos:
         listar_modelos_free()
     elif args.comando == "radar":
-        cmd_radar(args.fresh, args.como_json, original=original)
+        cmd_radar(args.como_json, original=original)
     elif args.comando == "ideias":
-        cmd_ideias(args.fresh, ver=args.ver, hist=args.hist,
+        cmd_ideias(ver=args.ver, hist=args.hist,
                    alvo=" ".join(args.resto).strip())
     elif args.comando == "inspirar":
-        cmd_inspirar(args.fresh)
+        cmd_inspirar()
     elif args.comando == "pacote":
-        cmd_pacote(" ".join(args.resto).strip(), args.fresh)
+        cmd_pacote(" ".join(args.resto).strip())
     elif args.comando == "titulos":
-        cmd_titulos(" ".join(args.resto).strip(), args.fresh)
+        cmd_titulos(" ".join(args.resto).strip())
     elif args.comando == "buscar":
         cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br,
-                   args.como_json, fresh=args.fresh)
+                   args.como_json)
     elif args.comando == "patch":
-        cmd_patch(" ".join(args.resto).strip(), args.como_json, fresh=args.fresh,
-                  original=original)
+        cmd_patch(" ".join(args.resto).strip(), args.como_json, original=original)
     elif args.comando == "canais":
         cmd_canais(args.resto, args.como_json)
     elif args.comando == "temas":
