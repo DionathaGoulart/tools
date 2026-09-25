@@ -30,7 +30,7 @@ goodivers buscar "hd2 leaks" -s # busca no YouTube (-s semana · --br como o pú
 goodivers patch                 # lista os patch notes oficiais (Steam)
 goodivers patch 2               # corpo completo de um patch em PT-BR (--original: cru)
 goodivers canais                # gerencia os canais monitorados
-goodivers temas                 # paletas do tema retro do terminal
+goodivers temas                 # temas do terminal: black (padrão) | yellow
 ```
 
 ---
@@ -215,22 +215,30 @@ performa lá é matéria-prima pra versão PT-BR):
 
 ### `goodivers temas`
 
-Lista as paletas do tema retro do terminal — o mesmo visual do resto das
-ferramentas deste repo (`.harness/styleguide-terminal.md`). Mostra o swatch
-de cada tema e marca com `►` o que está ativo.
+O goodivers usa o **skin da helldivers2-api** (mesmo styleguide do site da
+API: retro neobrutal, marca amarelo `#fbee23` + preto `#000000`, tirada do
+logo). Dois temas, o mesmo par invertido:
+
+| Tema | Fundo | Texto / moldura / accent |
+|---|---|---|
+| `black` (padrão) | preto | amarelo |
+| `yellow` | amarelo | preto |
+
+No terminal isso vira: título de tela em caixa alta **itálico**, labels com o
+kicker `>`, meta em colchetes (`[SRC: …]`), janela com barra `RADAR.LOG` e os
+três quadrados `■ ■ ■` à direita, sombra dura sólida (sem pontilhado) e
+"apagado" como cor (60% do texto), nunca opacidade. Status: sucesso/erro nos
+tons `-text` de cada tema (contraste AA).
 
 ```bash
-goodivers temas                      # catálogo de paletas
-export GOODIVERS_TEMA=midnight-ember # tema só do goodivers
-export RETRO_TEMA=cyber-teal         # tema de todas as ferramentas
+goodivers temas                 # catálogo, marca com ► o ativo
+export GOODIVERS_TEMA=yellow    # tema claro
 ```
 
-Temas disponíveis: `vault-gold` (padrão), `noir-rose`, `midnight-ember`,
-`cyber-teal`, `velvet-purple`, `abyss-frost`, `crimson-chalk`,
-`forest-mist`, `sand-dusk`.
-
-`GOODIVERS_TEMA` tem prioridade sobre `RETRO_TEMA`. Com `NO_COLOR=1` ou
-saída redirecionada (pipe, arquivo), a cor some e o layout continua legível.
+O `yellow` assume terminal de fundo claro (o terminal não troca de fundo
+sozinho). `RETRO_TEMA` (as paletas das outras ferramentas) é ignorado aqui:
+fora de `black`/`yellow` cai no `black`. Com `NO_COLOR=1` ou saída
+redirecionada, a cor some e o layout continua legível.
 
 ### Flags globais
 
@@ -316,8 +324,7 @@ export GOODIVERS_LEMBRETE=1
 | `GOODIVERS_DIR` | onde salvar config, ideias e traduções | `~/.goodivers` |
 | `GOODIVERS_ORIGINAL` | `1` mostra o radar cru em inglês por padrão (sem tradução/LLM) | desligado |
 | `GOODIVERS_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
-| `GOODIVERS_TEMA` | paleta do terminal só pro goodivers (`goodivers temas` lista) | `vault-gold` |
-| `RETRO_TEMA` | paleta padrão de todas as ferramentas do repo (fallback) | `vault-gold` |
+| `GOODIVERS_TEMA` | tema do terminal: `black` ou `yellow` (`goodivers temas` lista) | `black` |
 | `NO_COLOR` | qualquer valor desliga a cor (layout segue legível) | desligado |
 
 ## Privacidade
