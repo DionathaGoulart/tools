@@ -43,7 +43,7 @@ Fotografia do momento, coletada em paralelo (**a coleta é sem LLM e sem chave**
 
 | Seção | O que mostra | Fonte |
 |---|---|---|
-| Ordem Maior (janela do topo) | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
+| Ordem Maior (card do topo) | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
 | Despachos da Super Terra | as notícias in-game (a "TV" do jogo) | api.helldivers2.dev |
 | Oficial · Steam | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
 | Quente na comunidade | posts em alta do r/Helldivers — com `REDDIT_CLIENT_ID`/`SECRET` usa a API OAuth oficial (funciona em qualquer IP); sem credencial tenta o endpoint público. Se o Reddit bloquear o IP, cai sozinho pro **fórum oficial do jogo na Steam** (threads com atividade recente, sem auth) | Reddit → Steam |
@@ -225,8 +225,10 @@ logo). Dois temas, o mesmo par invertido:
 | `yellow` | amarelo | preto |
 
 No terminal isso vira: título de tela em caixa alta **itálico**, labels com o
-kicker `>`, meta em colchetes (`[SRC: …]`), janela com barra `RADAR.LOG` e os
-três quadrados `■ ■ ■` à direita, sombra dura sólida (sem pontilhado) e
+kicker `>`, meta em colchetes (`[SRC: …]`), cada seção num card (janela com
+barra `ORDEM_MAIOR.LOG`, `DESPACHOS.LOG`, `STEAM.NEWS`, `CANAIS.DB`… e os três
+quadrados `■ ■ ■` à direita, tabela alinhada no corpo e rodapé invertido com
+o resumo da seção), sombra dura sólida (sem pontilhado) e
 "apagado" como cor (60% do texto), nunca opacidade. Status: sucesso/erro nos
 tons `-text` de cada tema (contraste AA).
 
