@@ -73,10 +73,26 @@ primeiro BR a cobrir patch/leak/Ordem Maior.
   vídeo).
 
 **Regra de ouro:** o snapshot do radar é a fonte da verdade sobre o estado
-ATUAL do jogo — seu conhecimento de treino pode estar velho. `🔥`/`outlier`
+ATUAL do jogo — seu conhecimento de treino pode estar velho. `[OUTLIER]`
 no radar = vídeo com views/dia ≥ 2× a mediana do próprio canal = formato que
 o algoritmo está empurrando agora. Vídeos já publicados no `meu_canal`: não
 repetir igual. Responda SEMPRE em PT-BR, markdown limpo.
+
+## Estilo de saída
+
+Mesmo styleguide do site da helldivers2-api (skin retro neobrutal, marca
+amarelo `#fbee23` + preto), traduzido pra markdown:
+
+- **Label de seção = kicker:** `` `> NOME DA SECAO` `` em caixa alta,
+  precedido do `>` literal. Nada de emoji como marcador ou decoração — o `>`
+  e os colchetes fazem esse papel.
+- **Micro-texto de máquina:** estados e tags em colchetes caixa alta —
+  `[NOVO]`, `[OUTLIER]`, `[BUFF]`, `[NERF]`, `[SHORT]`, `[VIDEO]`,
+  `[SEM DADO]`, `[CHECAR ANTES]`.
+- **Chave · valor** em tabela; números com separador de milhar.
+- **Ênfase é negrito**, nunca emoji. Título de tela (quando houver) em
+  `**CAIXA ALTA**`.
+- Corpo em PT-BR normal. Visual seco e reto: sem floreio, sem "🚀".
 
 ## Comandos
 
@@ -85,13 +101,13 @@ Sem argumento = `radar`.
 ### radar
 
 1. `goodivers --json`.
-2. Renderize um resumo em markdown, nesta ordem: ⭐ Ordem Maior (título,
-   briefing, tempo restante, medalhas) · 📢 Despachos (até 3) · 🔧 Oficial
-   Steam · 👽 Comunidade (o campo `reddit` do JSON é `{fonte, posts}`:
+2. Renderize um resumo em markdown (no estilo da seção **Estilo de saída**),
+   nesta ordem: `> ORDEM MAIOR` (título, briefing, tempo restante, medalhas)
+   · `> DESPACHOS` (até 3) · `> OFICIAL · STEAM` · `> COMUNIDADE` (o campo `reddit` do JSON é `{fonte, posts}`:
    fonte `reddit` = top posts com ↑score; fonte `steam` = threads do fórum
    oficial com nº de respostas — rotule a seção conforme a fonte; caches
-   antigos podem trazer uma lista solta, trate como reddit) · 📺 Canais do nicho (3
-   vídeos por canal: views, idade, 🔥 se outlier) · 🎬 Seu canal ·
+   antigos podem trazer uma lista solta, trate como reddit) · `> CANAIS DO NICHO` (3
+   vídeos por canal: views, idade, `[OUTLIER]` se outlier) · `> SEU CANAL` ·
    `falhas` do snapshot, se houver.
 3. **Traduza pra PT-BR** as mensagens que vêm em inglês do jogo: título e
    briefing da Ordem Maior, despachos, e títulos dos anúncios do Steam.
@@ -137,16 +153,16 @@ Sem argumento = `radar`.
    (título + ângulo). Não existe? Diga pra rodar `/goodivers ideias` antes.
    Texto livre → use como está.
 2. Colete o radar e monte o pacote de produção completo:
-   - ✏️ **5 títulos** ≤60 chars, ângulos diferentes, keyword na frente —
+   - `> TITULOS` **5 títulos** ≤60 chars, ângulos diferentes, keyword na frente —
      marque em alerta qualquer um que passar de 60;
-   - 🖼 **3 conceitos de thumbnail**: texto de ≤4 palavras em MAIÚSCULAS +
+   - `> THUMBNAIL` **3 conceitos de thumbnail**: texto de ≤4 palavras em MAIÚSCULAS +
      composição (fundo, ponto focal, cor, emoção) + prompt de imagem em
      inglês pronto pra IA;
-   - 📝 **descrição pronta** (2 primeiras linhas com as keywords; 4–8 linhas
+   - `> DESCRICAO` **descrição pronta** (2 primeiras linhas com as keywords; 4–8 linhas
      no total, com chamada pra inscrição);
-   - 🏷 **12–18 tags** misto PT/EN;
-   - 🎣 **hook dos primeiros 30s** — roteiro literal, 1ª pessoa;
-   - 🎬 **roteiro em 5–8 beats** — "minuto — o que acontece e por que segura
+   - `> TAGS` **12–18 tags** misto PT/EN;
+   - `> HOOK` **hook dos primeiros 30s** — roteiro literal, 1ª pessoa;
+   - `> ROTEIRO` **roteiro em 5–8 beats** — "minuto — o que acontece e por que segura
      retenção".
 
 ### titulos `"<tema>"`
@@ -173,7 +189,7 @@ palavras.
    original `https://youtube.com/watch?v=<id>`, montada com o `id` do
    candidato no JSON; use o id EXATO), **por que performa** (o gatilho),
    **título PT-BR pronto** ≤60 chars, **adaptação** (o que mudar/cortar/
-   adicionar pro BR), **⚠ checar antes** (o que validar no jogo/patch pra não
+   adicionar pro BR), **`[CHECAR ANTES]`** (o que validar no jogo/patch pra não
    sair desatualizado).
 5. Feche com: `/goodivers pacote "<titulo_ptbr escolhido>"`.
 
@@ -222,23 +238,23 @@ atualização. O CLI coleta (lista + corpo completo do Steam); VOCÊ resume.
      NÃO traduz (é como o BR pesquisa), mas explica o efeito em PT-BR.
    - Objetivo: quem assiste entende **o que mudou e por que importa** sem
      pausar o vídeo pra pesquisar. Se você mesmo não sabe o que a sigla
-     significa, joga pro ⚠ **Checar antes de gravar** em vez de inventar.
+     significa, joga pro **`[CHECAR ANTES DE GRAVAR]`** em vez de inventar.
 
    Formato:
-   - 🧾 **TL;DR** — 1–2 frases: o que esse patch muda no geral.
+   - `> TL;DR` — 1–2 frases: o que esse patch muda no geral.
    - 🆕 **Novo conteúdo** — warbond, armas, stratagems, inimigos, missões,
      eventos. *Só inclua a seção se houver; senão omita.*
-   - 🔺 **Buffs** — o que ficou mais forte (item + o número/efeito).
-   - 🔻 **Nerfs** — o que ficou mais fraco (item + o número/efeito).
-   - ⚖️ **Ajustes de balanço** — mudanças neutras de meta que não são
+   - `> BUFFS` — o que ficou mais forte (item + o número/efeito).
+   - `> NERFS` — o que ficou mais fraco (item + o número/efeito).
+   - `> AJUSTES DE BALANCO` — mudanças neutras de meta que não são
      claramente buff nem nerf.
-   - 🐛 **Fixes que o público sente** — só os relevantes (crash famoso, bug
+   - `> FIXES QUE O PUBLICO SENTE` — só os relevantes (crash famoso, bug
      conhecido, exploit). NÃO liste os 40 fixes internos; agrupe o resto em
      1 linha ("+N correções menores de crash/UI").
-   - 🎬 **Ângulo pro vídeo** — qual a manchete (a mudança mais polêmica/
+   - `> ANGULO PRO VIDEO` — qual a manchete (a mudança mais polêmica/
      impactante puxa o clique), 1 **título pronto ≤60 chars** com keyword na
      frente, e 1 ideia de thumbnail (≤4 palavras + foco).
-   - ⚠️ **Checar antes de gravar** — o que confirmar in-game (algo ambíguo no
+   - `> CHECAR ANTES DE GRAVAR` — o que confirmar in-game (algo ambíguo no
      texto, ou que dependa de teste pra não falar besteira no vídeo).
 4. Se o anúncio **não** for patch de balanço (ex.: post de comunidade,
    teaser, aviso de manutenção), não force o formato: diga em 1 linha o que é,
