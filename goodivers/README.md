@@ -59,21 +59,16 @@ Detalhes de comportamento:
   de LLM (mensagens do jogo traduzidas; títulos dos canais mostram o original +
   linha `↳ <PT-BR>`). Use **`--original`** pra ver o dado cru em inglês, sem
   LLM. `GOODIVERS_ORIGINAL=1` deixa o cru como padrão. Sem `OPENROUTER_API_KEY`
-  o radar cai pro inglês automaticamente (avisa e segue). A **coleta** e o
-  cache continuam crus; `--json` nunca traduz.
-- **A tradução é incremental:** o cache (`~/.goodivers/radar_pt.json`) guarda
+  o radar cai pro inglês automaticamente (avisa e segue). A **coleta**
+  continua crua; `--json` nunca traduz.
+- **Sempre ao vivo:** todo comando coleta das fontes na hora — não existe
+  cache de dado, nem pro radar, nem pros comandos de geração, nem pras buscas
+  ou patch notes. Cada `goodivers` é uma coleta nova.
+- **A tradução é incremental:** `~/.goodivers/radar_pt.json` guarda
   cada tradução pelo **texto original**. Numa coleta nova, o radar compara item
   a item com o que já tem traduzido: só o que **mudou** vai pra LLM — radar
   igual ao anterior = **zero** chamada. O que estreou desde a coleta anterior
   aparece marcado **`[NOVO]`** (em verde) até a próxima coleta.
-- **Resposta instantânea + verificação:** com cache existente, `goodivers`
-  imprime na hora a última coleta traduzida (~0,3s, zero rede) e **em seguida
-  verifica as fontes**: nada mudou = uma linha de confirmação; mudou = traduz
-  só o diff e reimprime o radar atualizado com os itens **`[NOVO]`**. `-f`
-  pula a resposta instantânea (coleta única). Views/score/prazo mudando não
-  contam como novidade — só conteúdo novo.
-- O snapshot (`~/.goodivers/radar.json`) vale por **6 horas** pros outros
-  comandos (`ideias`, `pacote`…), que reaproveitam sem recoletar.
 - Fonte fora do ar? O radar reaproveita a última coleta boa daquela seção e
   avisa a idade do dado no rodapé. Nenhuma fonte derruba as outras.
 - **Quando usar:** de manhã, todo dia. Ordem Maior nova ou patch = janela de
@@ -161,9 +156,7 @@ LLM**). Mostra views, idade, duração, canal e título de até 15 resultados.
 | `--br` | busca como o público BR vê (gl=BR, hl=pt) | medir concorrência PT-BR |
 | (sem flags) | busca gringa, sem filtro de data | validar demanda evergreen |
 
-Cada busca é cacheada por **6h** (`~/.goodivers/busca.json`, chave =
-`termo + -s + --br`), então repetir a mesma busca é instantâneo e o `inspirar`
-(que dispara 3 buscas fixas) reusa o cache. `-f` fura e recoleta.
+Toda busca bate no YouTube na hora (sem cache).
 
 Exemplos:
 
@@ -187,9 +180,8 @@ O **resumo estruturado pro vídeo de atualização** (TL;DR, buffs, nerfs, novo
 conteúdo, fixes que importam, ângulo de título/thumb) é gerado pelo Claude via
 skill: `/goodivers patch <N>`. O `--json` expõe a lista e o corpo crus.
 
-A coleta é cacheada por **6h** (`~/.goodivers/patch.json`) — patch não sai
-todo dia, e a mesma coleta serve a lista e o corpo de qualquer patch; `-f`
-fura e recoleta. A **tradução** fica em cache **permanente** por anúncio
+A coleta é sempre ao vivo (lista e corpo vêm do Steam a cada chamada). Só a
+**tradução** fica guardada, **permanente** por anúncio
 (`~/.goodivers/patch_pt.json`): patch note publicado não muda — mudança vem em
 patch novo — então cada patch é traduzido uma única vez.
 
@@ -244,7 +236,6 @@ saída redirecionada (pipe, arquivo), a cor some e o layout continua legível.
 
 | Flag | Faz |
 |---|---|
-| `-f` / `--fresh` | (radar) pula a resposta instantânea do cache; (buscas, patch, geração) ignora o cache de 6h e recoleta agora |
 | `--original` | (radar) não traduz, mostra o dado cru em inglês, sem LLM (`GOODIVERS_ORIGINAL=1` liga por padrão) |
 | `-m` / `--modelos` | lista os modelos `:free` disponíveis na OpenRouter agora |
 | `--json` | saída JSON crua de `radar`, `buscar`, `patch` e `canais` — pra scripts e pro skill `/goodivers` |
@@ -322,7 +313,7 @@ export GOODIVERS_LEMBRETE=1
 | `OPENROUTER_MODEL` | modelos a tentar, separados por vírgula | lista de modelos `:free` |
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | Reddit via API OAuth oficial — app tipo "script" criado em [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) | endpoint público (best-effort) |
 | `GOODIVERS_CONTEXTO` | contexto extra do canal injetado em toda geração (equipamento, estilo de edição, tempo disponível…) | nenhum |
-| `GOODIVERS_DIR` | onde salvar cache e config | `~/.goodivers` |
+| `GOODIVERS_DIR` | onde salvar config, ideias e traduções | `~/.goodivers` |
 | `GOODIVERS_ORIGINAL` | `1` mostra o radar cru em inglês por padrão (sem tradução/LLM) | desligado |
 | `GOODIVERS_LEMBRETE` | `1` liga o lembrete diário no terminal | desligado |
 | `GOODIVERS_TEMA` | paleta do terminal só pro goodivers (`goodivers temas` lista) | `vault-gold` |
