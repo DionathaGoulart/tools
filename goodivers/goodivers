@@ -25,7 +25,7 @@ e `inspirar`.
 args: [radar|ideias|inspirar|pacote <N|"ideia">|titulos "<tema>"|
        buscar "<termo>" [-s] [--br]|canais [add|rm] ...|temas] [--original]
 
-  temas — lista as paletas do tema retro (GOODIVERS_TEMA / RETRO_TEMA).
+  temas — lista os temas do skin retro (GOODIVERS_TEMA: black | yellow).
 
 Requer: Python 3 e OPENROUTER_API_KEY (pros comandos com geração e pra tradução
 do radar; sem a chave, o radar cai pro inglês automaticamente).
@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..
 from retro import Retro  # noqa: E402
 from llm import LLM, LLMError  # noqa: E402
 
-ui = Retro(env_prefix="GOODIVERS")
+ui = Retro(env_prefix="GOODIVERS", skin="good")   # skin da helldivers2-api
 
 
 def carregar_dotenv():
@@ -649,10 +649,10 @@ def janela_guerra(s):
     fontes = sum(1 for k in ("ordem", "despachos", "patches", "reddit", "canais")
                  if s.get(k))
     ui.janela(
-        "root@goodivers: ~/radar",
+        "radar.log",
         linhas,
         meta=f"SRC: {fontes}/5",
-        rodape=f"● COLETA {idade_humana(s['ts']).upper()}",
+        rodape=f"■ COLETA {idade_humana(s['ts']).upper()}",
     )
 
 
@@ -1537,7 +1537,7 @@ def uso():
     ui.kv("goodivers canais", "CANAIS MONITORADOS")
     ui.kv("goodivers canais add <canal>", "ADICIONA (HANDLE, URL OU ID)")
     ui.kv("goodivers canais rm <nome>", "REMOVE CANAL")
-    ui.kv("goodivers temas", "PALETAS")
+    ui.kv("goodivers temas", "TEMAS: BLACK | YELLOW")
     print()
     ui.secao("flags")
     ui.kv("--original", "(RADAR, PATCH) DADO CRU EM INGLES, SEM LLM")
@@ -1556,7 +1556,7 @@ def uso():
     ui.kv("GOODIVERS_ORIGINAL", "RADAR/PATCH CRU EM INGLES POR PADRAO (1)")
     ui.kv("GOODIVERS_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
     ui.kv("GOODIVERS_DIR", str(BASE_DIR))
-    ui.kv("GOODIVERS_TEMA / RETRO_TEMA", ui.tema.upper())
+    ui.kv("GOODIVERS_TEMA", ui.tema.upper())
     ui.kv("NO_COLOR", "DESLIGA AS CORES")
     print()
 
@@ -1579,8 +1579,8 @@ def main():
                          "adaptação PT-BR · pacote: títulos+thumb+descrição+roteiro · "
                          "titulos: variações A/B · buscar: busca no YouTube · patch: "
                          "patch notes oficiais (lista, ou o corpo de um pra resumir) · "
-                         "canais: gerencia canais monitorados · temas: paletas do tema "
-                         "retro (GOODIVERS_TEMA / RETRO_TEMA)")
+                         "canais: gerencia canais monitorados · temas: black (padrão) "
+                         "ou yellow (GOODIVERS_TEMA)")
     ap.add_argument("resto", nargs="*", help="argumento do comando (ideia, tema, add/rm…)")
     ap.add_argument("-s", "--semana", action="store_true",
                     help="(buscar) só vídeos desta semana")
