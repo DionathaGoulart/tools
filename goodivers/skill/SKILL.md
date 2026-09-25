@@ -1,6 +1,6 @@
 ---
 name: goodivers
-description: "Copiloto do canal Goodivers (Helldivers 2) dentro do Claude Code: radar ao vivo do jogo + geração de ideias, pacotes de produção, títulos, adaptações e resumo de patch notes — a geração usa o modelo desta sessão (Claude), sem OpenRouter. Args: [radar|ideias|inspirar|pacote <N|\"ideia\">|titulos \"<tema>\"|buscar \"<termo>\" [-s] [--br]|patch [<N|url>]|canais ...] [-f]"
+description: "Copiloto do canal Goodivers (Helldivers 2) dentro do Claude Code: radar ao vivo do jogo + geração de ideias, pacotes de produção, títulos, adaptações e resumo de patch notes — a geração usa o modelo desta sessão (Claude), sem OpenRouter. Args: [radar|ideias|inspirar|pacote <N|\"ideia\">|titulos \"<tema>\"|buscar \"<termo>\" [-s] [--br]|patch [<N|url>]|canais ...]"
 user_invocable: true
 ---
 
@@ -21,8 +21,9 @@ chave da OpenRouter é necessária aqui.
 
 - CLI no PATH como `goodivers`; se não estiver, use
   `~/.goodtools/goodivers/goodivers` direto.
-- Snapshot do radar: `goodivers --json` (respeita cache de 6h). Use `-f` só
-  se o usuário pedir dado fresco ("recoleta", "-f", "fresh").
+- Snapshot do radar: `goodivers --json`. Toda chamada coleta AO VIVO (não
+  existe cache de dado) — rode de novo a cada comando, nunca reaproveite um
+  JSON de antes na conversa.
 - Busca no YouTube: `goodivers buscar "<termo>" --json [-s] [--br]`
   (`-s` = só esta semana; `--br` = como o público BR vê).
 - Contexto extra do dono: rode `printenv GOODIVERS_CONTEXTO` — se existir,
@@ -83,7 +84,7 @@ Sem argumento = `radar`.
 
 ### radar
 
-1. `goodivers --json` (com `-f` se pedido).
+1. `goodivers --json`.
 2. Renderize um resumo em markdown, nesta ordem: ⭐ Ordem Maior (título,
    briefing, tempo restante, medalhas) · 📢 Despachos (até 3) · 🔧 Oficial
    Steam · 👽 Comunidade (o campo `reddit` do JSON é `{fonte, posts}`:
@@ -191,7 +192,7 @@ atualização. O CLI coleta (lista + corpo completo do Steam); VOCÊ resume.
 
 1. `goodivers patch --json` → array de anúncios oficiais (mais recente
    primeiro), cada um com `n`, `titulo`, `quando`, `url`, `gid`, `previa`
-   (prévia curta do corpo). Cache de 6h; `-f` fura e recoleta.
+   (prévia curta do corpo). Coleta ao vivo a cada chamada.
 2. Renderize a lista numerada: `N` · idade (`idade_humana`) · **título
    original** e, embaixo, tradução PT-BR curta (mesma regra do radar: nomes
    próprios do jogo em inglês). Marque qual parece patch de balanço de verdade
