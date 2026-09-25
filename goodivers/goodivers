@@ -48,10 +48,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
-from retro import Retro  # noqa: E402
+from retro import Retro, largura  # noqa: E402
 from llm import LLM, LLMError  # noqa: E402
 
-ui = Retro(env_prefix="GOODIVERS", skin="good")   # skin da helldivers2-api
+ui = Retro(env_prefix="GOODIVERS", skin="good", largura_caixa=110)   # skin da helldivers2-api
 
 
 def carregar_dotenv():
@@ -648,12 +648,205 @@ def janela_guerra(s):
 
     fontes = sum(1 for k in ("ordem", "despachos", "patches", "reddit", "canais")
                  if s.get(k))
-    ui.janela(
-        "radar.log",
+    card(
+        "ordem_maior.log",
         linhas,
         meta=f"SRC: {fontes}/5",
         rodape=f"■ COLETA {idade_humana(s['ts']).upper()}",
     )
+
+
+# ---------------------------------------------------------------- tabela
+
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]")
+_CABECA_DESPACHO = re.compile(r"^((?:[A-Z0-9][A-Z0-9'’\-]+ +)+)(?=\S)")
+
+
+def sem_emoji(txt):
+    """Emoji não tem largura confiável no terminal e quebra as colunas."""
+    return " ".join(_EMOJI.sub("", txt or "").split())
+
+
+def cortar(txt, n):
+    """Corta pela largura VISÍVEL (acento, CJK), não por len()."""
+    txt = " ".join(str(txt).split())
+    if largura(txt) <= n:
+        return txt
+    out = ""
+    for ch in txt:
+        if largura(out + ch) > n - 1:
+            break
+        out += ch
+    return out.rstrip() + "…"
+
+
+def encher(txt, n, direita=False):
+    """Pad pela largura visível (ANSI e acentos não contam)."""
+    falta = max(0, n - largura(txt))
+    return " " * falta + txt if direita else txt + " " * falta
+
+
+def idade_curta(iso):
+    """`há 7d` → `7d`: coluna estreita, o cabeçalho já diz IDADE."""
+    return idade_humana(iso).replace("há ", "")
+
+
+def largura_card():
+    """Largura útil dentro de um card (a janela do retro): acompanha o terminal."""
+    return ui.cf if ui.caixa else max(40, min(ui.cols - 4, 106))
+
+
+class Tabela:
+    """Colunas fixas + título que ocupa o resto, montadas como LINHAS pra
+    entrar num card. `cols` é uma lista de (rotulo, largura, alinha_a_direita)."""
+
+    GAP = 2
+
+    def __init__(self, cols):
+        self.cols = cols
+        self.larg = largura_card()
+        fixo = sum(w for _, w, _ in cols) + self.GAP * len(cols)
+        self.resto = max(16, self.larg - fixo)
+        self.margem = fixo
+        self.linhas = []
+
+    def cabecalho(self, titulo="TITULO"):
+        partes = [encher(r, w, d) for r, w, d in self.cols]
+        self.linhas.append(f"{ui.FG40}{(' ' * self.GAP).join(partes)}"
+                           f"{' ' * self.GAP}{titulo}{ui.RESET}")
+        self.linhas.append(f"{ui.ACC15}{'─' * self.larg}{ui.RESET}")
+
+    def linha(self, valores, titulo, extra=None):
+        partes = [encher(v, w, d) for (_, w, d), v in zip(self.cols, valores)]
+        self.linhas.append((" " * self.GAP).join(partes) + " " * self.GAP
+                           + f"{ui.FG}{cortar(titulo, self.resto)}{ui.RESET}")
+        if extra:
+            self.linhas.append(f"{' ' * self.margem}{ui.FG40}↳ "
+                               f"{cortar(extra, self.resto - 2)}{ui.RESET}")
+
+    def grupo(self, nome, meta=""):
+        """Sub-cabeçalho dentro do card (ex.: um canal), com respiro antes."""
+        if len(self.linhas) > 2:
+            self.linhas.append("")
+        linha = f"{ui.ACC}{ui.BOLD}{nome.upper()}{ui.RESET}"
+        if meta:
+            linha += f"  {ui.FG40}{meta.upper()}{ui.RESET}"
+        self.linhas.append(linha)
+
+
+def card(titulo, linhas, meta="", rodape=""):
+    """Uma seção = uma janela (a mesma receita do RADAR.LOG) + respiro. Sem
+    caixa (pipe, terminal estreito) a janela vira linhas soltas — aí o nome
+    do card e o rodapé viram texto pra seção não perder a identidade."""
+    if not ui.caixa:
+        print(f"  {ui.ACC}{ui.BOLD}> {titulo.upper()}{ui.RESET}  {ui.FG40}{meta}{ui.RESET}")
+    ui.janela(titulo, linhas, meta=meta, rodape=rodape)
+    if not ui.caixa and rodape:
+        print(f"  {ui.FG40}{rodape}{ui.RESET}")
+    print()
+
+
+def sinal(obj, *extras):
+    """Coluna SINAL: [NOVO] em verde, depois o que o item carrega."""
+    if obj.get("novo"):
+        return tag_novo()
+    for rotulo, ligado in extras:
+        if ligado:
+            return f"{ui.ACC}{ui.BOLD}[{rotulo}]{ui.RESET}"
+    return ""
+
+
+def _eh_patch(titulo):
+    return bool(re.search(r"\b\d+\.\d+\.\d+\b", titulo or ""))
+
+
+def card_despachos(s):
+    larg = largura_card()
+    linhas = []
+    for n, d in enumerate(s["despachos"][:3]):
+        if n:
+            linhas.append("")
+        texto = d.get("texto_pt") or d["texto"]
+        m = _CABECA_DESPACHO.match(texto)
+        cabeca = m.group(1).strip() if m else "DESPACHO"
+        resto = texto[m.end():] if m else texto
+        marca = f"  {tag_novo()}" if d.get("novo") else ""
+        linhas.append(f"{ui.FG40}{encher(idade_curta(d['quando']), 4, True)}{ui.RESET}  "
+                      f"{ui.ACC}{ui.BOLD}{cabeca}{ui.RESET}{marca}")
+        partes = textwrap.wrap(resto, larg - 6) or [""]
+        for i, parte in enumerate(partes[:2]):
+            if i == 1 and len(partes) > 2:
+                parte = cortar(parte + " " + partes[2], larg - 6)
+            linhas.append(f"      {ui.FG70}{parte}{ui.RESET}")
+    card("despachos.log", linhas, meta="IN-GAME",
+         rodape=f"■ {len(s['despachos'][:3])} DESPACHOS DA SUPER TERRA")
+
+
+def card_steam(s):
+    t = Tabela([("IDADE", 5, True), ("SINAL", 9, False)])
+    t.cabecalho()
+    n_patch = 0
+    for p in s["patches"]:
+        eh = _eh_patch(p["titulo"])
+        n_patch += eh
+        t.linha([idade_curta(p["quando"]), sinal(p, ("PATCH", eh))],
+                sem_emoji(p.get("titulo_pt") or p["titulo"]))
+    card("steam.news", t.linhas, meta="ARROWHEAD",
+         rodape=f"■ {len(s['patches'])} ANUNCIOS · {n_patch} PATCH(ES)")
+
+
+def card_comunidade(fonte, posts):
+    reddit = fonte == "reddit"
+    chave = "score" if reddit else "comentarios"
+    t = Tabela([("SCORE" if reddit else "RESP", 5, True), ("SINAL", 9, False)])
+    t.cabecalho()
+    for p in sorted(posts, key=lambda x: -(x.get(chave) or 0)):
+        titulo = sem_emoji(p.get("titulo_pt") or p["titulo"])
+        if p.get("flair"):
+            titulo += f"  [{p['flair'].upper()}]"
+        t.linha([fmt_views(p.get(chave) or 0), sinal(p)], titulo)
+    card("reddit.hot" if reddit else "forum.hot", t.linhas,
+         meta="R/HELLDIVERS" if reddit else "STEAM",
+         rodape=("■ POR SCORE" if reddit
+                 else "■ POR RESPOSTAS · REDDIT BLOQUEADO NESTE IP"))
+
+
+def card_canais(s):
+    t = Tabela([("VIEWS", 6, True), ("IDADE", 5, True), ("SINAL", 9, False)])
+    t.cabecalho()
+    canais = sorted(s["canais"], key=lambda c: -sum(
+        1 for v in c["videos"][:3] if v.get("outlier")))
+    total_out = 0
+    for c in canais:
+        vistos, videos = set(), []
+        for v in c["videos"][:3]:
+            chave_v = v["titulo"].strip().lower()
+            if chave_v not in vistos:
+                vistos.add(chave_v)
+                videos.append(v)
+        n_out = sum(1 for v in videos if v.get("outlier"))
+        total_out += n_out
+        t.grupo(str(c["nome"]), f"{n_out} outlier(s)" if n_out else "")
+        for v in videos:
+            orig = sem_emoji(v["titulo"])
+            pt = sem_emoji(v.get("titulo_pt") or "")
+            t.linha([fmt_views(v["views"]), idade_curta(v["publicado"]),
+                     sinal(v, ("OUTLIER", v.get("outlier")))],
+                    orig, extra=pt if pt and pt.lower() != orig.lower() else None)
+    card("canais.db", t.linhas, meta=f"{len(canais)} CANAIS",
+         rodape=f"■ {total_out} OUTLIER(S) · VIEWS/DIA >= 2X A MEDIANA DO CANAL")
+
+
+def card_meu_canal(s):
+    t = Tabela([("VIEWS", 6, True), ("IDADE", 5, True)])
+    t.cabecalho()
+    videos = s["meu_canal"]["videos"][:5]
+    for v in videos:
+        t.linha([fmt_views(v["views"]), idade_curta(v["publicado"])],
+                sem_emoji(v["titulo"]))
+    total = sum(v.get("views") or 0 for v in videos)
+    card("goodivers.db", t.linhas, meta="SEU CANAL",
+         rodape=f"■ {len(videos)} VIDEO(S) · {fmt_views(total)} VIEWS")
 
 
 def render_radar(s):
@@ -661,79 +854,26 @@ def render_radar(s):
     janela_guerra(s)
 
     for o in (s.get("ordem") or [])[1:]:
-        ui.secao(str(o.get("titulo_pt") or o["titulo"])
-                 + (" · [novo]" if o.get("novo") else ""))
-        corpo(resumir(o.get("briefing_pt") or o.get("briefing") or "", 300), recuo=2)
+        briefing = resumir(o.get("briefing_pt") or o.get("briefing") or "", 300)
+        card("ordem.log", [f"{ui.ACC}{ui.BOLD}{cortar(str(o.get('titulo_pt') or o['titulo']).upper(), largura_card())}{ui.RESET}"]
+             + [f"{ui.FG70}{x}{ui.RESET}" for x in textwrap.wrap(briefing, largura_card())])
 
     if s.get("despachos"):
-        print()
-        ui.secao("despachos da super terra")
-        for d in s["despachos"][:3]:
-            texto = d.get("texto_pt") or d["texto"]
-            larg = max(40, min(ui.cols - 13, 92))
-            linhas = textwrap.wrap(texto, larg) or [""]
-            primeira = linhas[0]
-            if d.get("novo"):
-                primeira = f"{tag_novo()}{ui.FG70} " + primeira
-            ui.item(f"{idade_humana(d['quando']):>8}", primeira)
-            for extra in linhas[1:]:
-                print(f"{' ' * 11}{ui.FG70}{extra}{ui.RESET}")
-
+        card_despachos(s)
     if s.get("patches"):
-        print()
-        ui.secao("oficial · steam")
-        for p in s["patches"]:
-            texto = p.get("titulo_pt") or p["titulo"]
-            if p.get("novo"):
-                texto = f"{tag_novo()}{ui.FG70} " + texto
-            ui.item(f"{idade_humana(p['quando']):>8}", texto)
-
+        card_steam(s)
     fonte_c, posts_c = comunidade_posts(s)
     if posts_c:
-        print()
-        ui.secao("quente no r/helldivers" if fonte_c == "reddit"
-                 else "quente no forum oficial · steam")
-        for p in posts_c:
-            texto = resumir(p.get("titulo_pt") or p["titulo"], 90)
-            if p.get("novo"):
-                texto = f"{tag_novo()}{ui.FG70} " + texto
-            if p.get("flair"):
-                texto += " " + ui.chip(p["flair"]) + ui.FG70
-            marca = (f"↑{p['score']:>5}" if fonte_c == "reddit"
-                     else f"≡{p.get('comentarios', 0):>5}")
-            ui.item(marca, texto)
-
+        card_comunidade(fonte_c, posts_c)
     if s.get("canais"):
-        print()
-        ui.secao("canais do nicho")
-        for c in s["canais"]:
-            print(f"  {ui.forte(str(c['nome']).upper())}")
-            for v in c["videos"][:3]:
-                texto = resumir(v["titulo"], 72)
-                if v.get("novo"):
-                    texto = f"{tag_novo()}{ui.FG70} " + texto
-                if v.get("outlier"):
-                    texto += " " + ui.chip("outlier") + ui.FG70
-                ui.item(f"{fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}",
-                        texto)
-                if v.get("titulo_pt"):
-                    print(f"      {ui.apagado('↳ ' + resumir(v['titulo_pt'], 68))}")
-
+        card_canais(s)
     if s.get("meu_canal") and s["meu_canal"]["videos"]:
-        print()
-        ui.secao("seu canal · goodivers")
-        for v in s["meu_canal"]["videos"][:5]:
-            ui.item(f"{fmt_views(v['views']):>7} · {idade_humana(v['publicado']):>8}",
-                    resumir(v["titulo"], 72))
+        card_meu_canal(s)
 
-    print()
     if s.get("falhas"):
         ui.aviso("offline", ", ".join(s["falhas"]))
-    if fonte_c == "steam" and posts_c:
-        ui.aviso("comunidade", "REDDIT BLOQUEADO NESTE IP — MOSTRANDO O FORUM DA STEAM")
-    ui.aviso("legenda", "[OUTLIER] = VIEWS/DIA >= 2X A MEDIANA DO PROPRIO CANAL")
     if any(obj.get("novo") for obj, _, _ in _slots_traduziveis(s)):
-        ui.aviso("legenda", "[NOVO] = APARECEU DEPOIS DA COLETA ANTERIOR")
+        ui.aviso("novo", "apareceu depois da coleta anterior")
     ui.proximo("goodivers ideias")
     print()
 
@@ -1277,11 +1417,14 @@ def cmd_titulos(tema):
 
 
 def render_busca(vids, limite=15):
+    t = Tabela([("VIEWS", 6, True), ("DUR", 7, True)])
+    t.cabecalho()
     for v in vids[:limite]:
         views = fmt_views(v["views"]) if v["views"] else (v["views_txt"] or "?")
-        dur = f" · {v['duracao']}" if v.get("duracao") else ""
-        ui.item(f"{views:>7}", resumir(v["titulo"], 62),
-                f"{resumir(v['canal'], 20)} · {v['quando'] or '?'}{dur}")
+        t.linha([cortar(views, 6), v.get("duracao") or "—"], sem_emoji(v["titulo"]),
+                extra=f"{sem_emoji(v['canal'])} · {v['quando'] or '?'}")
+    card("busca.yt", t.linhas, meta="YOUTUBE",
+         rodape=f"■ {min(limite, len(vids))} RESULTADO(S)")
 
 
 def cmd_buscar(termo, semana, br, como_json=False):
@@ -1301,7 +1444,6 @@ def cmd_buscar(termo, semana, br, como_json=False):
     ui.kv("FILTRO", "ESTA SEMANA" if semana else "SEM FILTRO DE DATA")
     print()
     render_busca(vids)
-    print()
     ui.proximo("goodivers inspirar", "plano de adaptacao pt-br:")
     print()
 
@@ -1329,10 +1471,13 @@ def cmd_patch(alvo, como_json=False, original=False):
                            for i, p in enumerate(itens, 1)])
             return
         ui.modulo("patch", "src: steam · oficial arrowhead")
-        print()
+        t = Tabela([("N", 2, True), ("IDADE", 5, True), ("SINAL", 9, False)])
+        t.cabecalho()
         for i, p in enumerate(itens, 1):
-            ui.item(f"{i:>2}.", resumir(p["titulo"], 58), idade_humana(p["quando"]))
-        print()
+            t.linha([str(i), idade_curta(p["quando"]),
+                     sinal(p, ("PATCH", _eh_patch(p["titulo"])))], sem_emoji(p["titulo"]))
+        card("patch.log", t.linhas, meta="STEAM",
+             rodape=f"■ {len(itens)} ANUNCIOS OFICIAIS")
         ui.proximo("goodivers patch <N>", "corpo do patch:")
         print()
         return
