@@ -4,36 +4,106 @@
   "title": "goodcodex scanned registry v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "projects"],
+  "required": [
+    "schemaVersion",
+    "projects"
+  ],
   "properties": {
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {
+      "const": 1
+    },
     "projects": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "group", "realm", "root", "canonicalRoot", "packages", "contextSources", "evidence", "scannedAt"],
+        "required": [
+          "id",
+          "group",
+          "realm",
+          "root",
+          "canonicalRoot",
+          "packages",
+          "contextSources",
+          "evidence",
+          "scannedAt"
+        ],
         "properties": {
-          "id": {"type": "string", "minLength": 1},
-          "group": {"type": "string", "minLength": 1},
-          "realm": {"enum": ["personal", "work"]},
-          "root": {"type": "string", "minLength": 1},
-          "canonicalRoot": {"type": "string", "minLength": 1},
-          "gitDir": {"type": ["string", "null"]},
-          "gitCommonDir": {"type": ["string", "null"]},
-          "worktree": {"type": "boolean"},
-          "branch": {"type": ["string", "null"]},
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "realm": {
+            "enum": [
+              "personal",
+              "work"
+            ]
+          },
+          "root": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonicalRoot": {
+            "type": "string",
+            "minLength": 1
+          },
+          "gitDir": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gitCommonDir": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "worktree": {
+            "type": "boolean"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "packages": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["path", "stack", "commands"],
+              "required": [
+                "path",
+                "stack",
+                "commands"
+              ],
               "properties": {
-                "path": {"type": "string"},
-                "stack": {"type": "array", "items": {"type": "string"}},
-                "packageManager": {"type": ["string", "null"]},
-                "commands": {"type": "object", "additionalProperties": {"type": "string"}}
+                "path": {
+                  "type": "string"
+                },
+                "stack": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "packageManager": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "commands": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
@@ -42,13 +112,41 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["path", "kind", "scope", "confidence"],
+              "required": [
+                "path",
+                "kind",
+                "scope",
+                "confidence"
+              ],
               "properties": {
-                "path": {"type": "string"},
-                "kind": {"enum": ["agents", "claude", "readme", "harness", "other"]},
-                "canonicalTarget": {"type": ["string", "null"]},
-                "scope": {"type": "string"},
-                "confidence": {"enum": ["high", "medium", "low"]}
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "agents",
+                    "claude",
+                    "readme",
+                    "harness",
+                    "other"
+                  ]
+                },
+                "canonicalTarget": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                }
               }
             }
           },
@@ -57,14 +155,68 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["path", "signal"],
+              "required": [
+                "path",
+                "signal"
+              ],
               "properties": {
-                "path": {"type": "string"},
-                "signal": {"type": "string"}
+                "path": {
+                  "type": "string"
+                },
+                "signal": {
+                  "type": "string"
+                }
               }
             }
           },
-          "scannedAt": {"type": "string", "format": "date-time"}
+          "scannedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "reason"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
         }
       }
     }

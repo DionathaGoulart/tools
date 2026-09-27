@@ -14,7 +14,7 @@ FIXTURES = ROOT / "tests" / "fixtures" / "goodcodex"
 
 
 class GoodcodexFoundationTests(unittest.TestCase):
-    def test_help_is_the_only_command(self):
+    def test_help_lists_implemented_commands(self):
         for args in ([], ["help"], ["--help"]):
             with self.subTest(args=args):
                 result = subprocess.run(
@@ -25,15 +25,15 @@ class GoodcodexFoundationTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("help", result.stdout)
-                self.assertNotIn("scan", result.stdout)
+                self.assertIn("scan", result.stdout)
 
         unknown = subprocess.run(
-            [sys.executable, str(CLI), "scan"],
+            [sys.executable, str(CLI), "scan", "--help"],
             capture_output=True,
             text=True,
             check=False,
         )
-        self.assertNotEqual(unknown.returncode, 0)
+        self.assertEqual(unknown.returncode, 0)
 
     def test_fixtures_and_native_examples_parse(self):
         for name in ("preferences", "registry", "overrides"):
