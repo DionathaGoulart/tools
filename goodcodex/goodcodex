@@ -4,12 +4,14 @@
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 from core.scanner import discover
 from core.context import project_for, resolve
 from core.doctor import diagnose
 from core.render import render
+from core.install import change, status
 from core.store import StateError, config_dir, data_dir, load, save, selected
 
 
@@ -48,6 +50,7 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true", help="saída JSON")
     commands = parser.add_subparsers(dest="command", metavar="comando")
     commands.add_parser("help", help="mostra esta ajuda")
+    commands.add_parser("temas", help="mostra as paletas compartilhadas da família tools")
     scan = commands.add_parser("scan", help="descobre projetos e atualiza o registro local")
     scan.add_argument("--root", action="append", default=[], metavar="PATH", help="raiz para varredura; repetível")
     scan.add_argument("--realm", choices=["personal", "work"], default="personal", help="ambiente das raízes passadas por --root")
@@ -66,10 +69,17 @@ def main(argv=None):
     plan = commands.add_parser("plan", help="mostra arquivos Codex propostos, diff e política de modelos sem gravar")
     plan.add_argument("path", nargs="?", help="caminho ou id de projeto; sem argumento, somente configuração global")
     plan.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
+    for name, description in (("apply", "instala arquivos nativos gerenciados"), ("update", "atualiza arquivos gerenciados"), ("rollback", "restaura arquivos anteriores"), ("status", "mostra estado da instalação")):
+        command = commands.add_parser(name, help=description)
+        command.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
+        if name == "apply":
+            command.add_argument("--replace", action="store_true", help="substitui arquivos existentes após backup")
     args = parser.parse_args(argv)
     if args.command is None or args.command == "help":
         parser.print_help()
         return 0
+    if args.command == "temas":
+        return subprocess.call(["bash", str(Path(__file__).resolve().parents[1] / "goodhelp" / "goodhelp"), "temas"])
     try:
         registry_path = data_dir() / "registry.json"
         if args.command == "scan":
@@ -89,6 +99,20 @@ def main(argv=None):
         elif args.command == "plan" and args.path is None:
             result = render()
             _plan_output(result, args.json)
+        elif args.command in ("apply", "update", "rollback", "status"):
+            result = status() if args.command == "status" else change(args.command, replace=getattr(args, "replace", False))
+            if args.json:
+                _output(result, True)
+            elif args.command == "status":
+                print("Instalação gerenciada: " + ("sim" if result["installed"] else "não"))
+                if result["interrupted"]:
+                    print("Aviso: operação anterior interrompida; próximo comando de escrita tentará recuperá-la.")
+                for item in result["files"]:
+                    print(f'{item["state"]}: {item["path"]}')
+            else:
+                print(result["message"])
+                for path in result["changed"]:
+                    print(path)
         else:
             registry = load(registry_path, {"schemaVersion": 1, "projects": []})
             overrides = load(config_dir() / "overrides.json", {"schemaVersion": 1, "projects": []})
@@ -149,7 +173,7 @@ def _plan_output(result, as_json):
         for name, content in result["presetInstructions"].items():
             print(f'\nPreset {name}:\n{content}', end="" if content.endswith("\n") else "\n")
     for file in result["files"]:
-        print(f'\n{file["status"]}: {file["path"]}')
+        print(f'\n{file["status"]} [{file["applyAction"]}]: {file["path"]}')
         if file["diff"]:
             print(file["diff"], end="")
     print("\nPolítica de modelos (sem flags CLI):")

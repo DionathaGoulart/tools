@@ -65,6 +65,15 @@ def render(project: dict | None = None, target: Path | None = None, *, codex_hom
             raise StateError(f"Agente inválido: {name}")
     files = [_preview(home / f"{name}.config.toml", content) for name, content in profile_text.items()]
     files += [_preview(home / "agents" / f"{name}.toml", content) for name, content in agent_text.items()]
+    # Lazy import keeps installation's use of render() acyclic.
+    from .install import status
+    installation = status(home)
+    states = {item["path"]: item["state"] for item in installation["files"]}
+    for file in files:
+        state = states[file["path"]]
+        file["installState"] = state
+        file["applyAction"] = ("conflict" if state in ("modified", "missing") or (state == "unmanaged" and file["status"] == "change")
+                               else "write" if file["status"] != "identical" else "none")
     issues = []
     if not codex["capabilities"].get("profileFormatV2") or not codex["capabilities"].get("profiles"):
         issues.append("Formato de perfis não verificado neste CLI; não aplique antes de validar a versão.")
@@ -119,6 +128,7 @@ def render(project: dict | None = None, target: Path | None = None, *, codex_hom
         "presets": presets,
         "presetInstructions": {name: (BASE / "presets" / f"{name}.md").read_text(encoding="utf-8") for name in presets},
         "files": files,
+        "installation": {"installed": installation["installed"], "interrupted": installation["interrupted"]},
         "modelPolicy": model_layers,
         "agentPolicy": agent_policy,
         "profileFormat": "v2" if codex["capabilities"].get("profileFormatV2") else "unverified-or-unsupported",

@@ -19,10 +19,11 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/rcblock.sh
 . "$ROOT/lib/rcblock.sh"
 
-NOMES=(goodcheats goodrepo goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill goodwash goodwash-skill images/goodpixel images/goodprofile goodnerd goodhunter)
+NOMES=(goodcheats goodrepo goodcodex goodpomo goodprof goodbio goodvocab goodzap goodivers goodivers-skill goodjob goodjob-skill dark dark-skill goodwash goodwash-skill images/goodpixel images/goodprofile goodnerd goodhunter)
 DESCS=(
   "kit good: fetch de sistema + cheatsheets + styleguides"
   "padroniza o repo: README, licença, visual, git no .harness/"
+  "prepara o Codex para projetos e tarefas (perfis opt-in)"
   "pomodoro no terminal com notificação e stats"
   "estudo Feynman invertido, te sabatina até dominar (IA)"
   "sua autobiografia, uma pergunta por dia (IA)"
