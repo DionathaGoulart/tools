@@ -118,6 +118,15 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual({"go", "python", "rust"}, set(by_name["native"]["packages"][0]["stack"]))
         self.assertIn("subrepo", by_name)
 
+    def test_specialist_signals_from_manifests_only(self):
+        project = self.work / "specialists"
+        project.mkdir()
+        (project / "package.json").write_text(json.dumps({"exports": {".": "./dist/index.js"}, "types": "./dist/index.d.ts", "dependencies": {"@ai-sdk/openai": "*", "lit-html": "*"}}))
+        (project / "railway.json").write_text("{}")
+        record = discover([{"path": str(project), "realm": "personal"}])["projects"][0]
+        self.assertTrue({"sdk", "ai-media", "lit-html", "railway"} <= set(record["packages"][0]["stack"]))
+        self.assertIn("manifest:railway", {item["signal"] for item in record["evidence"]})
+
     def test_missing_root_and_incompatible_registry(self):
         result = self.cli("scan", "--root", str(self.base / "missing"), "--json")
         self.assertEqual(result.returncode, 0)

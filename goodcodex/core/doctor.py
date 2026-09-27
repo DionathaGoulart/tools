@@ -59,7 +59,9 @@ def _configuration(project: dict | None) -> tuple[list[dict], list[dict]]:
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
             issues.append({"path": str(path), "reason": "invalid-codex-config", "action": "Corrija o TOML antes de compor perfis."})
             continue
-        observed.append({"scope": scope, "path": str(path), "model": data.get("model"), "effort": data.get("model_reasoning_effort")})
+        agents = data.get("agents", {})
+        observed.append({"scope": scope, "path": str(path), "model": data.get("model"), "effort": data.get("model_reasoning_effort"),
+                         "maxConcurrentSubagents": agents.get("max_concurrent_threads_per_session") if isinstance(agents, dict) else None})
         if "profiles" in data:
             issues.append({"path": str(path), "reason": "legacy-profiles", "action": "Migre cada perfil para $CODEX_HOME/<nome>.config.toml após verificar a versão do CLI."})
     if len(observed) == 2 and any(observed[0][key] != observed[1][key] and observed[1][key] is not None for key in ("model", "effort")):
@@ -79,4 +81,10 @@ def diagnose(project: dict | None = None, target: Path | None = None) -> dict:
         codex["uncertainties"].append("A aplicação de .codex/config.toml depende da confiança do projeto; não foi testada nesta leitura.")
     if not codex["path"]:
         issues.append({"reason": "codex-cli-missing", "action": "Instale o CLI ou ajuste PATH para verificar compatibilidade."})
-    return {"codex": codex, "configuration": config, "context": context, "issues": issues}
+    return {"codex": codex, "configuration": config, "context": context, "issues": issues,
+            "surfaces": {
+                "cli": {"status": "locally-probed" if codex["version"] else "unverified", "detail": "Versão e flags de help consultadas; execução de sessão não verificada."},
+                "desktopApp": {"status": "documented-not-locally-verified", "detail": "Documentação oficial descreve configuração de agente compartilhada e atividade de subagentes; carregamento destes perfis/agentes e seleção efetiva precisam de teste no app."},
+                "ideExtension": {"status": "documented-not-locally-verified", "detail": "Documentação oficial descreve configuração compartilhada; extensão não foi testada."},
+                "chatgptWork": {"status": "separate-hosted-surface", "detail": "Chats gerenciados não leem os arquivos locais do Codex."},
+            }}

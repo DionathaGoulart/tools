@@ -69,6 +69,10 @@ def _stack_from_package(data: dict) -> list[str]:
     stack.extend(label for dep, label in checks.items() if dep in deps)
     if "typescript" in deps:
         stack.append("typescript")
+    if any(name in deps for name in ("openai", "ai", "replicate", "sharp", "ffmpeg-static", "fluent-ffmpeg", "@google/generative-ai")) or any(name.startswith("@ai-sdk/") for name in deps):
+        stack.append("ai-media")
+    if data.get("exports") and (data.get("types") or data.get("typings")):
+        stack.append("sdk")
     return sorted(set(stack))
 
 
@@ -117,6 +121,11 @@ def _manifest(folder: Path, relative: str, files: set[str], evidence: list, issu
         for name in ("wrangler.toml", "wrangler.jsonc", "wrangler.json"):
             if name in files:
                 evidence.append({"path": f"{relative}/{name}", "signal": "manifest:wrangler"})
+    if any(name in files and not (folder / name).is_symlink() for name in ("railway.json", "railway.toml")):
+        stack.add("railway")
+        for name in ("railway.json", "railway.toml"):
+            if name in files and not (folder / name).is_symlink():
+                evidence.append({"path": f"{relative}/{name}", "signal": "manifest:railway"})
     manager, locks = _package_manager(folder, package)
     for name in locks:
         evidence.append({"path": f"{relative}/{name}", "signal": f"lockfile:{LOCKS[name]}"})
@@ -221,7 +230,7 @@ def discover(roots: list[dict]) -> dict:
             try:
                 names = {entry.name for entry in candidate.iterdir()}
                 is_repo = ".git" in names
-                is_project = is_repo or bool(names & MANIFESTS) or bool(names & {"wrangler.toml", "wrangler.jsonc", "wrangler.json"}) or any(name.endswith(INFRA) for name in names)
+                is_project = is_repo or bool(names & MANIFESTS) or bool(names & {"wrangler.toml", "wrangler.jsonc", "wrangler.json", "railway.json", "railway.toml"}) or any(name.endswith(INFRA) for name in names)
                 if is_project:
                     project = scan_project(candidate, item["realm"], scanned_at)
                     projects.append(project)

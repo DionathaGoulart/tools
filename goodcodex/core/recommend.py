@@ -51,6 +51,9 @@ def recommend(task: str, project: dict, target: Path, preferences: dict, *, mode
     mode = preferences.get("mode", "balanced")
     if mode not in {"economy", "balanced", "quality"}:
         raise StateError(f"Modo inválido: {mode}")
+    max_subagents = preferences.get("maxSuggestedSubagents", 2)
+    if type(max_subagents) is not int or not 0 <= max_subagents <= 8:
+        raise StateError("maxSuggestedSubagents deve ser inteiro entre 0 e 8.")
     context = resolve(project, target)
     stack = set(context["package"]["stack"] if context["package"] else [])
     risk = bool(RISK.search(task))
@@ -118,6 +121,8 @@ def recommend(task: str, project: dict, target: Path, preferences: dict, *, mode
         "override": model, "availability": availability, "availableModelsSource": "local-preferences" if available is not None else None,
         "configuration": layers, "withoutCliOverride": current, "contextIssues": context["issues"], "issues": issues,
         "launchable": availability != "unavailable" and not (available is not None and chosen not in available),
+        "delegation": {"trigger": "pedido explícito ou instrução aplicável", "maxConcurrentSubagents": max_subagents,
+                       "runtimeCap": "CLI flag" if max_subagents else "delegação desativada no launcher"},
     }
 
 
@@ -129,4 +134,6 @@ def command(decision: dict, *, executable: str | None = None) -> list[str]:
         raise StateError("Modelo indisponível na lista local; ajuste --model ou availableModels.")
     target = Path(decision["target"])
     directory = target if target.is_dir() else target.parent
-    return [binary, "--cd", str(directory), "--model", decision["effective"]["model"], "--config", f'model_reasoning_effort="{decision["effective"]["effort"]}"', "--", decision["task"]]
+    limit = decision["delegation"]["maxConcurrentSubagents"]
+    agent_config = f"agents.max_concurrent_threads_per_session={limit}" if limit else "agents.enabled=false"
+    return [binary, "--cd", str(directory), "--model", decision["effective"]["model"], "--config", f'model_reasoning_effort="{decision["effective"]["effort"]}"', "--config", agent_config, "--", decision["task"]]

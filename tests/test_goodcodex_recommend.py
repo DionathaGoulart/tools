@@ -88,7 +88,18 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(args[:2], ["--cd", str(self.package)])
         self.assertEqual(args[2:4], ["--model", "gpt-6-sol"])
         self.assertEqual(args[4:6], ["--config", 'model_reasoning_effort="medium"'])
+        self.assertEqual(args[6:8], ["--config", "agents.max_concurrent_threads_per_session=2"])
         self.assertEqual(args[-2], "--")
+
+    def test_zero_subagents_disables_delegation_in_launcher(self):
+        self.preferences.write_text(json.dumps({"schemaVersion": 1, "mode": "balanced", "roots": [], "maxSuggestedSubagents": 0}))
+        fake = self.base / "codex"
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+        self.env["PATH"] = str(self.base) + os.pathsep + self.env.get("PATH", "")
+        result = self.call("run", "documentar", "--path", str(self.project), "--dry-run", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("agents.enabled=false", json.loads(result.stdout)["argv"])
 
 
 if __name__ == "__main__":

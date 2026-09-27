@@ -71,6 +71,29 @@ class ContextTests(unittest.TestCase):
         reasons = {i["reason"] for i in json.loads(result.stdout)["issues"]}
         self.assertIn("context-source-missing", reasons)
         self.assertIn("legacy-profiles", reasons)
+        surfaces = json.loads(result.stdout)["surfaces"]
+        self.assertEqual(surfaces["desktopApp"]["status"], "documented-not-locally-verified")
+        self.assertEqual(surfaces["chatgptWork"]["status"], "separate-hosted-surface")
+
+    def test_expo_rules_are_scoped_and_flutter_keeps_its_own_preset(self):
+        expo = self.work / "expo-app"
+        flutter = self.work / "flutter-app"
+        for repo in (expo, flutter):
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (expo / "package.json").write_text(json.dumps({"dependencies": {"expo": "*", "react-native": "*"}}))
+        (expo / "AGENTS.md").write_text("Use StyleSheet; never run expo prebuild")
+        (flutter / "pubspec.yaml").write_text("name: flutter_app")
+        (flutter / "lib").mkdir()
+        self.assertEqual(self.cli("scan", "--root", str(self.work)).returncode, 0)
+        expo_plan = json.loads(self.cli("plan", str(expo), "--json").stdout)
+        flutter_plan = json.loads(self.cli("plan", str(flutter), "--json").stdout)
+        self.assertIn("mobile-expo", expo_plan["presets"])
+        self.assertNotIn("mobile-flutter", expo_plan["presets"])
+        self.assertIn("mobile-flutter", flutter_plan["presets"])
+        self.assertNotIn("mobile-expo", flutter_plan["presets"])
+        self.assertNotIn("never run expo prebuild", json.dumps(flutter_plan))
+        self.assertNotIn("never run expo prebuild", json.dumps(expo_plan))
 
 
 if __name__ == "__main__":

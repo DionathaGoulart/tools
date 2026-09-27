@@ -16,12 +16,21 @@ BASE = Path(__file__).resolve().parents[1]
 ROLES = ("gc-explorer", "gc-implementer", "gc-reviewer", "gc-researcher")
 PROFILES = ("gc-fast", "gc-balanced", "gc-deep")
 PRESET_SIGNALS = {
-    "web-react": {"react", "vite"},
+    "web-react": {"react", "vite", "tanstack-start"},
     "web-next": {"next"},
     "api-node": {"nestjs", "fastify", "hono"},
     "data": {"prisma", "drizzle", "typeorm", "supabase"},
     "mobile-expo": {"expo"},
     "cli": {"bash", "python"},
+    "web-static": {"astro"},
+    "web-lit": {"lit-html"},
+    "mobile-flutter": {"flutter"},
+    "native-rust": {"rust"},
+    "native-go": {"go"},
+    "edge-cloudflare": {"cloudflare-workers"},
+    "infra": {"terraform", "railway"},
+    "ai-media": {"ai-media"},
+    "sdk": {"sdk"},
 }
 
 
@@ -57,7 +66,7 @@ def render(project: dict | None = None, target: Path | None = None, *, codex_hom
     agent_text = _read_templates(BASE / "templates" / "agents", ROLES, ".toml")
     for name, content in profile_text.items():
         data = tomllib.loads(content)
-        if set(data) != {"model", "model_reasoning_effort"}:
+        if set(data) != {"model", "model_reasoning_effort", "agents"} or data["agents"].get("max_concurrent_threads_per_session") != 2:
             raise StateError(f"Perfil inválido: {name}")
     for name, content in agent_text.items():
         data = tomllib.loads(content)
@@ -127,6 +136,10 @@ def render(project: dict | None = None, target: Path | None = None, *, codex_hom
         "target": str(target) if target else None,
         "presets": presets,
         "presetInstructions": {name: (BASE / "presets" / f"{name}.md").read_text(encoding="utf-8") for name in presets},
+        "delegation": {"trigger": "pedido explícito ou instrução AGENTS.md/skill aplicável", "suggestedConcurrentSubagents": 2,
+                       "configuredInProfiles": True, "roles": {"gc-explorer": "mapear evidências sem editar", "gc-implementer": "alterar arquivos delimitados e validar", "gc-reviewer": "revisar achados sem editar", "gc-researcher": "consultar fontes primárias"},
+                       "handoff": ["objetivo e checkout/pacote exatos", "arquivos de responsabilidade e restrições", "critério de conclusão", "retorno com evidências, validação e pendências"],
+                       "coordination": "o principal integra; escritas no mesmo arquivo ou contrato ocorrem em sequência"},
         "files": files,
         "installation": {"installed": installation["installed"], "interrupted": installation["interrupted"]},
         "modelPolicy": model_layers,

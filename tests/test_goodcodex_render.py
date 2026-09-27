@@ -38,6 +38,9 @@ class RenderTests(unittest.TestCase):
             balanced = result["modelPolicy"]["gc-balanced"]
             self.assertEqual(balanced["model"], {"value": "gpt-6-sol", "source": "profile:gc-balanced"})
             self.assertEqual(result["agentPolicy"]["gc-reviewer"]["model_reasoning_effort"], {"value": "high", "source": "agent-file:gc-reviewer", "overridesSpawnAndParent": True})
+            self.assertEqual(result["delegation"]["suggestedConcurrentSubagents"], 2)
+            for file in result["files"][:3]:
+                self.assertEqual(tomllib.loads(file["content"])["agents"]["max_concurrent_threads_per_session"], 2)
 
     def test_project_override_and_existing_file_diff(self):
         # Import core as the CLI does while keeping the test independent of installed packages.
@@ -60,6 +63,24 @@ class RenderTests(unittest.TestCase):
                 self.assertIn('-model = "custom"', result["files"][0]["diff"])
                 self.assertEqual(result["modelPolicy"]["gc-fast"]["model"], {"value": "project-model", "source": "project-if-trusted"})
                 self.assertEqual((home / "gc-fast.config.toml").read_text(), 'model = "custom"\n')
+        finally:
+            sys.path.remove(str(ROOT / "goodcodex"))
+
+    def test_specialist_presets_follow_selected_package(self):
+        sys.path.insert(0, str(ROOT / "goodcodex"))
+        try:
+            from core.render import render
+
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                project = {"id": "synthetic", "root": str(root), "canonicalRoot": str(root), "realm": "personal", "packages": [
+                    {"path": ".", "stack": ["terraform"], "commands": {}},
+                    {"path": "app", "stack": ["flutter", "rust", "go", "cloudflare-workers", "ai-media", "sdk", "astro", "lit-html"], "commands": {}}], "contextSources": [], "issues": []}
+                (root / "app").mkdir()
+                result = render(project, root / "app", codex_home=root / "codex")
+                self.assertEqual(set(result["presets"]), {"mobile-flutter", "native-rust", "native-go", "edge-cloudflare", "ai-media", "sdk", "web-static", "web-lit"})
+                self.assertNotIn("infra", result["presets"])
+                self.assertEqual(set(result["presetInstructions"]), set(result["presets"]))
         finally:
             sys.path.remove(str(ROOT / "goodcodex"))
 

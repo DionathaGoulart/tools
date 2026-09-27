@@ -194,6 +194,8 @@ def _diagnostic_output(result):
         print(f'Aviso: {issue["reason"]}: {issue.get("path", "CLI")}. {issue["action"]}')
     for uncertainty in codex["uncertainties"]:
         print(f'Incerteza: {uncertainty}')
+    for surface, details in result["surfaces"].items():
+        print(f'Superfície {surface}: {details["status"]}. {details["detail"]}')
 
 
 def _plan_output(result, as_json):
@@ -217,6 +219,7 @@ def _plan_output(result, as_json):
         print(f'{name}: {model["value"]} [{model["source"]}], {effort["value"]} [{effort["source"]}]')
     for issue in result["issues"]:
         print(f'Aviso: {issue if isinstance(issue, str) else issue["reason"]}')
+    print(f'Fluxo de subagentes: até {result["delegation"]["suggestedConcurrentSubagents"]} simultâneos ao selecionar um perfil gc; principal integra os resultados.')
 
 
 if __name__ == "__main__":
