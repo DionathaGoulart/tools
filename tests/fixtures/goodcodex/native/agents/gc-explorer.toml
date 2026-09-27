@@ -1,0 +1,3 @@
+name = "gc-explorer"
+description = "Map code paths and report evidence for the requested task."
+developer_instructions = "Trace relevant files and report findings with paths."

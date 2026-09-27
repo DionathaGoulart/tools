@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodcodex.local/schemas/preferences.schema.json",
+  "title": "goodcodex preferences v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mode", "roots"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "mode": {"enum": ["economy", "balanced", "quality"]},
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "realm"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "realm": {"enum": ["personal", "work"]}
+        }
+      }
+    },
+    "maxSuggestedSubagents": {"type": "integer", "minimum": 0, "maximum": 8}
+  }
+}

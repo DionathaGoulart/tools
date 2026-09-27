@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Entrypoint for the goodcodex CLI."""
+
+import argparse
+import sys
+
+
+def main(argv=None):
+    if sys.version_info < (3, 11):
+        print("goodcodex requer Python 3.11 ou superior.", file=sys.stderr)
+        return 2
+    parser = argparse.ArgumentParser(
+        prog="goodcodex",
+        description="Prepara contexto e configuração do Codex para cada projeto.",
+        epilog="Nesta etapa, somente a ajuda está disponível. Nenhuma configuração é alterada.",
+    )
+    parser.add_argument("--version", action="version", version="goodcodex 0.1.0-dev")
+    commands = parser.add_subparsers(dest="command", metavar="comando")
+    commands.add_parser("help", help="mostra esta ajuda")
+    args = parser.parse_args(argv)
+    if args.command is None or args.command == "help":
+        parser.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

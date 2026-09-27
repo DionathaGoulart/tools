@@ -16,6 +16,7 @@ PY_TOOLS = [
     "lib/llm.py",
     "lib/retro.py",
     "lib/imgcore.py",
+    "goodcodex/goodcodex",
     "dark/dark",
     "goodivers/goodivers",
     "goodjob/goodjob",

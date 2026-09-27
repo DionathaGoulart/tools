@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "id": "sample-app-main",
+      "group": "sample-app",
+      "realm": "work",
+      "root": "/example/work/sample-app",
+      "canonicalRoot": "/example/work/sample-app",
+      "gitDir": "/example/work/sample-app/.git",
+      "gitCommonDir": "/example/work/sample-app/.git",
+      "worktree": false,
+      "branch": "main",
+      "packages": [
+        {"path": ".", "stack": ["node", "react"], "packageManager": "pnpm", "commands": {"test": "vitest run"}}
+      ],
+      "contextSources": [
+        {"path": "AGENTS.md", "kind": "agents", "canonicalTarget": "AGENTS.md", "scope": ".", "confidence": "high"}
+      ],
+      "evidence": [
+        {"path": "package.json", "signal": "dependency:react"}
+      ],
+      "scannedAt": "2026-09-27T12:00:00Z"
+    },
+    {
+      "id": "sample-app-theme",
+      "group": "sample-app",
+      "realm": "work",
+      "root": "/example/work/sample-app-theme",
+      "canonicalRoot": "/example/work/sample-app-theme",
+      "gitDir": "/example/work/sample-app/.git/worktrees/theme",
+      "gitCommonDir": "/example/work/sample-app/.git",
+      "worktree": true,
+      "branch": "theme",
+      "packages": [],
+      "contextSources": [],
+      "evidence": [{"path": ".git", "signal": "gitfile"}],
+      "scannedAt": "2026-09-27T12:00:00Z"
+    }
+  ]
+}

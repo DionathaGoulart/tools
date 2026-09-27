@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodcodex.local/schemas/registry.schema.json",
+  "title": "goodcodex scanned registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "projects"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "group", "realm", "root", "canonicalRoot", "packages", "contextSources", "evidence", "scannedAt"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "group": {"type": "string", "minLength": 1},
+          "realm": {"enum": ["personal", "work"]},
+          "root": {"type": "string", "minLength": 1},
+          "canonicalRoot": {"type": "string", "minLength": 1},
+          "gitDir": {"type": ["string", "null"]},
+          "gitCommonDir": {"type": ["string", "null"]},
+          "worktree": {"type": "boolean"},
+          "branch": {"type": ["string", "null"]},
+          "packages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "stack", "commands"],
+              "properties": {
+                "path": {"type": "string"},
+                "stack": {"type": "array", "items": {"type": "string"}},
+                "packageManager": {"type": ["string", "null"]},
+                "commands": {"type": "object", "additionalProperties": {"type": "string"}}
+              }
+            }
+          },
+          "contextSources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "kind", "scope", "confidence"],
+              "properties": {
+                "path": {"type": "string"},
+                "kind": {"enum": ["agents", "claude", "readme", "harness", "other"]},
+                "canonicalTarget": {"type": ["string", "null"]},
+                "scope": {"type": "string"},
+                "confidence": {"enum": ["high", "medium", "low"]}
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "signal"],
+              "properties": {
+                "path": {"type": "string"},
+                "signal": {"type": "string"}
+              }
+            }
+          },
+          "scannedAt": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

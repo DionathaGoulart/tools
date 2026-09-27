@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "mode": "balanced",
+  "roots": [
+    {"path": "/example/personal", "realm": "personal"},
+    {"path": "/example/work", "realm": "work"}
+  ],
+  "maxSuggestedSubagents": 2
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "projectId": "sample-app-theme",
+      "sensitivity": "private",
+      "aliases": ["sample-theme"],
+      "relatedProjects": ["sample-app-main"],
+      "enabledRoles": ["gc-explorer", "gc-implementer"]
+    }
+  ]
+}
