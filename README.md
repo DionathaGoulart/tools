@@ -9,7 +9,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | **Terminal** | | |
 | [goodhelp](./goodhelp) | `goodhelp` | Mapa da família good*: lista o que está instalado e abre a ajuda de cada uma — vem junto automaticamente com qualquer ferramenta |
 | [goodcheats](./goodcheats) | `good` / `goodcheat` / `goodharness` | Kit de utilidades da família good: fetch de sistema + cheatsheets + styleguides |
-| [goodcodex](./goodcodex) | `goodcodex` | Descobre contexto de projetos e instala perfis/agentes opcionais do Codex com rollback |
+| [goodcodex](./goodcodex) | `goodcodex` | Descobre contexto, recomenda modelos, inicia sessões e instala perfis/agentes opcionais com rollback |
 | [goodrepo](./goodrepo) | `goodrepo` | Padroniza um repo: menu que instala no `.harness/` os guias de README, licença, escrita, git, CHANGELOG, SECURITY e visual |
 | [goodpomo](./goodpomo) | `goodpomo` | Pomodoro com notificação nativa e estatísticas |
 | [goodnerd](./goodnerd) | `goodnerd` | Teatro de "hacker" fake no terminal, pra impressionar os leigos |

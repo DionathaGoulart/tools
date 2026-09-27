@@ -20,6 +20,7 @@
         }
       }
     },
-    "maxSuggestedSubagents": {"type": "integer", "minimum": 0, "maximum": 8}
+    "maxSuggestedSubagents": {"type": "integer", "minimum": 0, "maximum": 8},
+    "availableModels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
   }
 }

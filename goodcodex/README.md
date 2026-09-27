@@ -14,6 +14,10 @@ Ferramenta local para descobrir projetos e registrar evidências para o Codex. R
 ./goodcodex/goodcodex doctor
 ./goodcodex/goodcodex plan --json
 ./goodcodex/goodcodex plan /caminho/do/projeto/apps/web
+./goodcodex/goodcodex recommend "corrigir login no mobile" --path /caminho/do/projeto
+./goodcodex/goodcodex explain /caminho/do/projeto --task "investigar corrida entre API e app" --json
+./goodcodex/goodcodex run "corrigir login no mobile" --path /caminho/do/projeto --dry-run
+./goodcodex/goodcodex run "corrigir login no mobile" --path /caminho/do/projeto --model gpt-6-sol
 ```
 
 `--json` funciona antes ou depois do subcomando. `scan` aceita vários `--root`. Se omitidos, usa `roots` de `${XDG_CONFIG_HOME:-~/.config}/goodcodex/preferences.json`; sem preferências, examina o diretório atual. `projects`, `inspect`, `context` e `doctor` leem o último registro. `inspect` e `context` aceitam caminho dentro de um checkout ou ID. A saída informa stack, branch, comandos declarados, fontes de contexto e avisos. **Comandos são apenas identificados, nunca executados.** `plan` continua somente leitura; `apply` é a ação explícita que instala os arquivos nativos.
@@ -60,4 +64,12 @@ Depois de revisar `goodcodex plan`, use `goodcodex apply` para instalar os três
 
 O manifesto `installation.json` e backups ficam em `${XDG_DATA_HOME:-~/.local/share}/goodcodex/`, com hashes SHA-256. Escritas usam troca atômica e um lock exclusivo; um journal permite recuperar uma operação interrompida no próximo comando de escrita. Se um arquivo gerenciado mudou ou sumiu, o comando para com conflito antes de escrever qualquer destino. Preserve a edição, restaure o conteúdo instalado e tente de novo. Backups originais permanecem até o rollback. Não edite manifesto/journal manualmente; eles são dados locais privados.
 
-`recommend`, `explain` e `run` pertencem à etapa seguinte.
+## Recomendação e execução no terminal
+
+`recommend` classifica a descrição da tarefa por escopo focado, investigação e sinais de risco (como autenticação, pagamentos, RLS e migração). O modo de `preferences.json` (`economy`, `balanced` ou `quality`) ajusta essa sugestão. A saída mostra motivo, modelo, esforço e alertas. A classificação é uma heurística curta; revise tarefas ambíguas. `explain` acrescenta as camadas de configuração observadas: configuração global e `.codex/config.toml` do checkout até o pacote mais próximo. O projeto só prevalece se o Codex confiar nele. A saída indica o valor que essas camadas produziriam sem as flags do launcher e a escolha efetiva com flags. Não lê regras administrativas, estado de confiança nem a disponibilidade remota.
+
+`run` exibe a decisão e inicia o Codex interativo no diretório selecionado. Passa `--model` e `--config model_reasoning_effort=...` como argumentos separados, para que a escolha explícita prevaleça sobre projeto, perfil e configuração global. O prompt é um único argumento literal depois de `--`; não há shell nem `eval`. `--dry-run` mostra o array sem iniciar uma sessão. `--json` imprime os metadados de decisão; em execução real, a saída subsequente pertence ao Codex. O código de saída do Codex é propagado. `run` não altera permissões, sandbox, política de aprovação nem inicia deploy ou publicação por conta própria; a sessão obedece às configurações e instruções aplicáveis do Codex.
+
+`--model` aceita um ID exato e tem precedência sobre a recomendação. Sem esse override, se `availableModels` estiver definido em `preferences.json`, o goodcodex escolhe uma alternativa registrada quando o modelo preferido não aparece. Um override ausente dessa lista é mostrado como indisponível e bloqueia `run`. Exemplo: `"availableModels": ["gpt-6-sol", "gpt-6-luna"]`. A lista é declaração local do usuário, não descoberta nem prova de acesso; sem ela, a disponibilidade aparece como `unknown`, e o serviço ainda pode recusar o modelo. Falta de acesso deve ser corrigida na lista ou no modelo escolhido, não por escaladas repetidas. Nenhuma inferência é feita em `recommend`, `explain` ou `--dry-run`.
+
+A [documentação oficial de configuração](https://learn.chatgpt.com/docs/config-file/config-basic) confirma a precedência de flags, projeto confiável, perfil e configuração global. A [referência de comandos](https://learn.chatgpt.com/docs/developer-commands) descreve `--model`, `--config` e `--cd`. A [página de modelos](https://learn.chatgpt.com/docs/models) descreve Astra, Sol e Luna, mas a disponibilidade varia por conta e cliente. Os perfis em arquivo são selecionáveis no CLI; o launcher usa flags para evitar ambiguidade. O app não recebe a seleção feita por `goodcodex run`, e a paridade de perfis/seleção no app permanece sem verificação nesta etapa. Escolha o modelo nos controles próprios do app ao usá-lo.

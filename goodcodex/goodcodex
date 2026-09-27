@@ -12,6 +12,7 @@ from core.context import project_for, resolve
 from core.doctor import diagnose
 from core.render import render
 from core.install import change, status
+from core.recommend import recommend, command as launch_command
 from core.store import StateError, config_dir, data_dir, load, save, selected
 
 
@@ -69,6 +70,18 @@ def main(argv=None):
     plan = commands.add_parser("plan", help="mostra arquivos Codex propostos, diff e política de modelos sem gravar")
     plan.add_argument("path", nargs="?", help="caminho ou id de projeto; sem argumento, somente configuração global")
     plan.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
+    for name, description in (("recommend", "recomenda modelo e esforço para uma tarefa"), ("explain", "explica a escolha e a configuração efetiva"), ("run", "inicia sessão Codex com a escolha exibida")):
+        candidate = commands.add_parser(name, help=description)
+        if name == "explain":
+            candidate.add_argument("path", nargs="?", default=".", help="caminho ou id de projeto registrado")
+            candidate.add_argument("--task", help="tarefa opcional para classificação específica")
+        else:
+            candidate.add_argument("task", help="texto literal da tarefa")
+            candidate.add_argument("--path", default=".", help="caminho ou id de projeto registrado")
+        candidate.add_argument("--model", help="ID exato do modelo para esta sessão")
+        candidate.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
+        if name == "run":
+            candidate.add_argument("--dry-run", action="store_true", help="mostra argv sem iniciar Codex")
     for name, description in (("apply", "instala arquivos nativos gerenciados"), ("update", "atualiza arquivos gerenciados"), ("rollback", "restaura arquivos anteriores"), ("status", "mostra estado da instalação")):
         command = commands.add_parser(name, help=description)
         command.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
@@ -136,6 +149,27 @@ def main(argv=None):
                             print(f'Aviso: {issue["reason"]}: {issue["path"]}. {issue["action"]}')
                 elif args.command == "plan":
                     _plan_output(render(match, target), args.json)
+                elif args.command in ("recommend", "explain", "run"):
+                    preferences = load(config_dir() / "preferences.json", {"schemaVersion": 1, "mode": "balanced", "roots": []})
+                    result = recommend(args.task if args.command != "explain" else args.task or "tarefa não especificada", match, target, preferences, model=args.model)
+                    if args.command == "run":
+                        result["argv"] = launch_command(result)
+                    if args.json:
+                        _output(result, True)
+                    else:
+                        print(f'Projeto: {result["projectId"]}; alvo: {result["target"]}')
+                        print(f'Modelo: {result["effective"]["model"]}; esforço: {result["effective"]["effort"]}; origem: CLI override')
+                        print("Motivo: " + "; ".join(result["recommendation"]["reasons"]))
+                        print("Disponibilidade: " + result["availability"])
+                        if args.command in ("explain", "run"):
+                            for layer in result["configuration"]:
+                                print(f'Camada {layer["scope"]}: {layer["path"]}; modelo={layer["model"]}; esforço={layer["effort"]}')
+                            for issue in result["issues"]:
+                                print(f'Aviso: {issue}')
+                        if args.command == "run":
+                            print("argv: " + json.dumps(result["argv"], ensure_ascii=False))
+                    if args.command == "run" and not args.dry_run:
+                        return subprocess.call(result["argv"])
                 else:
                     result = diagnose(match, target)
                     if args.json:
