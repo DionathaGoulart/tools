@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 
 from core.scanner import discover
+from core.context import project_for, resolve
+from core.doctor import diagnose
 from core.store import StateError, config_dir, data_dir, load, save, selected
 
 
@@ -54,6 +56,12 @@ def main(argv=None):
     inspect = commands.add_parser("inspect", help="mostra evidências do projeto registrado")
     inspect.add_argument("path", nargs="?", default=".", help="caminho ou id de projeto")
     inspect.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
+    context = commands.add_parser("context", help="resolve fontes aplicáveis ao caminho/pacote")
+    context.add_argument("path", nargs="?", default=".", help="caminho ou id de projeto")
+    context.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
+    doctor = commands.add_parser("doctor", help="diagnostica CLI, configurações e contexto")
+    doctor.add_argument("path", nargs="?", help="caminho ou id de projeto; sem argumento, somente CLI")
+    doctor.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
     args = parser.parse_args(argv)
     if args.command is None or args.command == "help":
         parser.print_help()
@@ -68,22 +76,57 @@ def main(argv=None):
             result = discover(roots)
             save(registry_path, result)
             _output(result, args.json)
+        elif args.command == "doctor" and args.path is None:
+            result = diagnose()
+            if args.json:
+                _output(result, True)
+            else:
+                _diagnostic_output(result)
         else:
             registry = load(registry_path, {"schemaVersion": 1, "projects": []})
             overrides = load(config_dir() / "overrides.json", {"schemaVersion": 1, "projects": []})
             if args.command == "projects":
                 _output({"schemaVersion": 1, "projects": [selected(project, overrides) for project in registry["projects"]], "issues": registry.get("issues", [])}, args.json)
             else:
-                target = Path(args.path).expanduser().absolute()
-                matches = [project for project in registry["projects"] if project["id"] == args.path or target == Path(project["root"]) or Path(project["root"]) in target.parents]
-                if not matches:
-                    raise StateError(f"Projeto não registrado: {args.path}. Execute goodcodex scan primeiro.")
-                match = max(matches, key=lambda project: len(project["root"]))
-                _output(selected(match, overrides), args.json)
+                match, target = project_for(registry, args.path)
+                match = selected(match, overrides)
+                if args.command == "inspect":
+                    _output(match, args.json)
+                elif args.command == "context":
+                    result = resolve(match, target)
+                    if args.json:
+                        _output(result, True)
+                    else:
+                        print(f'Projeto: {result["root"]} ({result["realm"]}); alvo: {result["target"]}')
+                        print(f'Pacote: {result["package"]["path"] if result["package"] else "não detectado"}')
+                        for source in result["sources"]:
+                            print(f'{source["kind"]} [{source["role"]}]: {source["path"]} -> {source["canonicalTarget"]}')
+                        for issue in result["issues"]:
+                            print(f'Aviso: {issue["reason"]}: {issue["path"]}. {issue["action"]}')
+                else:
+                    result = diagnose(match, target)
+                    if args.json:
+                        _output(result, True)
+                    else:
+                        _diagnostic_output(result)
     except (StateError, OSError, KeyError) as exc:
         print(f"goodcodex: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _diagnostic_output(result):
+    codex = result["codex"]
+    print(f'Codex: {codex["version"] or "não detectado"}')
+    print("Capacidades: " + (", ".join(f'{name}={"sim" if enabled else "não"}' for name, enabled in codex["capabilities"].items()) or "não verificadas"))
+    for config in result["configuration"]:
+        print(f'Configuração {config["scope"]}: {config["path"]}; modelo={config["model"] or "não definido"}; esforço={config["effort"] or "não definido"}')
+    if result["context"]:
+        print(f'Contexto: {result["context"]["root"]}; {len(result["context"]["sources"])} fontes aplicáveis')
+    for issue in result["issues"]:
+        print(f'Aviso: {issue["reason"]}: {issue.get("path", "CLI")}. {issue["action"]}')
+    for uncertainty in codex["uncertainties"]:
+        print(f'Incerteza: {uncertainty}')
 
 
 if __name__ == "__main__":
