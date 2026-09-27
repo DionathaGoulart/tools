@@ -12,6 +12,8 @@ Ferramenta local para descobrir projetos e registrar evidências para o Codex. R
 ./goodcodex/goodcodex context /caminho/do/projeto/apps/api --json
 ./goodcodex/goodcodex doctor /caminho/do/projeto --json
 ./goodcodex/goodcodex doctor
+./goodcodex/goodcodex plan --json
+./goodcodex/goodcodex plan /caminho/do/projeto/apps/web
 ```
 
 `--json` funciona antes ou depois do subcomando. `scan` aceita vários `--root`. Se omitidos, usa `roots` de `${XDG_CONFIG_HOME:-~/.config}/goodcodex/preferences.json`; sem preferências, examina o diretório atual. `projects`, `inspect`, `context` e `doctor` leem o último registro. `inspect` e `context` aceitam caminho dentro de um checkout ou ID. A saída informa stack, branch, comandos declarados, fontes de contexto e avisos. **Comandos são apenas identificados, nunca executados.** Não há instalação de configurações Codex nesta etapa.
@@ -38,4 +40,16 @@ Todos trazem `schemaVersion: 1`. Versão diferente é recusada com diagnóstico,
 
 Defaults provisórios: modo `balanced`, CLI primeiro, configuração local antes de perfis globais e até dois subagentes sugeridos quando instruções aplicáveis autorizarem. A configuração global existente permanece intacta. Os formatos nativos de perfil/agente foram validados na etapa 1 com Codex 0.157.1; suporte no app ainda não foi verificado.
 
-`plan`, `apply`, `status`, `update`, `rollback`, `recommend`, `explain` e `run` pertencem às etapas seguintes.
+## Preview de agentes, perfis e presets
+
+`plan` mostra o conteúdo completo e o diff unificado de sete arquivos propostos em `${CODEX_HOME:-~/.codex}`: `gc-fast`, `gc-balanced` e `gc-deep` como perfis `*.config.toml`, mais quatro agentes em `agents/`. Cada arquivo aparece como `create`, `identical` ou `change`. O comando apenas lê; não instala, reescreve ou cria diretórios de destino. `--json` inclui `files`, `modelPolicy`, `agentPolicy`, avisos e a ordem de precedência. A etapa 5 fará a aplicação reversível.
+
+Os perfis sugerem Luna/high para trabalho focado (`gc-fast`), Sol/medium para implementação comum (`gc-balanced`) e Astra/low como ponto inicial para problemas difíceis (`gc-deep`). São hipóteses para avaliação, não troca automática do seu modelo atual. Os agentes têm escolha explícita própria: explorer e researcher usam Luna/high; implementer usa Sol/medium; reviewer usa Sol/high. No agente personalizado, o modelo e esforço do arquivo prevalecem sobre valores do spawn e do pai. O agente só atua quando uma delegação for solicitada ou prevista por instrução aplicável. Os templates não alteram política de aprovação, permissões do pai nem autorizam ações externas.
+
+Com um caminho registrado, `plan` também recomenda os presets iniciais a partir da stack do pacote selecionado: `web-react`, `web-next`, `api-node`, `data`, `mobile-expo` e `cli`. Esses textos são instruções curtas para o contrato de delegação, exibidas no JSON como `presetInstructions`; não são importados automaticamente nem copiados para `AGENTS.md`. Um pacote pode receber mais de um preset. Verifique sempre o framework e as regras locais antes de aplicá-los, especialmente diferenças entre ORMs e restrições de Expo.
+
+O agente principal coordena o pedido e integra os resultados. Uma delegação útil informa objetivo, checkout/pacote, arquivos de responsabilidade, restrições, critério de conclusão e formato de retorno. O retorno inclui alterações ou achados, evidência, verificações e pendências. Tarefas simples ficam com um agente; quando houver autorização para delegar, o limite sugerido é dois subagentes simultâneos. Trabalhos no mesmo contrato ou arquivo são sequenciais. Explorer e reviewer são somente leitura. O implementer testa a própria mudança; researcher cita documentação primária e versão. Skills existentes continuam sendo a fonte dos procedimentos especializados, sem cópia integral nos agentes.
+
+A [documentação oficial de configuração](https://learn.chatgpt.com/docs/config-file/config-basic) define a ordem: flags CLI, configuração do projeto confiável, perfil, configuração global e defaults. `plan` mostra a composição sugerida de modelo/esforço para cada perfil e sinaliza overrides do projeto. Confiança do projeto, flags futuras, disponibilidade dos modelos e suporte do app não são verificados. Os perfis separados exigem Codex 0.134.0 ou posterior. O formato dos arquivos foi conferido com o CLI 0.157.1 em `CODEX_HOME` temporário via `codex --profile ... debug prompt-input`; isso valida carregamento local sem executar inferência. A sintaxe dos [agentes personalizados](https://learn.chatgpt.com/docs/agent-configuration/subagents) foi validada com TOML e documentação oficial. `--strict-config` não funciona com `debug prompt-input` nesta versão do CLI.
+
+`apply`, `status`, `update`, `rollback`, `recommend`, `explain` e `run` pertencem às etapas seguintes.

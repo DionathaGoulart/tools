@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import tomllib
 
 from .context import resolve
@@ -19,8 +20,11 @@ def _codex() -> dict:
         result["uncertainties"].append("Codex CLI não encontrado no PATH; compatibilidade não verificada.")
         return result
     try:
-        version = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5, check=False)
-        help_result = subprocess.run([executable, "--help"], capture_output=True, text=True, timeout=5, check=False)
+        # Some Codex builds create a tmp directory even for read-only help calls.
+        with tempfile.TemporaryDirectory(prefix="goodcodex-probe-") as probe_home:
+            env = {**os.environ, "CODEX_HOME": probe_home}
+            version = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5, check=False, env=env)
+            help_result = subprocess.run([executable, "--help"], capture_output=True, text=True, timeout=5, check=False, env=env)
     except (OSError, subprocess.TimeoutExpired):
         result["uncertainties"].append("Não foi possível consultar o CLI local.")
         return result
