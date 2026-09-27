@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "caseId": "cli-paths-01",
+  "variant": "proposed",
+  "model": "example-model",
+  "effort": "medium",
+  "outcome": "pass",
+  "elapsedSeconds": 42.5,
+  "attempts": 1,
+  "manualFixes": 0,
+  "bugsFound": 0,
+  "criteriaPassed": 2,
+  "criteriaTotal": 2,
+  "inputTokens": null,
+  "outputTokens": null,
+  "humanReview": "pending"
+}

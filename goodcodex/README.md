@@ -18,6 +18,8 @@ Ferramenta local para descobrir projetos e registrar evidências para o Codex. R
 ./goodcodex/goodcodex explain /caminho/do/projeto --task "investigar corrida entre API e app" --json
 ./goodcodex/goodcodex run "corrigir login no mobile" --path /caminho/do/projeto --dry-run
 ./goodcodex/goodcodex run "corrigir login no mobile" --path /caminho/do/projeto --model gpt-6-sol
+./goodcodex/goodcodex evaluate add medicao.json
+./goodcodex/goodcodex evaluate report --json
 ```
 
 `--json` funciona antes ou depois do subcomando. `scan` aceita vários `--root`. Se omitidos, usa `roots` de `${XDG_CONFIG_HOME:-~/.config}/goodcodex/preferences.json`; sem preferências, examina o diretório atual. `projects`, `inspect`, `context` e `doctor` leem o último registro. `inspect` e `context` aceitam caminho dentro de um checkout ou ID. A saída informa stack, branch, comandos declarados, fontes de contexto e avisos. **Comandos são apenas identificados, nunca executados.** `plan` continua somente leitura; `apply` é a ação explícita que instala os arquivos nativos.
@@ -39,6 +41,7 @@ Os schemas em `schemas/` definem documentos separados:
 | `preferences.schema.json` | Raízes, ambiente e modo pessoal. |
 | `registry.schema.json` | Evidências do scanner, com um registro por checkout e avisos. |
 | `overrides.schema.json` | Escolhas manuais por `projectId`; um novo scan não as substitui. |
+| `evaluation.schema.json` | Resultado observado de uma execução de avaliação, fornecido manualmente. |
 
 Todos trazem `schemaVersion: 1`. Versão diferente é recusada com diagnóstico, sem sobrescrever o arquivo em comandos de leitura. `id` é derivado do caminho absoluto do checkout; `group` é uma sugestão baseada no nome do diretório. `root` preserva o caminho observado, `canonicalRoot` indica o caminho resolvido e `gitDir`/`gitCommonDir` distinguem worktrees. `contextSources` guarda referências, tipo, escopo e alvo, sem texto dos arquivos. Overrides aparecem na visualização sob `override` e permanecem no arquivo próprio. As fixtures sintéticas não incluem dados de clientes.
 
@@ -75,3 +78,7 @@ O manifesto `installation.json` e backups ficam em `${XDG_DATA_HOME:-~/.local/sh
 `--model` aceita um ID exato e tem precedência sobre a recomendação. Sem esse override, se `availableModels` estiver definido em `preferences.json`, o goodcodex escolhe uma alternativa registrada quando o modelo preferido não aparece. Um override ausente dessa lista é mostrado como indisponível e bloqueia `run`. Exemplo: `"availableModels": ["gpt-6-sol", "gpt-6-luna"]`. A lista é declaração local do usuário, não descoberta nem prova de acesso; sem ela, a disponibilidade aparece como `unknown`, e o serviço ainda pode recusar o modelo. Falta de acesso deve ser corrigida na lista ou no modelo escolhido, não por escaladas repetidas. Nenhuma inferência é feita em `recommend`, `explain` ou `--dry-run`.
 
 A [documentação oficial de configuração](https://learn.chatgpt.com/docs/config-file/config-basic) confirma a precedência de flags, projeto confiável, perfil e configuração global. A [referência de comandos](https://learn.chatgpt.com/docs/developer-commands) descreve `--model`, `--config` e `--cd`. A [página de modelos](https://learn.chatgpt.com/docs/models) descreve Astra, Sol e Luna, mas a disponibilidade varia por conta e cliente. Os perfis em arquivo são selecionáveis no CLI; o launcher usa flags para evitar ambiguidade. O app não recebe a seleção feita por `goodcodex run`. A [documentação de configurações](https://learn.chatgpt.com/docs/developer-settings) afirma que os agentes no app compartilham configuração com CLI/IDE, e a [documentação de subagentes](https://learn.chatgpt.com/docs/agent-configuration/subagents) descreve atividade visível no app. O carregamento destes arquivos gerados, a escolha de perfil e o limite efetivo ainda não foram verificados em uma sessão do app. Use controles do app e `/debug-config` para conferir o modelo e as camadas. Chats do ChatGPT Work são hospedados e não leem arquivos locais do Codex.
+
+## Avaliação opcional
+
+`evaluate add` aceita um JSON com métricas **observadas** e salva uma cópia privada em `${XDG_DATA_HOME:-~/.local/share}/goodcodex/evaluations/`. `evaluate report` agrega baseline e política proposta; `--json` fornece contagens de qualidade, retrabalho, tempo e uso. Tempo/tokens ausentes aparecem como `null` e “não medido”. O comando não inicia Codex nem estima custo. Veja [EVALUATION.md](./EVALUATION.md) para os dez casos preparados, o protocolo de pilotos, limitações e backlog. A suíte local verifica a ferramenta; nenhuma comparação real de modelos foi executada.

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goodcodex.local/schemas/evaluation.schema.json",
+  "title": "goodcodex observed evaluation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "variant", "model", "effort", "outcome", "attempts", "manualFixes", "bugsFound", "criteriaPassed", "criteriaTotal"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "caseId": {"type": "string", "minLength": 1, "maxLength": 100},
+    "variant": {"enum": ["baseline", "proposed"]},
+    "model": {"type": "string", "minLength": 1, "maxLength": 100},
+    "effort": {"type": "string", "minLength": 1, "maxLength": 100},
+    "outcome": {"enum": ["pass", "partial", "fail"]},
+    "elapsedSeconds": {"type": ["number", "null"], "minimum": 0},
+    "attempts": {"type": "integer", "minimum": 1},
+    "manualFixes": {"type": "integer", "minimum": 0},
+    "bugsFound": {"type": "integer", "minimum": 0},
+    "criteriaPassed": {"type": "integer", "minimum": 0},
+    "criteriaTotal": {"type": "integer", "minimum": 1},
+    "inputTokens": {"type": ["integer", "null"], "minimum": 0},
+    "outputTokens": {"type": ["integer", "null"], "minimum": 0},
+    "humanReview": {"enum": ["pass", "fail", "pending", null]}
+  }
+}

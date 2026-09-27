@@ -13,6 +13,7 @@ from core.doctor import diagnose
 from core.render import render
 from core.install import change, status
 from core.recommend import recommend, command as launch_command
+from core.evaluation import add as add_evaluation, report as evaluation_report
 from core.store import StateError, config_dir, data_dir, load, save, selected
 
 
@@ -52,6 +53,10 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", metavar="comando")
     commands.add_parser("help", help="mostra esta ajuda")
     commands.add_parser("temas", help="mostra as paletas compartilhadas da família tools")
+    evaluation = commands.add_parser("evaluate", help="registra medição opcional e resume resultados locais")
+    evaluation.add_argument("action", choices=["add", "report"], help="add recebe arquivo JSON; report lê registros locais")
+    evaluation.add_argument("file", nargs="?", help="arquivo JSON de medição para add")
+    evaluation.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="saída JSON")
     scan = commands.add_parser("scan", help="descobre projetos e atualiza o registro local")
     scan.add_argument("--root", action="append", default=[], metavar="PATH", help="raiz para varredura; repetível")
     scan.add_argument("--realm", choices=["personal", "work"], default="personal", help="ambiente das raízes passadas por --root")
@@ -95,7 +100,22 @@ def main(argv=None):
         return subprocess.call(["bash", str(Path(__file__).resolve().parents[1] / "goodhelp" / "goodhelp"), "temas"])
     try:
         registry_path = data_dir() / "registry.json"
-        if args.command == "scan":
+        if args.command == "evaluate":
+            if (args.action == "add") != (args.file is not None):
+                parser.error("evaluate add exige arquivo JSON; evaluate report não aceita arquivo")
+            result = add_evaluation(Path(args.file)) if args.action == "add" else evaluation_report()
+            if args.json:
+                _output(result, True)
+            elif args.action == "add":
+                print(f'Registro local: {result["id"]}; caso {result["caseId"]}; variante {result["variant"]}')
+            else:
+                for variant, summary in result["groups"].items():
+                    print(f'{variant}: {summary["runs"]} execuções; {summary["passed"]} pass declarados; '
+                          f'tempo={summary["elapsedSeconds"] if summary["elapsedSeconds"] is not None else "não medido"}; '
+                          f'tokens de entrada={summary["inputTokens"] if summary["inputTokens"] is not None else "não medido"}; '
+                          f'tokens de saída={summary["outputTokens"] if summary["outputTokens"] is not None else "não medido"}')
+                print(f'Casos pareados: {len(result["pairedCases"])}')
+        elif args.command == "scan":
             preferences = load(config_dir() / "preferences.json", {"schemaVersion": 1, "roots": []})
             roots = ([{"path": root, "realm": args.realm} for root in args.root]
                      if args.root else preferences.get("roots") or [{"path": str(Path.cwd()), "realm": "personal"}])
