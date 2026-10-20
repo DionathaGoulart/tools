@@ -37,7 +37,8 @@ class EvaluationTests(unittest.TestCase):
         added = self.cli("evaluate", "add", source, "--json")
         self.assertEqual(added.returncode, 0, added.stderr)
         saved = self.base / "data" / "goodcodex" / "evaluations" / f'{json.loads(added.stdout)["id"]}.json'
-        self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
         report = json.loads(self.cli("evaluate", "report", "--json").stdout)
         self.assertEqual(report["groups"]["proposed"]["passed"], 1)
         self.assertEqual(report["groups"]["proposed"]["elapsedSeconds"], 42.5)

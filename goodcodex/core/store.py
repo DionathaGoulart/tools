@@ -36,8 +36,9 @@ def save(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temp_name = tempfile.mkstemp(prefix=".registry-", dir=path.parent)
     try:
-        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as file:
+            if hasattr(os, "fchmod"):
+                os.fchmod(file.fileno(), 0o600)
             json.dump(value, file, ensure_ascii=False, indent=2)
             file.write("\n")
             file.flush()

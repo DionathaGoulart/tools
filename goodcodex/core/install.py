@@ -41,8 +41,9 @@ def _atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, name = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
     try:
-        os.fchmod(fd, mode)
         with os.fdopen(fd, "wb") as stream:
+            if hasattr(os, "fchmod"):
+                os.fchmod(stream.fileno(), mode)
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())

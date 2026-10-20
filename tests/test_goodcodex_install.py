@@ -120,14 +120,20 @@ class InstallTests(unittest.TestCase):
     def test_setup_installs_only_command(self):
         shell_home = self.base / "shell-home"
         shell_home.mkdir()
-        env = {**self.env, "HOME": str(shell_home), "GOODTOOLS_RC": str(shell_home / ".bashrc")}
-        result = subprocess.run(["bash", str(ROOT / "goodcodex" / "setup.sh")], env=env, capture_output=True, text=True, check=False)
+        def shell_path(path):
+            if os.name != "nt":
+                return str(path)
+            return subprocess.check_output(["bash", "-c", 'cygpath -u "$1"', "bash", str(path)], text=True).strip()
+
+        env = {**self.env, "HOME": shell_path(shell_home), "GOODTOOLS_RC": shell_path(shell_home / ".bashrc")}
+        root = shell_path(ROOT)
+        result = subprocess.run(["bash", f"{root}/goodcodex/setup.sh"], env=env, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         rc = shell_home / ".bashrc"
         self.assertIn("goodcodex", rc.read_text())
         self.assertFalse((self.home / "agents").exists())
         self.assertFalse((self.data / "goodcodex" / "installation.json").exists())
-        removed = subprocess.run(["bash", "-c", '. "$1/lib/rcblock.sh"; gt_remove "$1" goodcodex', "bash", str(ROOT)], env=env, capture_output=True, text=True, check=False)
+        removed = subprocess.run(["bash", "-c", '. "$1/lib/rcblock.sh"; gt_remove "$1" goodcodex', "bash", root], env=env, capture_output=True, text=True, check=False)
         self.assertEqual(removed.returncode, 0, removed.stderr)
         self.assertNotIn("goodcodex", rc.read_text())
 
