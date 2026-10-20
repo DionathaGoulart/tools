@@ -27,6 +27,8 @@ goodivers inspirar              # vídeos gringos performando → plano de adapt
 goodivers pacote 3              # pacote de produção completo da ideia 3
 goodivers titulos "farm de sc"  # 8 variações de título pra teste A/B
 goodivers buscar "hd2 leaks" -s # busca no YouTube (-s semana · --br como o público BR)
+goodivers despachos             # lista os despachos in-game (texto inteiro em `<N>`)
+goodivers despachos 1           # um despacho sem corte, em PT-BR (--original: cru)
 goodivers patch                 # lista os patch notes oficiais (Steam)
 goodivers patch 2               # corpo completo de um patch em PT-BR (--original: cru)
 goodivers canais                # gerencia os canais monitorados
@@ -44,7 +46,7 @@ Fotografia do momento, coletada em paralelo (**a coleta é sem LLM e sem chave**
 | Seção | O que mostra | Fonte |
 |---|---|---|
 | Ordem Maior (card do topo) | a missão comunitária ativa + prazo + medalhas | [api.helldivers2.dev](https://api.helldivers2.dev) |
-| Despachos da Super Terra | as notícias in-game (a "TV" do jogo) | api.helldivers2.dev |
+| Despachos da Super Terra | as notícias in-game (a "TV" do jogo) — os 3 mais novos, cortados em 2 linhas; `goodivers despachos` abre qualquer um inteiro | api.helldivers2.dev |
 | Oficial · Steam | anúncios da Arrowhead no Steam — patch notes inclusos | Steam News API |
 | Quente na comunidade | posts em alta do r/Helldivers — com `REDDIT_CLIENT_ID`/`SECRET` usa a API OAuth oficial (funciona em qualquer IP); sem credencial tenta o endpoint público. Se o Reddit bloquear o IP, cai sozinho pro **fórum oficial do jogo na Steam** (threads com atividade recente, sem auth) | Reddit → Steam |
 | Canais do nicho | últimos vídeos de cada canal monitorado, com views e idade | RSS público do YouTube |
@@ -164,6 +166,30 @@ Exemplos:
 goodivers buscar "helldivers 2 leaks" -s      # novidades/vazamentos da semana
 goodivers buscar "helldivers 2 dicas" --br    # o que o BR encontra ao buscar isso
 goodivers buscar "helldivers 2 solo build"    # tem demanda? quem já cobriu?
+```
+
+### `goodivers despachos [<N>]`
+
+Os despachos in-game da Super Terra — a "TV" do jogo — **sem corte**. Existe
+porque o radar é panorama: lá cabem só os 3 mais novos, e cada um em 2 linhas,
+terminando em `…`. Aqui o texto aparece inteiro.
+
+Sem argumento, lista os **12 mais recentes** numerados (mais novo primeiro) com
+idade, cabeçalho e uma prévia — coleta pura, sem LLM. Com um número (`1` = mais
+recente), abre aquele despacho **completo**, quebrado só pela largura do card,
+**traduzido pra PT-BR**. `--original` mostra o cru em inglês, sem LLM; sem
+`OPENROUTER_API_KEY` cai pro inglês sozinho, nunca quebra.
+
+A coleta é sempre ao vivo. Só a **tradução** fica guardada, **permanente** por
+despacho (`~/.goodivers/despachos_pt.json`): despacho publicado não muda, então
+cada um é traduzido uma única vez. O que o radar já traduziu entra de graça — e
+este comando **nunca escreve** em `radar_pt.json`, pra não derrubar o cache dele.
+
+```bash
+goodivers despachos              # lista os 12 despachos mais recentes
+goodivers despachos 1            # o mais recente, inteiro, em PT-BR
+goodivers despachos 3 --original # o mesmo, cru em inglês (sem LLM)
+goodivers despachos --json       # lista crua (texto completo de todos)
 ```
 
 ### `goodivers patch [<N | url>]`
