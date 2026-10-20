@@ -126,12 +126,14 @@ def recommend(task: str, project: dict, target: Path, preferences: dict, *, mode
     }
 
 
-def command(decision: dict, *, executable: str | None = None) -> list[str]:
-    binary = executable or shutil.which("codex")
-    if not binary:
-        raise StateError("Codex CLI não encontrado no PATH.")
+def command(decision: dict, *, executable: str | None = None, dry_run: bool = False) -> list[str]:
     if not decision["launchable"]:
         raise StateError("Modelo indisponível na lista local; ajuste --model ou availableModels.")
+    binary = executable or shutil.which("codex")
+    if not binary:
+        if not dry_run:
+            raise StateError("Codex CLI não encontrado no PATH.")
+        binary = "codex"
     target = Path(decision["target"])
     directory = target if target.is_dir() else target.parent
     limit = decision["delegation"]["maxConcurrentSubagents"]

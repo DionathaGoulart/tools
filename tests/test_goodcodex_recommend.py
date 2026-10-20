@@ -7,10 +7,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "goodcodex" / "goodcodex"
+sys.path.insert(0, str(ROOT / "goodcodex"))
+from core.recommend import command as launch_command  # noqa: E402
+from core.store import StateError  # noqa: E402
 
 
 class RecommendationTests(unittest.TestCase):
@@ -72,6 +76,12 @@ class RecommendationTests(unittest.TestCase):
         self.assertIn("alternativa", " ".join(data["recommendation"]["reasons"]))
 
     def test_run_passes_literal_prompt_as_one_argument(self):
+        prompt = '--corrigir $(touch /tmp/goodcodex-should-not-exist); "aspas"\nsegunda linha'
+        preview = self.call("run", prompt, "--path", str(self.package), "--dry-run", "--json")
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertEqual(json.loads(preview.stdout)["argv"][-1], prompt)
+        if os.name == "nt":
+            return  # Windows cannot launch a shebang-only fake executable.
         fake_dir = self.base / "bin"
         fake_dir.mkdir()
         fake = fake_dir / "codex"
@@ -80,7 +90,6 @@ class RecommendationTests(unittest.TestCase):
         capture = self.base / "argv.json"
         self.env["PATH"] = str(fake_dir) + os.pathsep + self.env.get("PATH", "")
         self.env["CAPTURE"] = str(capture)
-        prompt = '--corrigir $(touch /tmp/goodcodex-should-not-exist); "aspas"\nsegunda linha'
         result = self.call("run", prompt, "--path", str(self.package))
         self.assertEqual(result.returncode, 0, result.stderr)
         args = json.loads(capture.read_text())
@@ -90,6 +99,18 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(args[4:6], ["--config", 'model_reasoning_effort="medium"'])
         self.assertEqual(args[6:8], ["--config", "agents.max_concurrent_threads_per_session=2"])
         self.assertEqual(args[-2], "--")
+
+    def test_dry_run_without_codex_and_unavailable_model(self):
+        decision = {"launchable": True, "target": str(self.project), "task": "fix a button",
+                    "effective": {"model": "gpt-6-sol", "effort": "medium"},
+                    "delegation": {"maxConcurrentSubagents": 0}}
+        with patch("core.recommend.shutil.which", return_value=None):
+            self.assertEqual(launch_command(decision, dry_run=True)[0], "codex")
+            with self.assertRaisesRegex(StateError, "não encontrado"):
+                launch_command(decision)
+            decision["launchable"] = False
+            with self.assertRaisesRegex(StateError, "indisponível"):
+                launch_command(decision, dry_run=True)
 
     def test_zero_subagents_disables_delegation_in_launcher(self):
         self.preferences.write_text(json.dumps({"schemaVersion": 1, "mode": "balanced", "roots": [], "maxSuggestedSubagents": 0}))

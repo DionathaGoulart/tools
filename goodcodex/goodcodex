@@ -173,7 +173,7 @@ def main(argv=None):
                     preferences = load(config_dir() / "preferences.json", {"schemaVersion": 1, "mode": "balanced", "roots": []})
                     result = recommend(args.task if args.command != "explain" else args.task or "tarefa não especificada", match, target, preferences, model=args.model)
                     if args.command == "run":
-                        result["argv"] = launch_command(result)
+                        result["argv"] = launch_command(result, dry_run=args.dry_run)
                     if args.json:
                         _output(result, True)
                     else:
