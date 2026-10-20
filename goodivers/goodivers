@@ -79,9 +79,13 @@ CONFIG_FILE = BASE_DIR / "config.json"   # canais monitorados
 RADAR_FILE = BASE_DIR / "radar.json"     # coleta anterior (fallback de fonte fora do ar)
 RADAR_PT_FILE = BASE_DIR / "radar_pt.json"  # tradução do radar (por texto original)
 PATCH_PT_FILE = BASE_DIR / "patch_pt.json"  # tradução de patch por gid (permanente)
+DESPACHOS_PT_FILE = BASE_DIR / "despachos_pt.json"  # tradução de despacho (por texto)
 IDEIAS_FILE = BASE_DIR / "ideias.json"   # última leva de ideias (pra `pacote N`)
 IDEIAS_HIST_FILE = BASE_DIR / "ideias_hist.jsonl"  # histórico de levas (1 por linha)
 REDDIT_TOKEN_FILE = BASE_DIR / "reddit_token.json"  # token OAuth do app (dura 24h)
+
+DESPACHOS_RADAR = 4    # quanto o radar coleta (mostra 3, cortados em 2 linhas)
+DESPACHOS_LISTA = 12   # quanto `goodivers despachos` coleta (lá nada é cortado)
 
 DEFAULT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -301,11 +305,11 @@ def fetch_ordem():
     return ordens
 
 
-def fetch_despachos():
+def fetch_despachos(limite=DESPACHOS_RADAR):
     """Despachos in-game recentes (a 'TV' da Super Terra)."""
     dados = http_json(f"{HD2_API}/dispatches", HD2_HEADERS, timeout=25)
     out = []
-    for d in (dados or [])[:4]:
+    for d in (dados or [])[:limite]:
         msg = limpar_marcacao(d.get("message") or "")
         if msg:
             out.append({"quando": d.get("published", ""), "texto": " ".join(msg.split())})
@@ -761,8 +765,12 @@ def _eh_patch(titulo):
 
 
 def card_despachos(s):
+    """Resumo no radar: 2 linhas por despacho. Devolve True se algum texto não
+    coube inteiro — aí o render oferece `goodivers despachos <N>`, que é onde o
+    despacho aparece sem corte (o radar é panorama, não leitura)."""
     larg = largura_card()
     linhas = []
+    cortou = False
     for n, d in enumerate(s["despachos"][:3]):
         if n:
             linhas.append("")
@@ -774,12 +782,29 @@ def card_despachos(s):
         linhas.append(f"{ui.FG40}{encher(idade_curta(d['quando']), 4, True)}{ui.RESET}  "
                       f"{ui.ACC}{ui.BOLD}{cabeca}{ui.RESET}{marca}")
         partes = textwrap.wrap(resto, larg - 6) or [""]
+        cortou = cortou or len(partes) > 2
         for i, parte in enumerate(partes[:2]):
             if i == 1 and len(partes) > 2:
                 parte = cortar(parte + " " + partes[2], larg - 6)
             linhas.append(f"      {ui.FG70}{parte}{ui.RESET}")
     card("despachos.log", linhas, meta="IN-GAME",
          rodape=f"■ {len(s['despachos'][:3])} DESPACHOS DA SUPER TERRA")
+    return cortou
+
+
+def card_despacho(d, n):
+    """Um despacho INTEIRO numa janela: nada de `partes[:2]`, nada de `cortar`
+    no corpo. É o ponto do comando — quebra de linha só pela largura do card."""
+    larg = largura_card()
+    texto = d.get("texto_pt") or d["texto"]
+    m = _CABECA_DESPACHO.match(texto)
+    cabeca = m.group(1).strip() if m else "DESPACHO"
+    resto = (texto[m.end():] if m else texto).strip()
+    linhas = [f"{ui.ACC}{ui.BOLD}{cortar(cabeca, larg)}{ui.RESET}", ""]
+    for parte in textwrap.wrap(resto, larg) or [""]:
+        linhas.append(f"{ui.FG70}{parte}{ui.RESET}")
+    card(f"despacho_{n:02d}.log", linhas, meta="IN-GAME",
+         rodape=f"■ {idade_humana(d['quando']).upper()}")
 
 
 def card_steam(s):
@@ -858,8 +883,7 @@ def render_radar(s):
         card("ordem.log", [f"{ui.ACC}{ui.BOLD}{cortar(str(o.get('titulo_pt') or o['titulo']).upper(), largura_card())}{ui.RESET}"]
              + [f"{ui.FG70}{x}{ui.RESET}" for x in textwrap.wrap(briefing, largura_card())])
 
-    if s.get("despachos"):
-        card_despachos(s)
+    cortou_despacho = card_despachos(s) if s.get("despachos") else False
     if s.get("patches"):
         card_steam(s)
     fonte_c, posts_c = comunidade_posts(s)
@@ -874,6 +898,8 @@ def render_radar(s):
         ui.aviso("offline", ", ".join(s["falhas"]))
     if any(obj.get("novo") for obj, _, _ in _slots_traduziveis(s)):
         ui.aviso("novo", "apareceu depois da coleta anterior")
+    if cortou_despacho:
+        ui.proximo("goodivers despachos <N>", "despacho inteiro:")
     ui.proximo("goodivers ideias")
     print()
 
@@ -1019,6 +1045,39 @@ def traduzir_radar(s):
             obj[dst] = mapa[txt]
         if txt in novos_txt:
             obj["novo"] = True
+
+
+def traduzir_despachos(itens):
+    """Despachos em PT-BR pro comando `despachos`. Cache PERMANENTE por texto
+    original em despachos_pt.json: despacho publicado não muda, então a tradução
+    vale pra sempre. Aproveita de graça o que o radar já traduziu, mas NUNCA
+    escreve em radar_pt.json — a poda de lá é do radar e apagaria o resto do
+    snapshot. Sem key ou erro de LLM: avisa e mantém o inglês (nunca quebra)."""
+    textos = [t for d in itens if (t := str(d.get("texto") or "").strip())]
+    if not textos:
+        return
+    cache = carregar_json(DESPACHOS_PT_FILE, {}).get("mapa", {})
+    mapa = dict(cache)
+    herdado = carregar_json(RADAR_PT_FILE, {}).get("mapa", {})
+    for t in textos:
+        if t not in mapa and herdado.get(t):
+            mapa[t] = herdado[t]
+
+    faltando = sorted({t for t in textos if t not in mapa})
+    if faltando:
+        novos = _traduzir_lista(faltando)
+        if novos:
+            mapa.update(novos)      # falhou? segue com o que já estava no cache
+
+    # poda pro que esta coleta mostra: o arquivo não cresce pra sempre
+    final = {t: mapa[t] for t in textos if mapa.get(t)}
+    if final != cache:
+        salvar_json(DESPACHOS_PT_FILE, {"mapa": final})
+
+    for d in itens:
+        pt = final.get(str(d.get("texto") or "").strip())
+        if pt:
+            d["texto_pt"] = pt
 
 
 def traduzir_patch(escolhido):
@@ -1448,6 +1507,55 @@ def cmd_buscar(termo, semana, br, como_json=False):
     print()
 
 
+def cmd_despachos(alvo, como_json=False, original=False):
+    """Despachos in-game da Super Terra. Sem alvo lista os recentes com a
+    prévia; com um número abre aquele despacho INTEIRO. Existe porque o radar é
+    panorama: lá só cabem 3, cortados em 2 linhas. Traduzido pra PT-BR por
+    padrão (--original mostra o cru; --json também é sempre cru)."""
+    alvo = (alvo or "").strip()
+
+    nota("coletando despachos da Super Terra…")
+    try:
+        itens = fetch_despachos(DESPACHOS_LISTA)
+    except Exception as e:
+        die(f"falha ao buscar os despachos ({type(e).__name__}). Sem internet?")
+    if not itens:
+        die("nenhum despacho encontrado (a API do Helldivers 2 pode estar fora do ar).")
+    if not original:
+        traduzir_despachos(itens)
+
+    if como_json:
+        imprimir_json([{"n": i, "quando": d["quando"], "texto": d["texto"],
+                        **({"texto_pt": d["texto_pt"]} if d.get("texto_pt") else {})}
+                       for i, d in enumerate(itens, 1)])
+        return
+
+    if not alvo:
+        ui.modulo("despachos", "src: hd2 · in-game")
+        t = Tabela([("N", 2, True), ("IDADE", 5, True)])
+        t.cabecalho()
+        for i, d in enumerate(itens, 1):
+            texto = d.get("texto_pt") or d["texto"]
+            m = _CABECA_DESPACHO.match(texto)
+            cabeca = m.group(1).strip() if m else "DESPACHO"
+            resto = (texto[m.end():] if m else texto).strip()
+            t.linha([str(i), idade_curta(d["quando"])], sem_emoji(cabeca),
+                    extra=sem_emoji(resto) or None)
+        card("despachos.log", t.linhas, meta="IN-GAME",
+             rodape=f"■ {len(itens)} DESPACHOS DA SUPER TERRA")
+        ui.proximo("goodivers despachos <N>", "texto completo:")
+        print()
+        return
+
+    if not alvo.isdigit() or not 1 <= int(alvo) <= len(itens):
+        die(f'despacho não encontrado pra "{alvo}".\n'
+            f"Use um número de 1 a {len(itens)} (rode `goodivers despachos`).")
+    n = int(alvo)
+    ui.modulo("despachos", "src: hd2 · in-game")
+    card_despacho(itens[n - 1], n)
+    print()
+
+
 def cmd_patch(alvo, como_json=False, original=False):
     """Coletor de patch notes oficiais (Steam). Sem alvo lista os anúncios
     recentes; com um alvo (número/URL) baixa o corpo INTEIRO daquele patch,
@@ -1677,6 +1785,8 @@ def uso():
     ui.kv('goodivers pacote <N|"ideia">', "TITULOS+THUMB+DESCRICAO+ROTEIRO")
     ui.kv('goodivers titulos "<tema>"', "VARIACOES A/B")
     ui.kv('goodivers buscar "<termo>"', "BUSCA NO YOUTUBE")
+    ui.kv("goodivers despachos", "DESPACHOS IN-GAME (LISTA)")
+    ui.kv("goodivers despachos <N>", "TEXTO INTEIRO DE UM DESPACHO (PT-BR)")
     ui.kv("goodivers patch", "PATCH NOTES OFICIAIS (LISTA)")
     ui.kv("goodivers patch <N|url>", "CORPO COMPLETO DE UM PATCH (PT-BR)")
     ui.kv("goodivers canais", "CANAIS MONITORADOS")
@@ -1685,20 +1795,20 @@ def uso():
     ui.kv("goodivers temas", "TEMAS: BLACK | YELLOW")
     print()
     ui.secao("flags")
-    ui.kv("--original", "(RADAR, PATCH) DADO CRU EM INGLES, SEM LLM")
+    ui.kv("--original", "(RADAR, DESPACHOS, PATCH) DADO CRU EM INGLES, SEM LLM")
     ui.kv("--ver", "(IDEIAS) MOSTRA A ULTIMA LEVA SALVA")
     ui.kv("--hist [N]", "(IDEIAS) HISTORICO DE LEVAS")
     ui.kv("-s, --semana", "(BUSCAR) SO VIDEOS DESTA SEMANA")
     ui.kv("--br", "(BUSCAR) PUBLICO BR (GL=BR, HL=PT)")
     ui.kv("-m, --modelos", "MODELOS :FREE NO AR")
-    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, PATCH, CANAIS)")
+    ui.kv("--json", "JSON CRU (RADAR, BUSCAR, DESPACHOS, PATCH, CANAIS)")
     ui.kv("-h, --help", "MOSTRA ESTA AJUDA")
     print()
     ui.secao("env")
     ui.kv("OPENROUTER_API_KEY", "OBRIGATORIA (LLM)")
     ui.kv("OPENROUTER_MODEL", "IDS SEPARADOS POR VIRGULA")
     ui.kv("REDDIT_CLIENT_ID/SECRET", "OPCIONAL: REDDIT VIA API OFICIAL (OAUTH)")
-    ui.kv("GOODIVERS_ORIGINAL", "RADAR/PATCH CRU EM INGLES POR PADRAO (1)")
+    ui.kv("GOODIVERS_ORIGINAL", "RADAR/DESPACHOS/PATCH CRU EM INGLES POR PADRAO (1)")
     ui.kv("GOODIVERS_CONTEXTO", "CONTEXTO EXTRA NO PROMPT")
     ui.kv("GOODIVERS_DIR", str(BASE_DIR))
     ui.kv("GOODIVERS_TEMA", ui.tema.upper())
@@ -1718,11 +1828,14 @@ def main():
     )
     ap.add_argument("comando", nargs="?", default="radar",
                     choices=["radar", "ideias", "inspirar", "pacote", "titulos",
-                             "buscar", "patch", "canais", "temas", "help"],
+                             "buscar", "despachos", "patch", "canais", "temas",
+                             "help"],
                     help="radar (padrão): estado do jogo e do nicho · ideias: 10 ideias "
                          "rankeadas · inspirar: vídeos gringos performando → plano de "
                          "adaptação PT-BR · pacote: títulos+thumb+descrição+roteiro · "
-                         "titulos: variações A/B · buscar: busca no YouTube · patch: "
+                         "titulos: variações A/B · buscar: busca no YouTube · despachos: "
+                         "despachos in-game (lista, ou o texto inteiro de um) · "
+                         "patch: "
                          "patch notes oficiais (lista, ou o corpo de um pra resumir) · "
                          "canais: gerencia canais monitorados · temas: black (padrão) "
                          "ou yellow (GOODIVERS_TEMA)")
@@ -1732,7 +1845,8 @@ def main():
     ap.add_argument("--br", action="store_true",
                     help="(buscar) busca como o público BR (gl=BR, hl=pt)")
     ap.add_argument("--original", action="store_true",
-                    help="(radar, patch) não traduz, mostra o dado cru em inglês, sem "
+                    help="(radar, despachos, patch) não traduz, mostra o dado cru em "
+                         "inglês, sem "
                          "LLM (GOODIVERS_ORIGINAL=1 liga por padrão)")
     ap.add_argument("--ver", action="store_true",
                     help="(ideias) mostra a última leva salva, sem gerar de novo")
@@ -1751,8 +1865,10 @@ def main():
         uso()
         return
 
-    if args.como_json and args.comando not in ("radar", "buscar", "patch", "canais"):
-        die("--json é só pra coleta (radar, buscar, patch, canais). Geração com o Claude: "
+    if args.como_json and args.comando not in ("radar", "buscar", "despachos",
+                                               "patch", "canais"):
+        die("--json é só pra coleta (radar, buscar, despachos, patch, canais). "
+            "Geração com o Claude: "
             "skill /goodivers no Claude Code.")
 
     original = args.original or bool(os.environ.get("GOODIVERS_ORIGINAL", "").strip())
@@ -1773,6 +1889,9 @@ def main():
     elif args.comando == "buscar":
         cmd_buscar(" ".join(args.resto).strip(), args.semana, args.br,
                    args.como_json)
+    elif args.comando == "despachos":
+        cmd_despachos(" ".join(args.resto).strip(), args.como_json,
+                      original=original)
     elif args.comando == "patch":
         cmd_patch(" ".join(args.resto).strip(), args.como_json, original=original)
     elif args.comando == "canais":
