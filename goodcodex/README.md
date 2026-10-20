@@ -2,6 +2,21 @@
 
 Ferramenta local para descobrir projetos e registrar evidências para o Codex. Requer Python 3.11+. Execute diretamente do checkout: `./goodcodex/goodcodex help`. Instale o comando com `bash goodcodex/setup.sh` ou pelo instalador da raiz; a ativação dos arquivos nativos é separada.
 
+## Uso dentro do Codex com a skill good
+
+A skill em `skill/good/SKILL.md` executa o workflow na sessão atual:
+
+```text
+$good faça a issue ABC-123 do Linear
+$good implemente busca na lista de clientes
+```
+
+O principal busca a issue pelas ferramentas Linear disponíveis, identifica o pacote, define critérios de aceite e coordena implementação e revisão. Delega trabalho independente quando útil, com até dois subagentes ativos, e resolve tarefas pequenas diretamente. Não exige scan prévio nem o CLI. O Linear precisa estar conectado na sessão; a skill não instala nem autentica o conector. Publicar comentários, mudar status, push, merge e deploy dependem do pedido e das autorizações existentes.
+
+Para disponibilizar a skill pessoalmente neste checkout, crie um link de `~/.agents/skills/good` para o diretório absoluto `goodcodex/skill/good` (sem substituir uma skill existente). Se ela não aparecer, reinicie o Codex. `$good` é a invocação nativa de skill; `/good` não é um comando registrado por este projeto. Consulte a [documentação oficial de skills](https://learn.chatgpt.com/docs/build-skills).
+
+`goodcodex apply` instala os agentes personalizados usados preferencialmente pela skill. Instalação e carregamento na sessão são etapas distintas: se os agentes não estiverem disponíveis, a skill usa a delegação exposta pelo runtime ou trabalha no principal. Ela não troca o modelo principal nem habilita ferramentas por si. Os limites, modelos e permissões efetivos continuam controlados pelo Codex. A economia de tokens não foi medida.
+
 ## Comandos disponíveis
 
 ```sh
