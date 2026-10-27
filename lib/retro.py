@@ -22,6 +22,7 @@ are untouched.
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import shutil
@@ -43,10 +44,20 @@ def _forcar_utf8() -> None:
         try:
             fluxo.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, OSError, ValueError):
-            pass       # StringIO/detached stream: nothing to reconfigure
+            pass  # StringIO/detached stream: nothing to reconfigure
 
 
 _forcar_utf8()
+
+
+class TerminalParser(argparse.ArgumentParser):
+    """Ajuda do argparse também respeita terminais menores que seus rótulos."""
+
+    def print_help(self, file=None) -> None:
+        if file is None or file is sys.stdout:
+            Retro().texto(self.format_help().rstrip("\n"))
+        else:
+            super().print_help(file)
 
 # each theme: (background, foreground, accent) — hex, no '#'
 TEMAS: dict[str, tuple[str, str, str]] = {
@@ -70,10 +81,11 @@ TEMAS_GOOD: dict[str, tuple[str, str, str, str, str]] = {
     "yellow": ("fbee23", "000000", "000000", "166534", "b91c1c"),
 }
 TEMA_GOOD_PADRAO = "black"
-MUTED_GOOD = 60   # muted-text = 60% of base-content over base-100 (§2.4)
-LINHA_GOOD = 30   # hairlines/leaders = base-300 at 30% (§6.3 row separator)
+MUTED_GOOD = 60  # muted-text = 60% of base-content over base-100 (§2.4)
+LINHA_GOOD = 30  # hairlines/leaders = base-300 at 30% (§6.3 row separator)
 
 _ANSI = re.compile(r"\033\[[0-9;]*m")
+_PARTES = re.compile(r"\033\[[0-9;]*m|\n|.")
 
 
 def largura(texto: str) -> int:
@@ -85,6 +97,65 @@ def largura(texto: str) -> int:
             continue
         total += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
     return total
+
+
+def cortar(texto: str, limite: int, sufixo: str = "…") -> str:
+    """Corta por células de terminal sem quebrar ANSI, CJK ou acentos combinados."""
+    if limite <= 0:
+        return ""
+    if largura(texto) <= limite:
+        return texto
+    reserva = largura(sufixo)
+    usados = 0
+    partes: list[str] = []
+    for parte in _PARTES.findall(texto):
+        if parte == "\n":
+            break
+        if _ANSI.fullmatch(parte):
+            partes.append(parte)
+            continue
+        tamanho = largura(parte)
+        if tamanho and usados + tamanho > max(0, limite - reserva):
+            break
+        partes.append(parte)
+        usados += tamanho
+    resultado = "".join(partes)
+    if largura(sufixo) <= limite:
+        resultado += sufixo
+    return resultado + ("\033[0m" if "\033[" in resultado else "")
+
+
+def quebrar(texto: str, limite: int) -> list[str]:
+    """Quebra texto por células, preservando todos os caracteres e escapes ANSI."""
+    if limite <= 0 or not texto:
+        return [texto] if texto else [""]
+    linhas: list[str] = []
+    atual: list[str] = []
+    usados = 0
+    estilo = ""
+    for parte in _PARTES.findall(texto):
+        if parte == "\n":
+            linhas.append("".join(atual) + ("\033[0m" if estilo else ""))
+            atual, usados = [estilo] if estilo else [], 0
+            continue
+        if _ANSI.fullmatch(parte):
+            atual.append(parte)
+            estilo = "" if parte in ("\033[m", "\033[0m") else estilo + parte
+            continue
+        tamanho = largura(parte)
+        if tamanho and usados and usados + tamanho > limite:
+            linhas.append("".join(atual) + ("\033[0m" if estilo else ""))
+            atual, usados = [estilo] if estilo else [], 0
+        # A wide character cannot fit in a one-cell terminal. TTY output uses a
+        # one-cell placeholder; pipes never call this branch and keep the data.
+        if tamanho > limite:
+            atual.append("?")
+            usados += 1
+            continue
+        atual.append(parte)
+        usados += tamanho
+    linhas.append("".join(atual) + ("\033[0m" if estilo else ""))
+    return linhas
 
 
 def _rgb(hexa: str) -> tuple[int, int, int]:
@@ -135,18 +206,70 @@ class Retro:
         self.bg, self.fg_hex, self.acc = self.temas[self.tema]
 
         self.tty = sys.stdout.isatty()
-        self.cor = self.tty and not os.environ.get("NO_COLOR")
+        try:
+            self._terminal_fd = sys.stdout.fileno() if self.tty else None
+        except (AttributeError, OSError, ValueError):
+            self._terminal_fd = None
+        self.cor = self.tty and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
         if self.cor and os.name == "nt":
             os.system("")  # legacy Windows console: turns on ANSI/VT processing
         colorterm = os.environ.get("COLORTERM", "")
         self.truecolor = self.cor and ("truecolor" in colorterm or "24bit" in colorterm)
 
-        self.cols = shutil.get_terminal_size((80, 24)).columns
-        self.bw = min(largura_caixa, max(20, self.cols - 3))
-        self.caixa = self.tty and self.bw >= 46
-        self.cf = self.bw - 4
+        self.largura_caixa = max(1, largura_caixa)
+        self.permitir_caixa = True
+        self.cols = self.rows = self.bw = self.cf = 1
+        self.caixa = False
+        self.atualizar_tamanho()
 
         self._tokens()
+
+    def atualizar_tamanho(self) -> tuple[int, int]:
+        """Relê o terminal. Chame antes de redesenhos próprios de ferramentas."""
+        try:
+            tamanho = os.get_terminal_size(self._terminal_fd) if self._terminal_fd is not None else shutil.get_terminal_size((80, 24))
+        except OSError:
+            tamanho = shutil.get_terminal_size((80, 24))
+        self.cols = max(1, tamanho.columns)
+        self.rows = max(1, tamanho.lines)
+        # Reserva uma coluna para a sombra quando houver caixa. Em telas menores,
+        # o layout plano usa toda a largura e nunca força um mínimo artificial.
+        self.bw = max(1, min(self.largura_caixa, self.cols - 1))
+        self.cf = max(1, self.bw - 4)
+        self.caixa = (
+            self.permitir_caixa and self.tty
+            and self.cols >= 46 and self.bw >= 20 and self.rows >= 12
+        )
+        return self.cols, self.rows
+
+    def cortar(self, texto: str, largura_maxima: int | None = None) -> str:
+        self.atualizar_tamanho()
+        return cortar(texto, self.cols if largura_maxima is None else largura_maxima)
+
+    def quebrar(self, texto: str, largura_maxima: int | None = None) -> list[str]:
+        self.atualizar_tamanho()
+        if not self.tty:
+            return texto.split("\n")
+        return quebrar(texto, self.cols if largura_maxima is None else largura_maxima)
+
+    def texto(self, texto: str, largura_maxima: int | None = None) -> None:
+        """Imprime prosa sem transbordar em TTY; pipes preservam a string inteira."""
+        self.atualizar_tamanho()
+        if not self.tty:
+            print(texto)
+            return
+        limite = max(1, self.cols if largura_maxima is None else min(self.cols, largura_maxima))
+        for linha in quebrar(texto, limite):
+            print(linha)
+
+    def _flat(self, texto: str) -> None:
+        self.atualizar_tamanho()
+        prefixo = "  " if self.cols >= 3 else ""
+        if not self.tty:
+            print(prefixo + texto)
+            return
+        for linha in quebrar(texto, max(1, self.cols - largura(prefixo))):
+            print(prefixo + linha)
 
     # ---------- tokens ----------
     def _fg(self, hexa: str) -> str:
@@ -240,62 +363,76 @@ class Retro:
         """``[ MODULE: X ]`` header — the module-card chrome of the style guide.
         Good skin: the screen-title (bold italic caps) + meta as bracketed
         machine micro-text (§3, §4.6)."""
+        self.atualizar_tamanho()
         if self.good:
             linha = f"\n  {self.ACC}{self.BOLD}{self.ITAL}{rotulo.upper()}{self.RESET}"
             if meta:
-                linha += (f"  {self.ACC30}[{self.RESET}{self.FG40}{meta.upper()}"
-                          f"{self.RESET}{self.ACC30}]{self.RESET}")
-            print(linha + "\n")
+                linha += (
+                    f"  {self.ACC30}[{self.RESET}{self.FG40}{meta.upper()}"
+                    f"{self.RESET}{self.ACC30}]{self.RESET}"
+                )
+            self.texto(linha)
+            print()
             return
         linha = f"\n  {self.ACC}{self.BOLD}[ MODULE: {rotulo.upper()} ]{self.RESET}"
         if meta:
             linha += f"  {self.ACC30}{meta.upper()}{self.RESET}"
-        print(linha + "\n")
+        self.texto(linha)
+        print()
 
     def secao(self, rotulo: str) -> None:
         """``# HEADING`` sub-section label (good skin: the ``>`` kicker, §3)."""
         sigil = ">" if self.good else "#"
-        print(f"  {self.ACC}{self.BOLD if self.good else ''}{sigil} {rotulo.upper()}{self.RESET}")
+        self._flat(
+            f"{self.ACC}{self.BOLD if self.good else ''}{sigil} {rotulo.upper()}{self.RESET}"
+        )
 
     def _pontos(self) -> int:
-        return max(20, 44 if self.cols > 60 else self.cols - 12)
+        self.atualizar_tamanho()
+        return max(1, min(44, self.cols - 4))
 
     def kv(self, chave: str, valor: str) -> None:
         """Key-value row with a dot leader: dim key · accent-bold value."""
         alvo = self._pontos()
         n = max(2, alvo - largura(chave) - largura(valor))
-        print(
-            f"  {self.FG40}{chave}{self.RESET} "
+        self._flat(
+            f"{self.FG40}{chave}{self.RESET} "
             f"{self.ACC15}{'·' * n}{self.RESET} "
             f"{self.ACC}{self.BOLD}{valor}{self.RESET}"
         )
 
     def regra(self) -> None:
-        print(f"  {self.ACC15}{'─' * self._pontos()}{self.RESET}")
+        self._flat(f"{self.ACC15}{'─' * self._pontos()}{self.RESET}")
 
     def item(self, marca: str, texto: str, meta: str = "") -> None:
         """List row: accent marker, foreground text, dim trailing meta."""
-        linha = f"  {self.ACC}{marca}{self.RESET} {self.FG70}{texto}{self.RESET}"
+        linha = f"{self.ACC}{marca}{self.RESET} {self.FG70}{texto}{self.RESET}"
         if meta:
             linha += f"  {self.FG40}{meta}{self.RESET}"
-        print(linha)
+        self._flat(linha)
 
     def ok(self, texto: str) -> None:
-        print(f"  {self.OK}[ OK ]{self.RESET} {self.ACC}{self.BOLD}{texto.upper()}{self.RESET}")
+        self._flat(
+            f"{self.OK}[ OK ]{self.RESET} {self.ACC}{self.BOLD}{texto.upper()}{self.RESET}"
+        )
 
     def erro(self, texto: str) -> None:
-        print(f"  {self.ALERTA}[ ERRO ]{self.RESET} {texto}")
+        self._flat(f"{self.ALERTA}[ ERRO ]{self.RESET} {texto}")
 
     def aviso(self, etiqueta: str, texto: str = "") -> None:
-        print(f"  {self.FG40}[ {etiqueta.upper()} ]{self.RESET} {texto}")
+        self._flat(f"{self.FG40}[ {etiqueta.upper()} ]{self.RESET} {texto}")
 
     def proximo(self, comando: str, prefixo: str = "proximo passo:") -> None:
-        print(f"  {self.ACC30}>{self.RESET} {prefixo}  {self.ACC}{self.BOLD}{comando}{self.RESET}")
+        self._flat(
+            f"{self.ACC30}>{self.RESET} {prefixo}  {self.ACC}{self.BOLD}{comando}{self.RESET}"
+        )
 
     def barra(self, feito: int, total: int, larg: int = 24) -> str:
         """ASCII progress bar: filled accent, rest accent/18, percentage.
         Good skin: solid track, no dithering (§4)."""
+        self.atualizar_tamanho()
         total = max(1, total)
+        larg = max(1, min(larg, max(1, self.cf - 7)))
         n = min(larg, feito * larg // total)
         pct = feito * 100 // total
         trilho = "█" if self.good else "▒"
@@ -314,40 +451,64 @@ class Retro:
         return f"{self.ACC15}▒{self.RESET}"
 
     def topo(self) -> None:
+        self.atualizar_tamanho()
+        if not self.caixa:
+            return
         print(f"{self.ACC}┏{'━' * (self.bw - 2)}┓{self.RESET}")
 
     def sep(self) -> None:
+        self.atualizar_tamanho()
+        if not self.caixa:
+            return
         print(f"{self.ACC}┠{'─' * (self.bw - 2)}┨{self.RESET}{self._sombra_col}")
 
     def base(self) -> None:
+        self.atualizar_tamanho()
+        if not self.caixa:
+            return
         print(f"{self.ACC}┗{'━' * (self.bw - 2)}┛{self.RESET}{self._sombra_col}")
 
     def sombra(self) -> None:
+        self.atualizar_tamanho()
+        if not self.caixa:
+            return
         if self.good:
             print(f" {self.ACC}{'▀' * self.bw}{self.RESET}")
             return
         print(f" {self.ACC15}{'▒' * self.bw}{self.RESET}")
 
     def linha(self, conteudo: str = "") -> None:
-        pad = max(0, self.cf - largura(conteudo))
-        print(
-            f"{self.ACC}┃{self.RESET} {conteudo}{' ' * pad} "
-            f"{self.ACC}┃{self.RESET}{self._sombra_col}"
-        )
+        self.atualizar_tamanho()
+        if not self.caixa:
+            self._flat(conteudo)
+            return
+        for parte in quebrar(conteudo, self.cf):
+            pad = max(0, self.cf - largura(parte))
+            print(
+                f"{self.ACC}┃{self.RESET} {parte}{' ' * pad} "
+                f"{self.ACC}┃{self.RESET}{self._sombra_col}"
+            )
 
     def chrome(self, titulo: str, meta: str = "") -> None:
         """Window chrome bar: three accent dots, path title, right-hand meta.
         Good skin: the window-bar — FILE.NAME in muted caps on the left, meta,
         then the three square WindowDots on the right (§4.7, §4.8)."""
+        self.atualizar_tamanho()
+        if not self.caixa:
+            self._flat(f"{titulo} {meta}".strip())
+            return
         if self.good:
             dots = f"{self.ACC}■ ■ ■{self.RESET}"
-            nome = titulo.upper()
+            meta = cortar(meta, max(1, self.cf // 3))
+            nome = cortar(titulo.upper(), max(1, self.cf - 10 - largura(meta)))
             pad = max(1, self.cf - 7 - largura(nome) - largura(meta))
             print(
                 f"{self.ACC}┃{self.RESET} {self.FG40}{self.BOLD}{nome}{self.RESET}{' ' * pad}"
                 f"{self.FG40}{meta}{self.RESET}  {dots} {self.ACC}┃{self.RESET}{self._sombra_col}"
             )
             return
+        meta = cortar(meta, max(1, self.cf // 3))
+        titulo = cortar(titulo, max(1, self.cf - 8 - largura(meta)))
         pad = max(1, self.cf - 7 - largura(titulo) - largura(meta))
         print(
             f"{self.ACC}┃{self.RESET} {self.ACC}●{self.RESET} {self.ACC50}●{self.RESET} "
@@ -357,17 +518,26 @@ class Retro:
 
     def status(self, esquerda: str, direita: str = "") -> None:
         """Inverted status bar at the bottom of a window."""
+        self.atualizar_tamanho()
+        if not self.caixa:
+            self._flat(f"{esquerda} {direita}".strip())
+            return
+        direita = cortar(direita, max(1, self.cf // 3))
+        esquerda = cortar(esquerda, max(1, self.cf - largura(direita) - 1))
         pad = max(1, self.cf - largura(esquerda) - largura(direita))
         print(
             f"{self.ACC}┃{self.INV}{self.BOLD} {esquerda}{' ' * pad}{direita} {self.RESET}"
             f"{self.ACC}┃{self.RESET}{self._sombra_col}"
         )
 
-    def janela(self, titulo: str, linhas: list[str], meta: str = "", rodape: str = "") -> None:
+    def janela(
+        self, titulo: str, linhas: list[str], meta: str = "", rodape: str = ""
+    ) -> None:
         """Full terminal window: chrome + body + optional status bar + shadow."""
+        self.atualizar_tamanho()
         if not self.caixa:
             for ln in linhas:
-                print(f"  {ln}")
+                self._flat(ln)
             return
         self.topo()
         self.chrome(titulo, meta)
@@ -382,6 +552,7 @@ class Retro:
 
     # ---------- theme catalog ----------
     def catalogo_temas(self) -> None:
+        self.atualizar_tamanho()
         self.modulo("theme_catalog")
         for nome, (hb, hf, ha) in self.temas.items():
             marca = "► " if nome == self.tema else "  "
@@ -392,8 +563,8 @@ class Retro:
                 )
             else:
                 swatch = f"[#{ha}]"
-            print(
-                f"  {self.ACC}{marca}{self.RESET}{nome:<16} {swatch}  "
+            self._flat(
+                f"{self.ACC}{marca}{self.RESET}{nome:<16} {swatch}  "
                 f"{self.ACC15}#{ha}{self.RESET}"
             )
-        print(f"\n  {self.FG40}export {self.env_var}=<nome>{self.RESET}\n")
+        self._flat(f"export {self.env_var}=<nome>{self.RESET}")

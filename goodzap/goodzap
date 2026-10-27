@@ -22,7 +22,6 @@ Uso:
 Requer: Python 3. A camada --roast também precisa de OPENROUTER_API_KEY.
 """
 
-import argparse
 import os
 import re
 import sys
@@ -31,7 +30,7 @@ from datetime import datetime, timedelta
 from html import escape
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
-from retro import Retro, largura  # noqa: E402
+from retro import Retro, TerminalParser, largura  # noqa: E402
 from llm import LLM, LLMError  # noqa: E402
 
 
@@ -314,6 +313,7 @@ def barra(valor, maximo, larg=24):
 
 def linha_kv(chave, valor):
     """Linha `CHAVE ··· VALOR` já dimensionada pra caber dentro da janela."""
+    ui.atualizar_tamanho()
     n = max(2, ui.cf - largura(chave) - largura(valor) - 2)
     return (f"{ui.FG40}{chave}{ui.RESET} {ui.ACC15}{'·' * n}{ui.RESET} "
             f"{ui.ACC}{ui.BOLD}{valor}{ui.RESET}")
@@ -327,7 +327,7 @@ def linha_grafico(marca, rotulo, larg_rotulo, bar, valor, meta=""):
              f"{bar} {ui.ACC}{ui.BOLD}{valor:>6}{ui.RESET}")
     if meta:
         linha += f" {ui.FG40}{meta}{ui.RESET}"
-    print(linha)
+    ui.texto(linha)
 
 
 def relatorio(st, origem=""):
@@ -595,7 +595,7 @@ def die(msg):
 
 
 def main():
-    ap = argparse.ArgumentParser(
+    ap = TerminalParser(
         prog="goodzap",
         description="Retrospectiva de uma conversa exportada do WhatsApp (.txt).",
         epilog="exemplos:  goodzap conversa.txt --roast --html retro.html   ·   goodzap temas",
@@ -642,7 +642,7 @@ def main():
         print()
         texto_llm, model = camada_llm(st, msgs, args.reais)
         ui.secao("retro")
-        print(f"{ui.FG70}{texto_llm}{ui.RESET}")
+        ui.texto(f"{ui.FG70}{texto_llm}{ui.RESET}")
         print()
         ui.kv("MODEL", model)
         print()

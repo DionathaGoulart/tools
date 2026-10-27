@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import sys
-import textwrap
 from datetime import datetime
 from pathlib import Path
 
@@ -159,7 +158,8 @@ def die(msg, dicas=()):
 
 def envolver(texto, largura=None):
     """Quebra prosa na largura util da janela."""
-    return textwrap.wrap(texto, width=largura or max(20, ui.cf)) or [""]
+    ui.atualizar_tamanho()
+    return ui.quebrar(texto, largura or (ui.cf if ui.caixa else max(1, ui.cols - 2)))
 
 
 def carregar_json(caminho, padrao):
@@ -330,7 +330,7 @@ def cmd_diario(followup=False, extra=False):
     print()
     ui.secao("proximo capitulo")
     feito = total % LOTE or LOTE
-    print(f"  {ui.barra(feito, LOTE)}  {ui.FG40}{feito}/{LOTE}{ui.RESET}")
+    ui.texto(f"  {ui.barra(feito, LOTE)}  {ui.FG40}{feito}/{LOTE}{ui.RESET}")
     print()
     if total and total % LOTE == 0:
         ui.proximo("goodbio capitulo", "ja da pra montar capitulos:")
@@ -383,9 +383,10 @@ def cmd_listar():
     ui.kv("DIR", str(BASE_DIR))
     print()
     ui.secao("historico")
-    largura_p = max(24, ui.cols - 22)
+    ui.atualizar_tamanho()
+    largura_p = max(1, ui.cols - 22)
     for data, pergunta, _ in respostas:
-        if len(pergunta) > largura_p:
+        if ui.tty and len(pergunta) > largura_p:
             pergunta = pergunta[:largura_p - 1] + "…"
         ui.item("►", pergunta, data)
     print()

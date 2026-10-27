@@ -27,7 +27,6 @@ import json
 import os
 import re
 import sys
-import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -105,9 +104,10 @@ def nota(texto):
 
 
 def envolver(texto, cor=""):
-    larg = max(20, ui.cf)
+    ui.atualizar_tamanho()
+    larg = ui.cf if ui.caixa else max(1, ui.cols - 2)
     return [f"{cor}{p}{ui.RESET}" if cor else p
-            for p in (textwrap.wrap(texto, larg) or [""])]
+            for p in ui.quebrar(texto, larg)]
 
 
 def carregar_json(caminho, padrao):
@@ -723,7 +723,7 @@ def tracker_ls(como_json=False):
             meta = f"— {it['empresa']} · há {idade}{alerta}"
             ui.item("·", it["titulo"], meta)
             if it.get("nota"):
-                print(f"      {ui.FG40}“{resumir(it['nota'], 70)}”{ui.RESET}")
+                ui.texto(f"      {ui.FG40}“{resumir(it['nota'], 70)}”{ui.RESET}")
     print()
 
 

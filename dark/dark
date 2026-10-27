@@ -357,7 +357,7 @@ def render_radar(s):
         for d in datas[:6]:
             quando = "HOJE" if d["dias"] == 0 else f"EM {d['dias']}D"
             ui.item(f"{quando:>7}", d["nome"])
-            print(f"          {ui.apagado(d['gancho'])}")
+            ui.texto(f"          {ui.apagado(d['gancho'])}")
 
     if subs_vivos:
         print()
@@ -414,7 +414,7 @@ def listar_modelos_free():
     print()
     for m in livres:
         ui.item("·", m)
-    print(f"\n  {ui.FG40}export OPENROUTER_MODEL=\"modelo1,modelo2\"{ui.RESET}\n")
+    ui.texto(f"\n  {ui.FG40}export OPENROUTER_MODEL=\"modelo1,modelo2\"{ui.RESET}\n")
 
 
 # ---------------------------------------------------------------- contexto do estrategista
@@ -543,12 +543,12 @@ def cmd_ideias(fresh):
         print()
         ui.item(f"{i:>2}.", d.get("titulo", "?"), ui.chip(str(d.get("formato", "?"))))
         if d.get("angulo"):
-            print(f"      {ui.FG70}{d['angulo']}{ui.RESET}")
+            ui.texto(f"      {ui.FG70}{d['angulo']}{ui.RESET}")
         if d.get("por_que_agora"):
-            print(f"      {ui.apagado('POR QUE AGORA:')} {ui.apagado(d['por_que_agora'])}")
+            ui.texto(f"      {ui.apagado('POR QUE AGORA:')} {ui.apagado(d['por_que_agora'])}")
         if d.get("hook"):
-            print(f"      {ui.apagado('HOOK:')} {ui.acento(chr(34) + d['hook'] + chr(34))}")
-        print(f"      {ui.apagado('ESFORCO')} {badge(d.get('esforco', '?'))}"
+            ui.texto(f"      {ui.apagado('HOOK:')} {ui.acento(chr(34) + d['hook'] + chr(34))}")
+        ui.texto(f"      {ui.apagado('ESFORCO')} {badge(d.get('esforco', '?'))}"
               f"  {ui.apagado('POTENCIAL')} {badge(d.get('potencial', '?'))}")
     print()
     ui.proximo("dark pacote 3", "pacote completo:")
@@ -594,7 +594,7 @@ def cmd_pacote(texto_ideia, fresh):
     if p.get("hook"):
         print()
         ui.secao("hook (primeiros 1-2s)")
-        print(f"  {ui.forte(chr(34) + str(p['hook']) + chr(34))}")
+        ui.texto(f"  {ui.forte(chr(34) + str(p['hook']) + chr(34))}")
     if p.get("roteiro"):
         print()
         ui.secao("roteiro / shot list")
@@ -604,19 +604,19 @@ def cmd_pacote(texto_ideia, fresh):
         print()
         ui.secao("caption (en — pronta pra colar)")
         for linha in str(p["caption"]).splitlines():
-            print(f"  {ui.FG70}{linha}{ui.RESET}")
+            ui.texto(f"  {ui.FG70}{linha}{ui.RESET}")
     if p.get("hashtags"):
         print()
         ui.secao("hashtags")
-        print("  " + ui.acento(" ".join(f"#{str(h).lstrip('#')}" for h in p["hashtags"])))
+        ui.texto("  " + ui.acento(" ".join(f"#{str(h).lstrip('#')}" for h in p["hashtags"])))
     if p.get("alt_text"):
         print()
         ui.secao("alt text")
-        print(f"  {ui.FG70}{p['alt_text']}{ui.RESET}")
+        ui.texto(f"  {ui.FG70}{p['alt_text']}{ui.RESET}")
     if p.get("audio"):
         print()
         ui.secao("audio")
-        print(f"  {ui.FG70}{p['audio']}{ui.RESET}")
+        ui.texto(f"  {ui.FG70}{p['audio']}{ui.RESET}")
     if p.get("stories_apoio"):
         print()
         ui.secao("stories de apoio")
@@ -649,7 +649,7 @@ def cmd_legendas(tema, fresh):
     for i, t in enumerate(tt, 1):
         print()
         ui.item(f"{i:>2}.", str(t.get("caption", "?")))
-        print(f"      {ui.apagado('GATILHO: ' + str(t.get('gatilho', '')))}")
+        ui.texto(f"      {ui.apagado('GATILHO: ' + str(t.get('gatilho', '')))}")
     print()
 
 
@@ -680,8 +680,8 @@ def cmd_stories(fresh):
             dia = "?"
         print()
         ui.item(f"{dia.upper():>3}", ui.chip(str(item.get("tipo", "?"))))
-        print(f"      {ui.FG70}{item.get('descricao', '')}{ui.RESET}")
-        print(f"      {ui.apagado(chr(34) + str(item.get('texto', '')) + chr(34))}")
+        ui.texto(f"      {ui.FG70}{item.get('descricao', '')}{ui.RESET}")
+        ui.texto(f"      {ui.apagado(chr(34) + str(item.get('texto', '')) + chr(34))}")
     print()
 
 

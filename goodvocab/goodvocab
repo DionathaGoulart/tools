@@ -21,7 +21,6 @@ import json
 import os
 import re
 import sys
-import textwrap
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -145,9 +144,10 @@ def die(msg):
 
 def envolver(texto, cor=""):
     """Quebra o texto na largura útil da janela, já colorido linha a linha."""
-    larg = max(20, ui.cf)
+    ui.atualizar_tamanho()
+    larg = ui.cf if ui.caixa else max(1, ui.cols - 2)
     return [f"{cor}{p}{ui.RESET}" if cor else p
-            for p in (textwrap.wrap(texto, larg) or [""])]
+            for p in ui.quebrar(texto, larg)]
 
 
 def carregar_json(caminho, padrao):
@@ -257,10 +257,10 @@ def proxima_da_fila(palavras):
 
 def revisar(p, i, n):
     """Uma rodada de quiz: significado + frase lacunada → você digita a palavra."""
-    print(f"\n  {ui.chip(f'{i}/{n}')}  {ui.FG70}{p['significado']}{ui.RESET}")
+    ui.texto(f"\n  {ui.chip(f'{i}/{n}')}  {ui.FG70}{p['significado']}{ui.RESET}")
     frase = lacunar(p["exemplo"], p["palavra"])
     if frase:
-        print(f"      {ui.FG40}{frase}{ui.RESET}")
+        ui.texto(f"      {ui.FG40}{frase}{ui.RESET}")
     try:
         resp = input(f"      {ui.ACC30}>{ui.RESET} palavra: ")
     except EOFError:
@@ -270,14 +270,14 @@ def revisar(p, i, n):
     if acertou:
         p["caixa"] = min(p.get("caixa", 0) + 1, len(INTERVALOS) - 1)
         p["acertos"] = p.get("acertos", 0) + 1
-        print(f"      {ui.OK}[ OK ]{ui.RESET} {alvo}")
+        ui.texto(f"      {ui.OK}[ OK ]{ui.RESET} {alvo}")
     else:
         p["caixa"] = 0
         p["erros"] = p.get("erros", 0) + 1
-        print(f"      {ui.ALERTA}[ ERRO ]{ui.RESET} era {alvo}")
-    print(f"      {ui.FG70}{p['exemplo']}{ui.RESET}")
+        ui.texto(f"      {ui.ALERTA}[ ERRO ]{ui.RESET} era {alvo}")
+    ui.texto(f"      {ui.FG70}{p['exemplo']}{ui.RESET}")
     if p.get("traducao"):
-        print(f"      {ui.FG40}({p['traducao']}){ui.RESET}")
+        ui.texto(f"      {ui.FG40}({p['traducao']}){ui.RESET}")
     p["proxima"] = em_dias(INTERVALOS[p["caixa"]])
     return acertou
 
@@ -296,7 +296,7 @@ def rodar_quiz(palavras):
     print()
     ui.regra()
     ui.kv("ACERTOS", f"{acertos}/{len(due)}")
-    print(f"  {ui.barra(acertos, len(due))}")
+    ui.texto(f"  {ui.barra(acertos, len(due))}")
     return len(due)
 
 
@@ -383,7 +383,7 @@ def cmd_listar():
         prox = p.get("proxima", "?")
         marca = "►" if prox <= hj else "·"
         ui.item(marca, f"{prox}  {barra}  {p['palavra']}", f"— {p['significado']}")
-    print(f"\n  {ui.FG40}data = proxima revisao · barra = caixa de leitner "
+    ui.texto(f"\n  {ui.FG40}data = proxima revisao · barra = caixa de leitner "
           f"· ► = vence hoje{ui.RESET}\n")
 
 

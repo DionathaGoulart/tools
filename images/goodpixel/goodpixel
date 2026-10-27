@@ -31,7 +31,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "lib")
 )
 import imgcore  # noqa: E402
-from retro import Retro  # noqa: E402
+from retro import Retro, TerminalParser  # noqa: E402
 
 # classic pixel-art palettes (name -> list of RGB tuples)
 PRESETS: dict[str, list[tuple[int, int, int]]] = {
@@ -186,7 +186,10 @@ def write_png(path: Path, gw: int, gh: int, scale: int, colors, idx):
 def preview(ui: Retro, gw: int, gh: int, colors, idx, maxw: int = 44):
     if not ui.truecolor:
         return
-    step = max(1, gw // maxw)
+    ui.atualizar_tamanho()
+    maxw = max(1, min(maxw, ui.cols - 2))
+    maxh = max(1, (ui.rows - 6) * 2)
+    step = max(1, (gw + maxw - 1) // maxw, (gh + maxh - 1) // maxh)
     pw = gw // step
     ph = gh // step
     if pw < 2 or ph < 2:
@@ -203,7 +206,7 @@ def preview(ui: Retro, gw: int, gh: int, colors, idx, maxw: int = 44):
                 f"\033[38;2;{top[0]};{top[1]};{top[2]}m"
                 f"\033[48;2;{bot[0]};{bot[1]};{bot[2]}m▀"
             )
-        print(line + ui.RESET)
+        ui.texto(line + ui.RESET)
     print()
 
 
@@ -215,7 +218,7 @@ def swatches(ui: Retro, colors):
     row = "  "
     for r, g, b in colors[:16]:
         row += f"\033[48;2;{r};{g};{b}m  {ui.RESET}"
-    print(f"  {ui.FG40}PALETA{ui.RESET}  {row}  {ui.ACC}{ui.BOLD}{len(colors)}{ui.RESET}")
+    ui.texto(f"  {ui.FG40}PALETA{ui.RESET}  {row}  {ui.ACC}{ui.BOLD}{len(colors)}{ui.RESET}")
 
 
 # ------------------------------------------------------------- one file
@@ -273,7 +276,7 @@ def convert(ui: Retro, src: Path, args, out_override: Path | None):
 
 # ------------------------------------------------------------- cli
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = TerminalParser(
         prog="goodpixel",
         description="transforma imagens (png/jpg/svg/webp/…) em pixel art.",
         add_help=False,
@@ -336,7 +339,7 @@ def main() -> int:
     if args.files == ["help"] and not os.path.isfile("help"):
         args.help = True
     if args.help or not args.files:
-        print(HELP.format(
+        ui.texto(HELP.format(
             titulo=ui.forte("[ MODULE: GOODPIXEL ]"),
             u=ui.ACC + ui.BOLD, a=ui.ACC, d=ui.FG40, r=ui.RESET,
         ))

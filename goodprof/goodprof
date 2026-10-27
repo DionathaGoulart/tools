@@ -15,7 +15,6 @@ import argparse
 import os
 import re
 import sys
-import textwrap
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -142,7 +141,8 @@ def die(msg, dicas=()):
 
 def envolver(texto, largura=None):
     """Quebra prosa na largura util da janela."""
-    return textwrap.wrap(texto, width=largura or max(20, ui.cf)) or [""]
+    ui.atualizar_tamanho()
+    return ui.quebrar(texto, largura or (ui.cf if ui.caixa else max(1, ui.cols - 2)))
 
 
 def slugify(texto):
@@ -170,7 +170,7 @@ def imprimir_professor(texto):
     ui.secao("goodprof")
     print()
     for linha in texto.splitlines():
-        print(f"  {ui.FG70}{linha}{ui.RESET}" if linha.strip() else "")
+        ui.texto(f"  {ui.FG70}{linha}{ui.RESET}" if linha.strip() else "")
     print()
 
 
@@ -308,7 +308,7 @@ def cmd_listar():
     for slug, titulo, n, data in tops:
         if len(titulo) > 24:
             titulo = titulo[:23] + "…"
-        print(
+        ui.texto(
             f"  {ui.ACC}►{ui.RESET} {ui.FG70}{titulo:<24}{ui.RESET} "
             f"{ui.barra(n, total, 10)}  {ui.FG40}{n} SESSAO(OES) · {data}{ui.RESET}"
         )

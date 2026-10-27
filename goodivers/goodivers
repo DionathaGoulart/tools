@@ -143,24 +143,28 @@ def nota(texto):
 
 def corpo(texto, recuo=2):
     """Parágrafo em foreground, quebrado na largura do terminal."""
-    larg = max(40, min(ui.cols - recuo - 2, 92))
-    for linha in textwrap.wrap(texto, larg) or [""]:
-        print(f"{' ' * recuo}{ui.FG70}{linha}{ui.RESET}")
+    ui.atualizar_tamanho()
+    recuo = min(recuo, max(0, ui.cols - 1))
+    larg = max(1, min(ui.cols - recuo - 2, 92))
+    for linha in ui.quebrar(texto, larg):
+        ui.texto(f"{' ' * recuo}{ui.FG70}{linha}{ui.RESET}")
 
 
 def chips(itens, recuo=2):
     """Fileira de chips com quebra de linha na largura do terminal."""
-    larg = max(40, min(ui.cols - recuo - 2, 92))
+    ui.atualizar_tamanho()
+    recuo = min(recuo, max(0, ui.cols - 1))
+    larg = max(1, min(ui.cols - recuo - 2, 92))
     atual, tam = [], 0
     for it in itens:
         t = len(str(it)) + 3
         if atual and tam + t > larg:
-            print(" " * recuo + " ".join(atual))
+            ui.texto(" " * recuo + " ".join(atual))
             atual, tam = [], 0
         atual.append(ui.chip(str(it)))
         tam += t
     if atual:
-        print(" " * recuo + " ".join(atual))
+        ui.texto(" " * recuo + " ".join(atual))
 
 
 def tag_novo():
@@ -628,6 +632,7 @@ def coletar_radar():
 
 def janela_guerra(s):
     """Cabeçalho do radar: a Ordem Maior ativa dentro de uma janela de terminal."""
+    ui.atualizar_tamanho()
     ordens = s.get("ordem") or []
     linhas = []
     if ordens:
@@ -697,7 +702,8 @@ def idade_curta(iso):
 
 def largura_card():
     """Largura útil dentro de um card (a janela do retro): acompanha o terminal."""
-    return ui.cf if ui.caixa else max(40, min(ui.cols - 4, 106))
+    ui.atualizar_tamanho()
+    return ui.cf if ui.caixa else max(1, min(ui.cols - 2, 106))
 
 
 class Tabela:
@@ -710,17 +716,28 @@ class Tabela:
         self.cols = cols
         self.larg = largura_card()
         fixo = sum(w for _, w, _ in cols) + self.GAP * len(cols)
+        self.compacta = self.larg < fixo + 16
         self.resto = max(16, self.larg - fixo)
         self.margem = fixo
         self.linhas = []
 
     def cabecalho(self, titulo="TITULO"):
+        if self.compacta:
+            return
         partes = [encher(r, w, d) for r, w, d in self.cols]
         self.linhas.append(f"{ui.FG40}{(' ' * self.GAP).join(partes)}"
                            f"{' ' * self.GAP}{titulo}{ui.RESET}")
         self.linhas.append(f"{ui.ACC15}{'─' * self.larg}{ui.RESET}")
 
     def linha(self, valores, titulo, extra=None):
+        if self.compacta:
+            self.linhas.extend(ui.quebrar(f"{ui.FG}{titulo}{ui.RESET}", self.larg))
+            for (rotulo, _, _), valor in zip(self.cols, valores):
+                if valor:
+                    self.linhas.extend(ui.quebrar(f"{rotulo}: {valor}", self.larg))
+            if extra:
+                self.linhas.extend(ui.quebrar(extra, self.larg))
+            return
         partes = [encher(v, w, d) for (_, w, d), v in zip(self.cols, valores)]
         self.linhas.append((" " * self.GAP).join(partes) + " " * self.GAP
                            + f"{ui.FG}{cortar(titulo, self.resto)}{ui.RESET}")
@@ -742,11 +759,12 @@ def card(titulo, linhas, meta="", rodape=""):
     """Uma seção = uma janela (a mesma receita do RADAR.LOG) + respiro. Sem
     caixa (pipe, terminal estreito) a janela vira linhas soltas — aí o nome
     do card e o rodapé viram texto pra seção não perder a identidade."""
+    ui.atualizar_tamanho()
     if not ui.caixa:
-        print(f"  {ui.ACC}{ui.BOLD}> {titulo.upper()}{ui.RESET}  {ui.FG40}{meta}{ui.RESET}")
+        ui.texto(f"  {ui.ACC}{ui.BOLD}> {titulo.upper()}{ui.RESET}  {ui.FG40}{meta}{ui.RESET}")
     ui.janela(titulo, linhas, meta=meta, rodape=rodape)
     if not ui.caixa and rodape:
-        print(f"  {ui.FG40}{rodape}{ui.RESET}")
+        ui.texto(f"  {ui.FG40}{rodape}{ui.RESET}")
     print()
 
 
@@ -781,12 +799,13 @@ def card_despachos(s):
         marca = f"  {tag_novo()}" if d.get("novo") else ""
         linhas.append(f"{ui.FG40}{encher(idade_curta(d['quando']), 4, True)}{ui.RESET}  "
                       f"{ui.ACC}{ui.BOLD}{cabeca}{ui.RESET}{marca}")
-        partes = textwrap.wrap(resto, larg - 6) or [""]
+        recuo = min(6, max(0, larg - 1))
+        partes = ui.quebrar(resto, max(1, larg - recuo))
         cortou = cortou or len(partes) > 2
         for i, parte in enumerate(partes[:2]):
             if i == 1 and len(partes) > 2:
-                parte = cortar(parte + " " + partes[2], larg - 6)
-            linhas.append(f"      {ui.FG70}{parte}{ui.RESET}")
+                parte = cortar(parte + " " + partes[2], max(1, larg - recuo))
+            linhas.append(f"{' ' * recuo}{ui.FG70}{parte}{ui.RESET}")
     card("despachos.log", linhas, meta="IN-GAME",
          rodape=f"■ {len(s['despachos'][:3])} DESPACHOS DA SUPER TERRA")
     return cortou
@@ -1251,10 +1270,10 @@ def _render_ideias(ideias, quando, origem):
         ui.item(f"{i:>2}.", str(d.get("titulo", "?")), ui.chip(formato))
         corpo(str(d.get("angulo", "")), recuo=6)
         if d.get("por_que_agora"):
-            print(f"      {ui.apagado('POR QUE AGORA: ' + str(d['por_que_agora']))}")
+            ui.texto(f"      {ui.apagado('POR QUE AGORA: ' + str(d['por_que_agora']))}")
         if d.get("link"):
-            print(f"      {ui.apagado('LINK: ' + str(d['link']))}")
-        print(f"      {ui.FG40}ESFORCO{ui.RESET} {badge(d.get('esforco', '?'))}"
+            ui.texto(f"      {ui.apagado('LINK: ' + str(d['link']))}")
+        ui.texto(f"      {ui.FG40}ESFORCO{ui.RESET} {badge(d.get('esforco', '?'))}"
               f"  {ui.FG40}·  POTENCIAL{ui.RESET} {badge(d.get('potencial', '?'))}")
         if d.get("busca"):
             chips(d["busca"], recuo=6)
@@ -1422,12 +1441,12 @@ def cmd_pacote(texto_ideia):
         ui.item(f"{i}.", f"{ui.forte(str(t.get('texto', '')).upper())}{ui.FG70}"
                          f" — {t.get('conceito', '')}")
         if t.get("prompt_imagem"):
-            print(f"     {ui.apagado('PROMPT: ' + str(t['prompt_imagem']))}")
+            ui.texto(f"     {ui.apagado('PROMPT: ' + str(t['prompt_imagem']))}")
 
     print()
     ui.secao("descricao")
     for linha in str(p.get("descricao", "")).splitlines():
-        print(f"  {ui.FG70}{linha}{ui.RESET}")
+        ui.texto(f"  {ui.FG70}{linha}{ui.RESET}")
 
     if p.get("tags"):
         print()
@@ -1438,7 +1457,7 @@ def cmd_pacote(texto_ideia):
         print()
         ui.secao("hook · primeiros 30s")
         for linha in str(p["hook"]).splitlines():
-            print(f"  {ui.FG70}{linha}{ui.RESET}")
+            ui.texto(f"  {ui.FG70}{linha}{ui.RESET}")
 
     if p.get("roteiro"):
         print()
@@ -1690,15 +1709,15 @@ def cmd_inspirar():
     for i, p in enumerate(planos, 1):
         print()
         ui.item(f"{i:>2}.", str(p.get("titulo_ptbr", "?")), ui.chip("pt-br"))
-        print(f"      {ui.apagado('ORIGINAL: ' + str(p.get('original', '?')))}"
+        ui.texto(f"      {ui.apagado('ORIGINAL: ' + str(p.get('original', '?')))}"
               f" {ui.chip(resumir(str(p.get('canal', '?')), 20))}")
         if p.get("link"):
-            print(f"      {ui.apagado('LINK: ' + str(p['link']))}")
+            ui.texto(f"      {ui.apagado('LINK: ' + str(p['link']))}")
         if p.get("por_que_performa"):
-            print(f"      {ui.apagado('POR QUE PERFORMA: ' + str(p['por_que_performa']))}")
+            ui.texto(f"      {ui.apagado('POR QUE PERFORMA: ' + str(p['por_que_performa']))}")
         corpo(f"ADAPTACAO: {p.get('adaptacao', '')}", recuo=6)
         if p.get("checar"):
-            print(f"      {ui.ALERTA}[ CHECAR ]{ui.RESET} {ui.FG70}{p['checar']}{ui.RESET}")
+            ui.texto(f"      {ui.ALERTA}[ CHECAR ]{ui.RESET} {ui.FG70}{p['checar']}{ui.RESET}")
     print()
     if falhas:
         ui.aviso("offline", "; ".join(falhas))

@@ -1037,19 +1037,19 @@ def scan(stealth: bool = False, neutralize: bool = False) -> ScanResult:
         ui.ALERTA
         print()
         ui.modulo("neutralize_warning", "read carefully")
-        print(f"  {ui.ALERTA}{'!' * (ui.cf - 4)}{ui.RESET}")
-        print(f"  {ui.ALERTA}  WARNING{ui.RESET}")
-        print(f"  {ui.FG40}  Killing/blocking corporate monitoring software WILL:{ui.RESET}")
-        print(f"  {ui.FG40}  - Trigger an alert in the IT/SIEM dashboard{ui.RESET}")
-        print(f"  {ui.FG40}  - Notify your employer that the agent died{ui.RESET}")
-        print(f"  {ui.FG40}  - Log your action in Windows Security events{ui.RESET}")
-        print(f"  {ui.FG40}  - Potentially result in termination{ui.RESET}")
-        print(f"  {ui.ALERTA}{'!' * (ui.cf - 4)}{ui.RESET}")
+        ui.texto(f"  {ui.ALERTA}{'!' * (ui.cf - 4)}{ui.RESET}")
+        ui.texto(f"  {ui.ALERTA}  WARNING{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  Killing/blocking corporate monitoring software WILL:{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Trigger an alert in the IT/SIEM dashboard{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Notify your employer that the agent died{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Log your action in Windows Security events{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Potentially result in termination{ui.RESET}")
+        ui.texto(f"  {ui.ALERTA}{'!' * (ui.cf - 4)}{ui.RESET}")
         print()
-        print(f"  {ui.ACC}Only proceed if:{ui.RESET}")
-        print(f"  {ui.FG40}  1. This is your personal machine{ui.RESET}")
-        print(f"  {ui.FG40}  2. You have explicit authorization{ui.RESET}")
-        print(f"  {ui.FG40}  3. You understand the consequences{ui.RESET}")
+        ui.texto(f"  {ui.ACC}Only proceed if:{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  1. This is your personal machine{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  2. You have explicit authorization{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  3. You understand the consequences{ui.RESET}")
         print()
         try:
             confirm = input(f"  {ui.ALERTA}> Type 'i understand' to continue: {ui.RESET}")
@@ -1188,29 +1188,29 @@ def print_scan_results(found: ScanResult, json_output: bool = False):
         print()
         for item in detected:
             _, color = RISK_COLORS.get(item["risk"], ("", ui.FG70))
-            print(f"  {color}[!]{ui.RESET} {ui.ACC}{item['name']}{ui.RESET}")
-            print(f"  {ui.FG40}{item['description']}{ui.RESET}")
+            ui.texto(f"  {color}[!]{ui.RESET} {ui.ACC}{item['name']}{ui.RESET}")
+            ui.texto(f"  {ui.FG40}{item['description']}{ui.RESET}")
             if item["notes"]:
-                print(f"  {ui.FG40}  {item['notes']}{ui.RESET}")
+                ui.texto(f"  {ui.FG40}  {item['notes']}{ui.RESET}")
             for h in item["hits"]:
-                print(f"  {ui.ALERTA}>{ui.RESET} {ui.FG70}{h}{ui.RESET}")
+                ui.texto(f"  {ui.ALERTA}>{ui.RESET} {ui.FG70}{h}{ui.RESET}")
             print()
     if suspicious:
         ui.secao(f"SUSPICIOUS ({len(suspicious)}) — corporate / high-medium risk")
         print()
         for item in suspicious:
             _, color = RISK_COLORS.get(item["risk"], ("", ui.FG70))
-            print(f"  {color}[?]{ui.RESET} {ui.ACC}{item['name']}{ui.RESET}")
+            ui.texto(f"  {color}[?]{ui.RESET} {ui.ACC}{item['name']}{ui.RESET}")
             for h in item["hits"]:
-                print(f"  {ui.ALERTA}>{ui.RESET} {ui.FG70}{h}{ui.RESET}")
+                ui.texto(f"  {ui.ALERTA}>{ui.RESET} {ui.FG70}{h}{ui.RESET}")
             print()
     if info:
         ui.secao(f"INFO ({len(info)}) — low risk / utility")
         print()
         for item in info:
-            print(f"  {ui.FG70}{item['name']}{ui.RESET}")
+            ui.texto(f"  {ui.FG70}{item['name']}{ui.RESET}")
             for h in item["hits"]:
-                print(f"  {ui.FG40}>{ui.RESET} {ui.FG40}{h}{ui.RESET}")
+                ui.texto(f"  {ui.FG40}>{ui.RESET} {ui.FG40}{h}{ui.RESET}")
             print()
 
 
@@ -1238,8 +1238,8 @@ def print_list(json_output: bool = False):
         for t in tools:
             badge, color = RISK_COLORS.get(t.risk, ("", ui.FG70))
             risk_str = f"[{badge.upper()}]" if badge else ""
-            print(f"  {color}{risk_str}{ui.RESET} {ui.ACC}{t.name}{ui.RESET}")
-            print(f"  {ui.FG40}{t.description}{ui.RESET}")
+            ui.texto(f"  {color}{risk_str}{ui.RESET} {ui.ACC}{t.name}{ui.RESET}")
+            ui.texto(f"  {ui.FG40}{t.description}{ui.RESET}")
         print()
 
 
@@ -1253,8 +1253,8 @@ def print_category(name: str, json_output: bool = False):
             badge, color = RISK_COLORS.get(t.risk, ("", ui.FG70))
             print()
             ui.modulo("goodhunter_tool", t.category)
-            print(f"  {color}[{badge.upper()}]{ui.RESET} {ui.ACC}{t.name}{ui.RESET}")
-            print(f"  {ui.FG40}{t.description}{ui.RESET}")
+            ui.texto(f"  {color}[{badge.upper()}]{ui.RESET} {ui.ACC}{t.name}{ui.RESET}")
+            ui.texto(f"  {ui.FG40}{t.description}{ui.RESET}")
             print()
             if t.aliases:
                 ui.kv("ALIASES", ", ".join(t.aliases))
@@ -1264,32 +1264,32 @@ def print_category(name: str, json_output: bool = False):
             if t.processes:
                 ui.secao("processes")
                 for p in t.processes:
-                    print(f"  {ui.FG70}{p}{ui.RESET}")
+                    ui.texto(f"  {ui.FG70}{p}{ui.RESET}")
                 print()
             if t.services:
                 ui.secao("services")
                 for s in t.services:
-                    print(f"  {ui.FG70}{s}{ui.RESET}")
+                    ui.texto(f"  {ui.FG70}{s}{ui.RESET}")
                 print()
             if t.registry:
                 ui.secao("registry")
                 for r in t.registry:
-                    print(f"  {ui.FG70}{r}{ui.RESET}")
+                    ui.texto(f"  {ui.FG70}{r}{ui.RESET}")
                 print()
             if t.install_dirs:
                 ui.secao("install directories")
                 for d in t.install_dirs:
-                    print(f"  {ui.FG70}{d}{ui.RESET}")
+                    ui.texto(f"  {ui.FG70}{d}{ui.RESET}")
                 print()
             if t.startup_entries:
                 ui.secao("startup entries")
                 for e in t.startup_entries:
-                    print(f"  {ui.FG70}{e}{ui.RESET}")
+                    ui.texto(f"  {ui.FG70}{e}{ui.RESET}")
                 print()
             if t.urls:
                 ui.secao("urls / domains")
                 for u in t.urls:
-                    print(f"  {ui.FG70}{u}{ui.RESET}")
+                    ui.texto(f"  {ui.FG70}{u}{ui.RESET}")
                 print()
             if t.notes:
                 ui.kv("NOTES", t.notes)
@@ -1345,7 +1345,7 @@ def print_analyze(found: ScanResult, json_output: bool = False):
         if not tool:
             continue
         _, color = RISK_COLORS.get(item["risk"], ("", ui.FG70))
-        print(f"  {color}[{item['risk'].upper()}]{ui.RESET} {ui.ACC}{name}{ui.RESET}")
+        ui.texto(f"  {color}[{item['risk'].upper()}]{ui.RESET} {ui.ACC}{name}{ui.RESET}")
         caps = []
         if tool.captures_screen:
             caps.append(("screen", tool.captures_screen))
@@ -1369,18 +1369,18 @@ def print_analyze(found: ScanResult, json_output: bool = False):
             caps.append(("files", tool.captures_files))
         if tool.captures_gps:
             caps.append(("GPS", tool.captures_gps))
-        print(f"  {ui.FG40}{'─' * 30}{ui.RESET}")
+        ui.texto(f"  {ui.FG40}{'─' * 30}{ui.RESET}")
         for label, detail in caps:
-            print(f"  {ui.ALERTA}◼{ui.RESET} {ui.FG70}{label:<12}{ui.RESET} {ui.FG40}{detail}{ui.RESET}")
+            ui.texto(f"  {ui.ALERTA}◼{ui.RESET} {ui.FG70}{label:<12}{ui.RESET} {ui.FG40}{detail}{ui.RESET}")
         if not caps:
-            print(f"  {ui.FG40}  (no specific capability data){ui.RESET}")
-        print(f"  {ui.FG40}  watchdog: {'YES' if tool.has_watchdog else 'no'}  ·  kill alert: {'YES' if tool.detectable_kill else 'no'}{ui.RESET}")
+            ui.texto(f"  {ui.FG40}  (no specific capability data){ui.RESET}")
+        ui.texto(f"  {ui.FG40}  watchdog: {'YES' if tool.has_watchdog else 'no'}  ·  kill alert: {'YES' if tool.detectable_kill else 'no'}{ui.RESET}")
         print()
     print()
     ui.secao("what this means")
-    print(f"  {ui.FG40}If a tool captures keystrokes, everything you type is visible{ui.RESET}")
-    print(f"  {ui.FG40}If a tool captures screen, anything on your monitor is recorded{ui.RESET}")
-    print(f"  {ui.FG40}Killing these processes{' WILL ' if any(t.detectable_kill for t in DATABASE if t.name in [i['name'] for i in all_items]) else ' MAY '}trigger an alert{ui.RESET}")
+    ui.texto(f"  {ui.FG40}If a tool captures keystrokes, everything you type is visible{ui.RESET}")
+    ui.texto(f"  {ui.FG40}If a tool captures screen, anything on your monitor is recorded{ui.RESET}")
+    ui.texto(f"  {ui.FG40}Killing these processes{' WILL ' if any(t.detectable_kill for t in DATABASE if t.name in [i['name'] for i in all_items]) else ' MAY '}trigger an alert{ui.RESET}")
     print()
 
 
@@ -1484,8 +1484,8 @@ def main():
             return
         print()
         ui.secao("BLOCKING C2 DOMAINS")
-        print(f"  {ui.FG40}Adding entries to hosts file. This prevents data exfiltration{ui.RESET}")
-        print(f"  {ui.FG40}without killing the process (no heartbeat alert).{ui.RESET}")
+        ui.texto(f"  {ui.FG40}Adding entries to hosts file. This prevents data exfiltration{ui.RESET}")
+        ui.texto(f"  {ui.FG40}without killing the process (no heartbeat alert).{ui.RESET}")
         print()
         block_domains(all_items)
         return
@@ -1497,14 +1497,14 @@ def main():
         ui.modulo("goodhunter_evade", "fake activity generator")
         ui.kv("FILE", path)
         print()
-        print(f"  {ui.FG40}On your Windows machine, run in a HIDDEN window:{ui.RESET}")
-        print(f"  {ui.ACC}  powershell -WindowStyle Hidden -File \"{path}\"{ui.RESET}")
+        ui.texto(f"  {ui.FG40}On your Windows machine, run in a HIDDEN window:{ui.RESET}")
+        ui.texto(f"  {ui.ACC}  powershell -WindowStyle Hidden -File \"{path}\"{ui.RESET}")
         print()
-        print(f"  {ui.FG40}What it does:{ui.RESET}")
-        print(f"  {ui.FG40}  - Moves the mouse randomly every 15-90s{ui.RESET}")
-        print(f"  {ui.FG40}  - Types work-related words in a hidden Notepad{ui.RESET}")
-        print(f"  {ui.FG40}  - Opens/closes Outlook, Excel, Chrome periodically{ui.RESET}")
-        print(f"  {ui.FG40}  - Keeps your status 'active' in productivity reports{ui.RESET}")
+        ui.texto(f"  {ui.FG40}What it does:{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Moves the mouse randomly every 15-90s{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Types work-related words in a hidden Notepad{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Opens/closes Outlook, Excel, Chrome periodically{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Keeps your status 'active' in productivity reports{ui.RESET}")
         print()
         return
     if cmd == "firewall":
@@ -1515,13 +1515,13 @@ def main():
         ui.modulo("goodhunter_firewall", "block monitoring processes from internet")
         ui.kv("FILE", path)
         print()
-        print(f"  {ui.FG40}On your Windows machine, run AS ADMIN:{ui.RESET}")
-        print(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
+        ui.texto(f"  {ui.FG40}On your Windows machine, run AS ADMIN:{ui.RESET}")
+        ui.texto(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
         print()
-        print(f"  {ui.FG40}What it does:{ui.RESET}")
-        print(f"  {ui.FG40}  - Creates Windows Firewall OUTBOUND rules for each detected tool{ui.RESET}")
-        print(f"  {ui.FG40}  - The process still runs (no heartbeat alert = safe){ui.RESET}")
-        print(f"  {ui.FG40}  - Data is captured locally but CANNOT be sent to the server{ui.RESET}")
+        ui.texto(f"  {ui.FG40}What it does:{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Creates Windows Firewall OUTBOUND rules for each detected tool{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - The process still runs (no heartbeat alert = safe){ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Data is captured locally but CANNOT be sent to the server{ui.RESET}")
         print()
         return
     if cmd == "shield":
@@ -1532,15 +1532,15 @@ def main():
         ui.modulo("goodhunter_shield", "transparent overlay blocks screenshots")
         ui.kv("FILE", path)
         print()
-        print(f"  {ui.FG40}On your Windows machine, run:{ui.RESET}")
-        print(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
+        ui.texto(f"  {ui.FG40}On your Windows machine, run:{ui.RESET}")
+        ui.texto(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
         print()
-        print(f"  {ui.FG40}How it works:{ui.RESET}")
-        print(f"  {ui.FG40}  - Opens a transparent fullscreen window on TOP of everything{ui.RESET}")
-        print(f"  {ui.FG40}  - Press Alt+Shift+S to toggle shield ON (solid white){ui.RESET}")
-        print(f"  {ui.FG40}  - Press Alt+Shift+S to toggle shield OFF (transparent){ui.RESET}")
-        print(f"  {ui.FG40}  - Does NOT block mouse/keyboard — you work normally underneath{ui.RESET}")
-        print(f"  {ui.FG40}  - Screenshots capture ONLY the shield color, not your work{ui.RESET}")
+        ui.texto(f"  {ui.FG40}How it works:{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Opens a transparent fullscreen window on TOP of everything{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Press Alt+Shift+S to toggle shield ON (solid white){ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Press Alt+Shift+S to toggle shield OFF (transparent){ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Does NOT block mouse/keyboard — you work normally underneath{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Screenshots capture ONLY the shield color, not your work{ui.RESET}")
         print()
         return
     if cmd == "watch":
@@ -1551,14 +1551,14 @@ def main():
         ui.modulo("goodhunter_watch", "real-time surveillance monitor")
         ui.kv("FILE", path)
         print()
-        print(f"  {ui.FG40}On your Windows machine, run:{ui.RESET}")
-        print(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
+        ui.texto(f"  {ui.FG40}On your Windows machine, run:{ui.RESET}")
+        ui.texto(f"  {ui.ACC}  powershell -File \"{path}\"{ui.RESET}")
         print()
-        print(f"  {ui.FG40}Monitors in real-time:{ui.RESET}")
-        print(f"  {ui.FG40}  - Known monitoring processes starting{ui.RESET}")
-        print(f"  {ui.FG40}  - Webcam activation{ui.RESET}")
-        print(f"  {ui.FG40}  - Network connections to C2 servers{ui.RESET}")
-        print(f"  {ui.FG40}  - Press Q to quit{ui.RESET}")
+        ui.texto(f"  {ui.FG40}Monitors in real-time:{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Known monitoring processes starting{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Webcam activation{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Network connections to C2 servers{ui.RESET}")
+        ui.texto(f"  {ui.FG40}  - Press Q to quit{ui.RESET}")
         print()
         return
 

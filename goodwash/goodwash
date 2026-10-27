@@ -878,7 +878,7 @@ def cmd_lavar(intensidade, texto, saida, ate=None, tentativas=1):
     nota("o delta mede os mesmos eixos que a reescrita ataca — cair é esperado e "
          "não vale como aprovação em detector externo (GPTZero, Turnitin).")
     for bloco in result.split("\n"):
-        print(f"  {bloco}" if bloco.strip() else "")
+        ui.texto(f"  {bloco}" if bloco.strip() else "")
     print()
     if truncado:
         ui.aviso("truncado", "o modelo bateu o teto de tokens e a reescrita foi "
@@ -930,7 +930,7 @@ def cmd_checar(texto):
         for f, ctx in formulas[:12]:
             ui.item("·", f, f"— …{ctx}…")
         if len(formulas) > 12:
-            print(f"  {ui.FG40}· +{len(formulas) - 12} outras{ui.RESET}")
+            ui.texto(f"  {ui.FG40}· +{len(formulas) - 12} outras{ui.RESET}")
         print()
     if buzz:
         ui.secao("palavras batidas (trocáveis)")

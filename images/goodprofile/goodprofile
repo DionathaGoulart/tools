@@ -32,7 +32,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "lib")
 )
 import imgcore  # noqa: E402
-from retro import Retro  # noqa: E402
+from retro import Retro, TerminalParser  # noqa: E402
 
 # preset catalog: nome -> (grupo, largura, altura, nota) — sizes reviewed 2026-07;
 # platforms move these around, updating this dict updates the whole tool
@@ -557,12 +557,12 @@ def catalogo(ui: Retro):
         valor = f"{w}x{h}"
         ui.kv(nome, valor)
         if nota:
-            print(f"      {ui.FG40}{nota}{ui.RESET}")
+            ui.texto(f"      {ui.FG40}{nota}{ui.RESET}")
     print()
     ui.secao("kits (vários tamanhos de uma vez)")
     for kit, lista in KITS.items():
         ui.kv(kit, f"{len(lista)} TAMANHOS")
-        print(f"      {ui.FG40}{' · '.join(lista)}{ui.RESET}")
+        ui.texto(f"      {ui.FG40}{' · '.join(lista)}{ui.RESET}")
     print()
     ui.secao("custom")
     ui.kv("LARGURAxALTURA", "EX: 800x600")
@@ -571,7 +571,7 @@ def catalogo(ui: Retro):
 
 # ------------------------------------------------------------- cli
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = TerminalParser(
         prog="goodprofile",
         description="encaixa imagens nos tamanhos prontos de perfil/rede social.",
         add_help=False,
@@ -682,7 +682,7 @@ def main() -> int:
             return 2
 
     if args.help:
-        print(HELP.format(
+        ui.texto(HELP.format(
             titulo=ui.forte("[ MODULE: GOODPROFILE ]"),
             u=ui.ACC + ui.BOLD, a=ui.ACC, d=ui.FG40, r=ui.RESET,
         ))
@@ -691,7 +691,7 @@ def main() -> int:
         catalogo(ui)
         return 0
     if not arquivos:
-        print(HELP.format(
+        ui.texto(HELP.format(
             titulo=ui.forte("[ MODULE: GOODPROFILE ]"),
             u=ui.ACC + ui.BOLD, a=ui.ACC, d=ui.FG40, r=ui.RESET,
         ))
