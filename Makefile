@@ -1,7 +1,7 @@
 # Dev tasks for the good* tools. `make check` runs everything CI runs.
-# Requires: python3 (tests), ruff (python lint), shellcheck (shell lint).
+# Requires: python3, Go (see goodpen/standalone/go.mod), ruff and shellcheck.
 #   brew install ruff shellcheck      # macOS
-.PHONY: help test test-sh lint lint-py lint-sh syntax-sh check fix install uninstall doctor
+.PHONY: help test test-sh test-go lint lint-py lint-sh syntax-sh check fix install uninstall doctor
 
 SHELL := bash
 
@@ -13,7 +13,7 @@ SH_SCRIPTS := $(shell find . -path ./.git -prune -o -name '*.sh' -print) \
 	goodcheats/good goodcheats/goodcheat goodcheats/goodharness goodrepo/goodrepo
 
 help:
-	@echo "targets: test  test-sh  lint  lint-py  lint-sh  syntax-sh  check  fix  install  uninstall  doctor"
+	@echo "targets: test  test-sh  test-go  lint  lint-py  lint-sh  syntax-sh  check  fix  install  uninstall  doctor"
 
 test: ## python unit tests (stdlib unittest, no deps)
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -22,6 +22,9 @@ test-sh: ## bash smoke tests (rc block, goodharness, goodrepo) — need symlinks
 	bash tests/test_rcblock.sh
 	bash tests/test_goodharness.sh
 	bash tests/test_goodrepo.sh
+
+test-go: ## standalone vault terminal layouts
+	cd goodpen/standalone && go test ./...
 
 lint: lint-py lint-sh ## every linter
 
@@ -34,7 +37,7 @@ lint-sh: ## shellcheck over every shell script (config in .shellcheckrc)
 syntax-sh: ## bash -n syntax gate (catches bash 3.2 issues too)
 	@set -e; for f in $(SH_SCRIPTS); do [ -f "$$f" ] || continue; echo "checking $$f"; bash -n "$$f"; done
 
-check: test test-sh lint syntax-sh ## everything CI runs, locally
+check: test test-sh test-go lint syntax-sh ## everything CI runs, locally
 
 fix: ## auto-fix what ruff can
 	ruff check --fix .

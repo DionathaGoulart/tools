@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: goodpen/standalone/go.mod
+          cache-dependency-path: goodpen/standalone/go.sum
+      - name: terminal tests
+        working-directory: goodpen/standalone
+        run: go test ./...
+
   python:
     strategy:
       fail-fast: false

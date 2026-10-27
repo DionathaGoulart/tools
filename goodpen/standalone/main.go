@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"time"
@@ -112,41 +113,272 @@ var menuOpcoes = [][4]string{
 	{"9", "EXPORTAR CHAVE", "W", "NAVEGADOR"},
 }
 
-func menuLinhas() []string {
-	linhas := make([]string, 0, len(menuOpcoes))
+func menuOpcao(chave, rotulo string, largura int) string {
+	if largura < 4 {
+		return Cortar(chave, largura)
+	}
+	return Cortar(ui.SItem("["+chave+"]", rotulo, ""), largura)
+}
+
+func menuLinhas(largura int) []string {
+	linhas := make([]string, 0, len(menuOpcoes)*2)
+	duasColunas := largura >= 48
 	for _, o := range menuOpcoes {
-		esq := ui.SItem("["+o[0]+"]", o[1], "")
-		linhas = append(linhas, ui.Preenche(esq, 24)+ui.SItem("["+o[2]+"]", o[3], ""))
+		if !duasColunas {
+			esq := menuOpcao(o[0], o[1], largura)
+			dir := menuOpcao(o[2], o[3], largura)
+			linhas = append(linhas, esq, dir)
+			continue
+		}
+		esqLargura := (largura - 1) / 2
+		esq := menuOpcao(o[0], o[1], esqLargura)
+		dir := menuOpcao(o[2], o[3], largura-esqLargura-1)
+		linhas = append(linhas, esq+strings.Repeat(" ", max(0, esqLargura-Largura(esq)))+" "+dir)
 	}
 	return linhas
 }
 
-func drawMenu(n int) {
+func menuCaixaLinha(conteudo string) string {
+	conteudo = Cortar(conteudo, ui.cf)
+	return ui.ACC + "┃" + ui.RESET + " " + conteudo + strings.Repeat(" ", max(0, ui.cf-Largura(conteudo))) + " " +
+		ui.ACC + "┃" + ui.RESET + ui.ACC15 + "▒" + ui.RESET
+}
+
+func menuFrame(n, pagina int) ([]string, int) {
+	ui.AtualizarTamanho()
 	meta := fmt.Sprintf("%d SENHA(S)", n)
-	linhas := menuLinhas()
-	rodape := "[0] SAIR · [1-9] ACAO"
-	if !ui.Caixa {
-		ui.Modulo("vault_menu", meta)
-		for _, l := range linhas {
-			fmt.Println("  " + l)
+	caixa := ui.Caixa && ui.rows >= 10
+	largura := ui.cols
+	if caixa {
+		largura = ui.cf
+	} else if ui.cols >= 3 {
+		largura -= 2
+	}
+	todas := menuLinhas(max(1, largura))
+	maxLinhas := 0
+	if caixa {
+		maxLinhas = max(1, ui.rows-9) // chrome fixo + prompt
+	} else {
+		cabeca, sair := ui.rows >= 5, ui.rows >= 3
+		maxLinhas = max(0, ui.rows-1)
+		if cabeca {
+			maxLinhas--
 		}
-		fmt.Println()
-		ui.Item("[0]", "SAIR", "")
-		return
+		if sair {
+			maxLinhas--
+		}
 	}
-	fmt.Println()
-	ui.Topo()
-	ui.Chrome("root@cofre: ~/vault", meta)
-	ui.Sep()
-	ui.Linha(ui.ACC + ui.BOLD + "[ MODULE: VAULT_MENU ]" + ui.RESET)
-	ui.Linha("")
+	paginaTamanho := max(1, maxLinhas)
+	paginas := max(1, (len(todas)+paginaTamanho-1)/paginaTamanho)
+	pagina = ((pagina % paginas) + paginas) % paginas
+	inicio := pagina * paginaTamanho
+	fim := min(len(todas), inicio+maxLinhas)
+	linhas := todas[inicio:fim]
+	rodape := "[0] SAIR · [1-9] ACAO"
+	if paginas > 1 {
+		rodape += fmt.Sprintf(" · [N/P] %d/%d", pagina+1, paginas)
+	}
+	if caixa {
+		meta = Cortar(meta, max(1, ui.cf/3))
+		titulo := Cortar("root@cofre: ~/vault", max(1, ui.cf-8-Largura(meta)))
+		pad := max(1, ui.cf-7-Largura(titulo)-Largura(meta))
+		quadro := []string{
+			ui.ACC + "┏" + strings.Repeat("━", ui.bw-2) + "┓" + ui.RESET,
+			ui.ACC + "┃" + ui.RESET + " " + ui.ACC + "●" + ui.RESET + " " + ui.ACC50 + "●" + ui.RESET + " " + ui.ACC30 + "●" + ui.RESET + "  " + ui.ACC50 + titulo + ui.RESET + strings.Repeat(" ", pad) + ui.ACC30 + meta + ui.RESET + " " + ui.ACC + "┃" + ui.RESET + ui.ACC15 + "▒" + ui.RESET,
+			ui.ACC + "┠" + strings.Repeat("─", ui.bw-2) + "┨" + ui.RESET + ui.ACC15 + "▒" + ui.RESET,
+			menuCaixaLinha(ui.ACC + ui.BOLD + "[ MODULE: VAULT_MENU ]" + ui.RESET),
+		}
+		for _, linha := range linhas {
+			quadro = append(quadro, menuCaixaLinha(linha))
+		}
+		esquerda := Cortar(rodape, max(1, ui.cf-1))
+		quadro = append(quadro,
+			ui.ACC+"┠"+strings.Repeat("─", ui.bw-2)+"┨"+ui.RESET+ui.ACC15+"▒"+ui.RESET,
+			ui.ACC+"┃"+ui.INV+ui.BOLD+" "+esquerda+strings.Repeat(" ", max(1, ui.cf-Largura(esquerda)))+" "+ui.RESET+ui.ACC+"┃"+ui.RESET+ui.ACC15+"▒"+ui.RESET,
+			ui.ACC+"┗"+strings.Repeat("━", ui.bw-2)+"┛"+ui.RESET+ui.ACC15+"▒"+ui.RESET,
+			" "+ui.ACC15+strings.Repeat("▒", ui.bw)+ui.RESET,
+		)
+		return quadro, paginas
+	}
+	quadro := make([]string, 0, len(linhas)+2)
+	if ui.rows >= 5 {
+		quadro = append(quadro, Cortar(ui.ACC+ui.BOLD+"[ MODULE: VAULT_MENU ]"+ui.RESET+" "+ui.ACC30+meta+ui.RESET, max(1, largura)))
+	}
 	for _, l := range linhas {
-		ui.Linha(l)
+		quadro = append(quadro, l)
 	}
-	ui.Sep()
-	ui.Status(rodape, "● PRONTO")
-	ui.Base()
-	ui.Sombra()
+	if ui.rows >= 3 {
+		quadro = append(quadro, menuOpcao("0", "SAIR", max(1, largura)))
+	}
+	return quadro, paginas
+}
+
+func drawMenu(n, pagina int) int {
+	quadro, paginas := menuFrame(n, pagina)
+	for _, linha := range quadro {
+		if ui.cols >= 3 && !ui.Caixa {
+			fmt.Println("  " + linha)
+			continue
+		}
+		fmt.Println(linha)
+	}
+	return paginas
+}
+
+func menuPrompt(entrada string) string {
+	if ui.cols <= 1 {
+		if entrada == "" {
+			return ui.ACC30 + ">" + ui.RESET
+		}
+		return Cortar(entrada, 1)
+	}
+	prefixo := ui.ACC30 + ">" + ui.RESET + " "
+	return prefixo + Cortar(entrada, max(0, ui.cols-2))
+}
+
+func comandoMenuByte(b byte) bool {
+	return strings.ContainsRune("0123456789wWnNpP+-qQsSaAiIrR", rune(b))
+}
+
+// leMenu keeps the only interactive screen responsive. It uses raw mode only
+// for the one-character menu (never password or vault input), so a resize can
+// repaint the frame without losing characters already typed by the user.
+func leMenu(n, pagina int) (string, int) {
+	if !ui.TTY || !term.IsTerminal(int(os.Stdin.Fd())) {
+		paginas := drawMenu(n, pagina)
+		return readLine(menuPrompt("")), paginas
+	}
+	antigo, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		paginas := drawMenu(n, pagina)
+		return readLine(menuPrompt("")), paginas
+	}
+	defer term.Restore(int(os.Stdin.Fd()), antigo)
+	sinais := make(chan os.Signal, 1)
+	pararSinais := make(chan struct{})
+	sinaisFinalizados := make(chan struct{})
+	signal.Notify(sinais, menuSignals()...)
+	defer func() {
+		signal.Stop(sinais)
+		close(pararSinais)
+		<-sinaisFinalizados
+	}()
+	go func() {
+		defer close(sinaisFinalizados)
+		select {
+		case recebido := <-sinais:
+			// os.Exit ignora defers: restaura antes de encerrar o processo.
+			_ = term.Restore(int(os.Stdin.Fd()), antigo)
+			os.Exit(menuSignalExitCode(recebido))
+		case <-pararSinais:
+		}
+	}()
+
+	type leitura struct{ dados []byte }
+	entradas := make(chan leitura)
+	continuar := make(chan bool)
+	finalizado := make(chan struct{})
+	go func() {
+		defer close(finalizado)
+		for {
+			// Uma unidade por vez preserva o restante de um paste para a tela
+			// seguinte (por exemplo: "4\\nnome\\n"), que ainda sera lido pelo
+			// bufio.Reader normal apos restaurar o terminal.
+			buffer := make([]byte, 1)
+			n, _ := os.Stdin.Read(buffer)
+			if n == 0 {
+				entradas <- leitura{}
+				return
+			}
+			entradas <- leitura{dados: buffer[:n]}
+			if !<-continuar {
+				return
+			}
+		}
+	}()
+
+	entrada := ""
+	escape := false
+	linhasAnteriores := 0
+	ultimoW, ultimoH := -1, -1
+	paginas := 1
+	desenhar := func(limpar bool) {
+		ui.AtualizarTamanho()
+		if limpar && !ui.Plano {
+			fmt.Print("\r\033[2K")
+			if linhasAnteriores > 0 {
+				fmt.Printf("\033[%dA", linhasAnteriores)
+			}
+			fmt.Print("\033[J")
+		} else if limpar {
+			fmt.Print("\r\n")
+		}
+		quadro, p := menuFrame(n, pagina)
+		paginas = p
+		for _, linha := range quadro {
+			if ui.cols >= 3 && !ui.Caixa {
+				fmt.Print("  " + linha + "\r\n")
+			} else {
+				fmt.Print(linha + "\r\n")
+			}
+		}
+		fmt.Print(menuPrompt(entrada))
+		linhasAnteriores = len(quadro)
+		ultimoW, ultimoH = ui.cols, ui.rows
+	}
+	desenhar(false)
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case dado := <-entradas:
+			if len(dado.dados) == 0 {
+				<-finalizado
+				fmt.Print("\r\n")
+				return strings.TrimSpace(entrada), paginas
+			}
+			for _, b := range dado.dados {
+				if escape {
+					if b != '[' && b != 'O' && b >= '@' && b <= '~' {
+						escape = false
+					}
+					continue
+				}
+				switch b {
+				case 27:
+					escape = true
+				case '\r', '\n':
+					continuar <- false
+					<-finalizado
+					fmt.Print("\r\n")
+					return strings.TrimSpace(entrada), paginas
+				case 3: // Ctrl-C: return to the caller as a normal quit command.
+					continuar <- false
+					<-finalizado
+					fmt.Print("\r\n")
+					return "q", paginas
+				case 8, 127:
+					if len(entrada) > 0 {
+						entrada = entrada[:len(entrada)-1]
+					}
+				default:
+					// O menu aceita somente comandos conhecidos. Isso descarta ESC,
+					// setas e outros controles, sem jamais ecoar sequencias ANSI.
+					if comandoMenuByte(b) {
+						entrada += string(b)
+					}
+				}
+			}
+			continuar <- true
+			desenhar(true)
+		case <-ticker.C:
+			w, h := ui.AtualizarTamanho()
+			if w != ultimoW || h != ultimoH {
+				desenhar(true)
+			}
+		}
+	}
 }
 
 func runMenu() {
@@ -158,10 +390,18 @@ func runMenu() {
 	if err != nil {
 		die(err.Error())
 	}
+	pagina := 0
 	for {
 		names, _ := v.List()
-		drawMenu(len(names))
-		switch strings.ToLower(readLine("\n" + ui.ACC30 + ">" + ui.RESET + " ")) {
+		resposta, paginas := leMenu(len(names), pagina)
+		pagina = pagina % paginas
+		switch strings.ToLower(resposta) {
+		case "n", "+":
+			pagina = (pagina + 1) % paginas
+			continue
+		case "p", "-":
+			pagina = (pagina - 1 + paginas) % paginas
+			continue
 		case "1":
 			cmdList(v)
 		case "2":

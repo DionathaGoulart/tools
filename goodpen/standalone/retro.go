@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -107,10 +108,14 @@ type Retro struct {
 	Cor       bool
 	Truecolor bool
 
-	cols  int
-	bw    int  // box width
-	cf    int  // usable content width inside the box
-	Caixa bool // draw boxes at all
+	cols    int
+	rows    int
+	maxBW   int
+	tamanho func() (int, int)
+	bw      int  // box width
+	cf      int  // usable content width inside the box
+	Caixa   bool // draw boxes at all
+	Plano   bool // NO_COLOR, TERM=dumb, or redirected output
 
 	RESET, BOLD, DIM                 string
 	ACC, ACC70, ACC50, ACC30, ACC15  string
@@ -139,26 +144,187 @@ func NewRetro(larguraCaixa int) *Retro {
 	}
 
 	r.TTY = term.IsTerminal(int(os.Stdout.Fd()))
-	r.Cor = r.TTY && os.Getenv("NO_COLOR") == ""
+	r.Plano = modoPlano(r.TTY)
+	r.Cor = r.TTY && !r.Plano
 	ct := os.Getenv("COLORTERM")
 	r.Truecolor = r.Cor && (strings.Contains(ct, "truecolor") || strings.Contains(ct, "24bit"))
 
-	r.cols = 80
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-		r.cols = w
+	r.maxBW = max(1, larguraCaixa)
+	r.tamanho = func() (int, int) {
+		w, h, err := term.GetSize(int(os.Stdout.Fd()))
+		if err != nil || w < 1 || h < 1 {
+			return 80, 24
+		}
+		return w, h
 	}
-	r.bw = larguraCaixa
-	if lim := r.cols - 3; lim < r.bw {
-		r.bw = lim
-	}
-	if r.bw < 20 {
-		r.bw = 20
-	}
-	r.Caixa = r.TTY && r.bw >= 46
-	r.cf = r.bw - 4
+	r.AtualizarTamanho()
 
 	r.tokens()
 	return r
+}
+
+func modoPlano(tty bool) bool {
+	_, semCor := os.LookupEnv("NO_COLOR")
+	return !tty || semCor || os.Getenv("TERM") == "dumb"
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// AtualizarTamanho relê as dimensões antes de cada desenho. Não depende de
+// SIGWINCH, portanto funciona igualmente em Windows e em terminais remotos.
+func (r *Retro) AtualizarTamanho() (int, int) {
+	r.cols, r.rows = r.tamanho()
+	r.cols, r.rows = max(1, r.cols), max(1, r.rows)
+	r.bw = max(1, min(r.maxBW, r.cols-1))
+	r.cf = max(1, r.bw-4)
+	r.Caixa = r.TTY && !r.Plano && r.cols >= 46 && r.bw >= 20
+	return r.cols, r.rows
+}
+
+func partes(texto string) []string {
+	partes := []string{}
+	for len(texto) > 0 {
+		if indice := reANSI.FindStringIndex(texto); indice != nil && indice[0] == 0 {
+			partes = append(partes, texto[:indice[1]])
+			texto = texto[indice[1]:]
+			continue
+		}
+		_, tamanho := utf8.DecodeRuneInString(texto)
+		partes = append(partes, texto[:tamanho])
+		texto = texto[tamanho:]
+	}
+	return partes
+}
+
+// Cortar limits text by terminal cells without splitting ANSI or combining marks.
+func Cortar(texto string, limite int) string {
+	if limite <= 0 {
+		return ""
+	}
+	if Largura(texto) <= limite {
+		return texto
+	}
+	usados := 0
+	var resultado strings.Builder
+	for _, parte := range partes(texto) {
+		if reANSI.MatchString(parte) {
+			resultado.WriteString(parte)
+			continue
+		}
+		largura := Largura(parte)
+		if largura > 0 && usados+largura > limite-1 {
+			break
+		}
+		resultado.WriteString(parte)
+		usados += largura
+	}
+	if limite >= 1 {
+		resultado.WriteString("…")
+	}
+	if strings.Contains(resultado.String(), "\033[") {
+		resultado.WriteString("\033[0m")
+	}
+	return resultado.String()
+}
+
+// Quebrar returns terminal-cell-sized lines. Pipes never call it, preserving data.
+func Quebrar(texto string, limite int) []string {
+	if limite <= 0 || texto == "" {
+		return []string{texto}
+	}
+	linhas := []string{}
+	var atual strings.Builder
+	estado := ""
+	usados := 0
+	fechar := func() string {
+		linha := atual.String()
+		if estado != "" {
+			linha += "\033[0m"
+		}
+		return linha
+	}
+	novaLinha := func() {
+		atual.Reset()
+		if estado != "" {
+			atual.WriteString(estado)
+		}
+		usados = 0
+	}
+	for _, parte := range partes(texto) {
+		if parte == "\n" {
+			linhas = append(linhas, fechar())
+			novaLinha()
+			continue
+		}
+		if reANSI.MatchString(parte) {
+			atual.WriteString(parte)
+			codigo := strings.TrimSuffix(strings.TrimPrefix(parte, "\033["), "m")
+			if codigo == "" || codigo == "0" {
+				estado = ""
+			} else {
+				estado += parte
+			}
+			continue
+		}
+		largura := Largura(parte)
+		if largura > 0 && usados > 0 && usados+largura > limite {
+			linhas = append(linhas, fechar())
+			novaLinha()
+		}
+		if largura > limite { // no one-cell representation for a wide rune
+			atual.WriteString("?")
+			usados++
+			continue
+		}
+		atual.WriteString(parte)
+		usados += largura
+	}
+	linhas = append(linhas, fechar())
+	return linhas
+}
+
+func (r *Retro) flat(texto string) {
+	r.AtualizarTamanho()
+	prefixo := ""
+	if r.cols >= 3 {
+		prefixo = "  "
+	}
+	if !r.TTY {
+		fmt.Println(prefixo + texto)
+		return
+	}
+	for _, linha := range Quebrar(texto, max(1, r.cols-Largura(prefixo))) {
+		fmt.Println(prefixo + linha)
+	}
+}
+
+// Texto prints prose with wrapping in an interactive terminal and complete data
+// when redirected to a file or another command.
+func (r *Retro) Texto(texto string, largura ...int) {
+	r.AtualizarTamanho()
+	if !r.TTY {
+		fmt.Println(texto)
+		return
+	}
+	limite := r.cols
+	if len(largura) > 0 {
+		limite = min(r.cols, max(1, largura[0]))
+	}
+	for _, linha := range Quebrar(texto, limite) {
+		fmt.Println(linha)
+	}
 }
 
 func (r *Retro) fgSeq(h string) string {
@@ -217,6 +383,8 @@ func (r *Retro) Invertido(texto string) string {
 
 // Preenche pads a styled string to n visible columns.
 func (r *Retro) Preenche(texto string, n int) string {
+	r.AtualizarTamanho()
+	n = min(n, max(1, r.cols))
 	if pad := n - Largura(texto); pad > 0 {
 		return texto + strings.Repeat(" ", pad)
 	}
@@ -227,26 +395,23 @@ func (r *Retro) Preenche(texto string, n int) string {
 
 // Modulo prints the [ MODULE: X ] header every command output opens with.
 func (r *Retro) Modulo(rotulo, meta string) {
+	r.AtualizarTamanho()
 	linha := "\n  " + r.ACC + r.BOLD + "[ MODULE: " + strings.ToUpper(rotulo) + " ]" + r.RESET
 	if meta != "" {
 		linha += "  " + r.ACC30 + strings.ToUpper(meta) + r.RESET
 	}
-	fmt.Println(linha + "\n")
+	r.Texto(linha)
+	fmt.Println()
 }
 
 // Secao prints a "# HEADING" sub-section label.
 func (r *Retro) Secao(rotulo string) {
-	fmt.Println("  " + r.ACC + "# " + strings.ToUpper(rotulo) + r.RESET)
+	r.flat(r.ACC + "# " + strings.ToUpper(rotulo) + r.RESET)
 }
 
 func (r *Retro) pontos() int {
-	if r.cols > 60 {
-		return 44
-	}
-	if n := r.cols - 12; n > 20 {
-		return n
-	}
-	return 20
+	r.AtualizarTamanho()
+	return max(1, min(44, r.cols-4))
 }
 
 // SKV renders a key-value row (dim key, dot leader, accent-bold value).
@@ -261,10 +426,10 @@ func (r *Retro) SKV(chave, valor string) string {
 }
 
 // KV prints a key-value row. Replaces every "label: value" line.
-func (r *Retro) KV(chave, valor string) { fmt.Println("  " + r.SKV(chave, valor)) }
+func (r *Retro) KV(chave, valor string) { r.flat(r.SKV(chave, valor)) }
 
 func (r *Retro) Regra() {
-	fmt.Println("  " + r.ACC15 + strings.Repeat("─", r.pontos()) + r.RESET)
+	r.flat(r.ACC15 + strings.Repeat("─", r.pontos()) + r.RESET)
 }
 
 // SItem renders a list row: accent marker, foreground text, dim trailing meta.
@@ -277,24 +442,24 @@ func (r *Retro) SItem(marca, texto, meta string) string {
 }
 
 func (r *Retro) Item(marca, texto, meta string) {
-	fmt.Println("  " + r.SItem(marca, texto, meta))
+	r.flat(r.SItem(marca, texto, meta))
 }
 
 func (r *Retro) Ok(texto string) {
-	fmt.Println("  " + r.OK_ + "[ OK ]" + r.RESET + " " + r.ACC + r.BOLD + strings.ToUpper(texto) + r.RESET)
+	r.flat(r.OK_ + "[ OK ]" + r.RESET + " " + r.ACC + r.BOLD + strings.ToUpper(texto) + r.RESET)
 }
 
 func (r *Retro) Erro(texto string) {
-	fmt.Println("  " + r.ALERTA + "[ ERRO ]" + r.RESET + " " + texto)
+	r.flat(r.ALERTA + "[ ERRO ]" + r.RESET + " " + texto)
 }
 
 // Aviso prints a neutral bracketed status: [ VAZIO ], [ ABORTADO ], …
 func (r *Retro) Aviso(etiqueta, texto string) {
-	linha := "  " + r.FG40 + "[ " + strings.ToUpper(etiqueta) + " ]" + r.RESET
+	linha := r.FG40 + "[ " + strings.ToUpper(etiqueta) + " ]" + r.RESET
 	if texto != "" {
 		linha += " " + texto
 	}
-	fmt.Println(linha)
+	r.flat(linha)
 }
 
 // Proximo prints the "> proximo passo:  comando" hint.
@@ -302,17 +467,19 @@ func (r *Retro) Proximo(comando, prefixo string) {
 	if prefixo == "" {
 		prefixo = "proximo passo:"
 	}
-	fmt.Println("  " + r.ACC30 + ">" + r.RESET + " " + prefixo + "  " + r.ACC + r.BOLD + comando + r.RESET)
+	r.flat(r.ACC30 + ">" + r.RESET + " " + prefixo + "  " + r.ACC + r.BOLD + comando + r.RESET)
 }
 
 // Barra renders an ASCII progress bar: filled accent, track accent/18, percent.
 func (r *Retro) Barra(feito, total, larg int) string {
+	r.AtualizarTamanho()
 	if total < 1 {
 		total = 1
 	}
 	if larg < 1 {
 		larg = 24
 	}
+	larg = max(1, min(larg, max(1, r.cf-7)))
 	n := feito * larg / total
 	if n > larg {
 		n = larg
@@ -330,36 +497,60 @@ func (r *Retro) Barra(feito, total, larg int) string {
 // ── box (terminal window recipe) ───────────────────────────────────────
 
 func (r *Retro) Topo() {
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		return
+	}
 	fmt.Println(r.ACC + "┏" + strings.Repeat("━", r.bw-2) + "┓" + r.RESET)
 }
 
 func (r *Retro) Sep() {
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		return
+	}
 	fmt.Println(r.ACC + "┠" + strings.Repeat("─", r.bw-2) + "┨" + r.RESET + r.ACC15 + "▒" + r.RESET)
 }
 
 func (r *Retro) Base() {
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		return
+	}
 	fmt.Println(r.ACC + "┗" + strings.Repeat("━", r.bw-2) + "┛" + r.RESET + r.ACC15 + "▒" + r.RESET)
 }
 
 func (r *Retro) Sombra() {
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		return
+	}
 	fmt.Println(" " + r.ACC15 + strings.Repeat("▒", r.bw) + r.RESET)
 }
 
 func (r *Retro) Linha(conteudo string) {
-	pad := r.cf - Largura(conteudo)
-	if pad < 0 {
-		pad = 0
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		r.flat(conteudo)
+		return
 	}
-	fmt.Println(r.ACC + "┃" + r.RESET + " " + conteudo + strings.Repeat(" ", pad) + " " +
-		r.ACC + "┃" + r.RESET + r.ACC15 + "▒" + r.RESET)
+	for _, linha := range Quebrar(conteudo, r.cf) {
+		pad := max(0, r.cf-Largura(linha))
+		fmt.Println(r.ACC + "┃" + r.RESET + " " + linha + strings.Repeat(" ", pad) + " " +
+			r.ACC + "┃" + r.RESET + r.ACC15 + "▒" + r.RESET)
+	}
 }
 
 // Chrome is the window title bar: three accent dots, path title, right meta.
 func (r *Retro) Chrome(titulo, meta string) {
-	pad := r.cf - 7 - Largura(titulo) - Largura(meta)
-	if pad < 1 {
-		pad = 1
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		r.flat(strings.TrimSpace(titulo + " " + meta))
+		return
 	}
+	meta = Cortar(meta, max(1, r.cf/3))
+	titulo = Cortar(titulo, max(1, r.cf-8-Largura(meta)))
+	pad := max(1, r.cf-7-Largura(titulo)-Largura(meta))
 	fmt.Println(r.ACC + "┃" + r.RESET + " " +
 		r.ACC + "●" + r.RESET + " " + r.ACC50 + "●" + r.RESET + " " + r.ACC30 + "●" + r.RESET + "  " +
 		r.ACC50 + titulo + r.RESET + strings.Repeat(" ", pad) +
@@ -368,22 +559,27 @@ func (r *Retro) Chrome(titulo, meta string) {
 
 // Status is the inverted status bar at the bottom of a window.
 func (r *Retro) Status(esquerda, direita string) {
-	pad := r.cf - Largura(esquerda) - Largura(direita)
-	if pad < 1 {
-		pad = 1
+	r.AtualizarTamanho()
+	if !r.Caixa {
+		r.flat(strings.TrimSpace(esquerda + " " + direita))
+		return
 	}
+	direita = Cortar(direita, max(1, r.cf/3))
+	esquerda = Cortar(esquerda, max(1, r.cf-1-Largura(direita)))
+	pad := max(1, r.cf-Largura(esquerda)-Largura(direita))
 	fmt.Println(r.ACC + "┃" + r.INV + r.BOLD + " " + esquerda + strings.Repeat(" ", pad) + direita + " " +
 		r.RESET + r.ACC + "┃" + r.RESET + r.ACC15 + "▒" + r.RESET)
 }
 
 // Janela draws a full terminal window: chrome + body + status bar + shadow.
 func (r *Retro) Janela(titulo string, linhas []string, meta, rodape string) {
+	r.AtualizarTamanho()
 	if !r.Caixa {
 		for _, l := range linhas {
-			fmt.Println("  " + l)
+			r.flat(l)
 		}
 		if rodape != "" {
-			fmt.Println("  " + rodape)
+			r.flat(rodape)
 		}
 		return
 	}
@@ -404,6 +600,7 @@ func (r *Retro) Janela(titulo string, linhas []string, meta, rodape string) {
 // ── theme catalog ──────────────────────────────────────────────────────
 
 func (r *Retro) CatalogoTemas() {
+	r.AtualizarTamanho()
 	r.Modulo("theme_catalog", "")
 	for _, nome := range temasOrdem {
 		t := temas[nome]
@@ -417,8 +614,10 @@ func (r *Retro) CatalogoTemas() {
 				r.bgSeq(t.fg) + "  " + r.RESET +
 				r.bgSeq(t.bg) + "  " + r.RESET
 		}
-		fmt.Printf("  %s%s%s%-16s %s  %s#%s%s\n",
-			r.ACC, marca, r.RESET, nome, swatch, r.ACC15, t.acc, r.RESET)
+		r.flat(fmt.Sprintf("%s%s%s%s  %s  %s#%s%s",
+			r.ACC, marca, r.RESET, nome, swatch, r.ACC15, t.acc, r.RESET))
 	}
-	fmt.Printf("\n  %sexport %s=<nome>%s\n\n", r.FG40, r.EnvVar, r.RESET)
+	r.Texto("")
+	r.flat(r.FG40 + "export " + r.EnvVar + "=<nome>" + r.RESET)
+	r.Texto("")
 }
