@@ -36,6 +36,7 @@ unset _goodpomo_src _goodpomo_dir
 
 TEMA="${GOODPOMO_TEMA:-${RETRO_TEMA:-vault-gold}}"
 retro_init 52
+RETRO_CAIXA_MIN_ROWS=16
 
 ANIM=1
 [ "$DESENHA" -eq 1 ] || ANIM=0
@@ -133,12 +134,17 @@ figuras() { # $1 = "MM:SS"
 # ---------- estado da sessão ----------
 TIPO="" MIN=0 ROTULO=""
 ALTURA=0            # linhas já desenhadas da caixa (pra redesenhar por cima)
+STTY_POMO_SAVED=""
 CHROME_TITULO=""
 MODULO=""
 ETIQUETA=""
 TITULO_CURTO=""
 
-mostrar_cursor() { [ "$DESENHA" -eq 1 ] && printf '\033[?25h'; }
+mostrar_cursor() {
+  [ -n "$STTY_POMO_SAVED" ] && stty "$STTY_POMO_SAVED" 2>/dev/null
+  STTY_POMO_SAVED=""
+  [ "$DESENHA" -eq 1 ] && printf '\033[?25h'
+}
 
 ao_interromper() {
   mostrar_cursor
@@ -147,11 +153,14 @@ ao_interromper() {
   exit 130
 }
 trap ao_interromper INT
+trap ao_interromper TERM
 
 # ---------- render do cronômetro ----------
 render() { # $1 restante  $2 total  $3 estado(rodando|pausado|ok)  $4 tick
+  retro_refresh
   local rest=$1 total=$2 estado=$3 tick=$4
   local mm ss pct feito lar=$((CF - 6)) barra="" i cabeca dot dstr
+  [ "$lar" -lt 4 ] && lar=4
   mm=$((rest / 60)); ss=$((rest % 60))
   [ "$mm" -gt 99 ] && mm=99
   pct=$(( (total - rest) * 100 / total ))
@@ -239,34 +248,45 @@ EOF
 # modo compacto (terminal estreito ou sem tty)
 desenhar_compacto() { # $1 restante $2 total $3 titulo $4 sufixo
   [ "$DESENHA" -eq 1 ] || return 0
+  retro_refresh
   local rest=$1 total=$2 titulo=$3 sufixo=$4
-  local lar=25 feito barra="" i
+  local lar=$((COLS - 16)) feito barra="" i
+  [ "$lar" -gt 25 ] && lar=25
+  [ "$lar" -lt 1 ] && lar=0
   feito=$(( (total - rest) * lar / total ))
   i=0
   while [ "$i" -lt "$lar" ]; do
     if [ "$i" -lt "$feito" ]; then barra="${barra}█"; else barra="${barra}▒"; fi
     i=$((i + 1))
   done
-  printf '\r  %s%s%s  %s%02d:%02d%s  %s%s%s  %s%s%s   ' \
-    "$ACC" "$titulo" "$RESET" "$BOLD" $((rest / 60)) $((rest % 60)) "$RESET" \
-    "$ACC" "$barra" "$RESET" "$FG40" "$sufixo" "$RESET"
+  local linha
+  linha="$(printf '%02d:%02d' $((rest / 60)) $((rest % 60)))"
+  [ "$COLS" -ge 14 ] && linha="$linha $barra"
+  [ "$COLS" -ge 24 ] && linha="$titulo $linha"
+  [ "$COLS" -ge 40 ] && linha="$linha $sufixo"
+  printf '%s\n' "$(retro_cortar "$linha" "$COLS")"
 }
 
 contagem() { # $1 = segundos; retorna 0 completo / 1 abortado
   local total=$1
   local inicio=$SECONDS rest key pstart tick=0 estado=rodando primeiro=1
-  [ "$DESENHA" -eq 1 ] && printf '\033[?25l'
+  if [ "$DESENHA" -eq 1 ]; then
+    printf '\033[?25l\033[2J'
+    if [ -t 0 ]; then
+      STTY_POMO_SAVED=$(stty -g 2>/dev/null)
+      stty -icanon -echo min 1 time 0 2>/dev/null || STTY_POMO_SAVED=""
+    fi
+  fi
   while :; do
+    retro_refresh
     rest=$((total - (SECONDS - inicio)))
     [ "$rest" -le 0 ] && break
-    if [ "$CAIXA" -eq 1 ]; then
-      if [ "$primeiro" -eq 1 ]; then
-        render_entrada "$rest" "$total" "$estado" "$tick"; primeiro=0
+    if [ "$DESENHA" -eq 1 ]; then
+      if [ "$CAIXA" -eq 1 ]; then
+        printf '\033[H%s\033[J' "$(render "$rest" "$total" "$estado" "$tick")"
       else
-        redesenhar "$rest" "$total" "$estado" "$tick"
+        printf '\033[H%s\033[J' "$(desenhar_compacto "$rest" "$total" "$TITULO_CURTO" '[p] pausa [q] sai')"
       fi
-    else
-      desenhar_compacto "$rest" "$total" "$TITULO_CURTO" "[p] pausar · [q] sair"
     fi
     tick=$((tick + 1))
     if [ -t 0 ]; then
@@ -276,9 +296,15 @@ contagem() { # $1 = segundos; retorna 0 completo / 1 abortado
         p|P)
           pstart=$SECONDS
           estado=pausado
-          if [ "$CAIXA" -eq 1 ]; then redesenhar "$rest" "$total" pausado "$tick"
-          else desenhar_compacto "$rest" "$total" "$TITULO_CURTO" "⏸ pausado · [p] retoma · [q] sai"; fi
-          while read -rs -n 1 key 2>/dev/null; do
+          while :; do
+            retro_refresh
+            if [ "$CAIXA" -eq 1 ]; then
+              printf '\033[H%s\033[J' "$(render "$rest" "$total" pausado "$tick")"
+            else
+              printf '\033[H%s\033[J' "$(desenhar_compacto "$rest" "$total" "$TITULO_CURTO" '[p] retoma [q] sai')"
+            fi
+            key=""
+            read -rs -t 1 -n 1 key 2>/dev/null || true
             case "$key" in
               p|P) inicio=$((inicio + SECONDS - pstart)); estado=rodando; break ;;
               q|Q) mostrar_cursor; return 1 ;;
@@ -291,8 +317,10 @@ contagem() { # $1 = segundos; retorna 0 completo / 1 abortado
       sleep 1
     fi
   done
-  if [ "$CAIXA" -eq 1 ]; then redesenhar 0 "$total" ok "$tick"
-  else desenhar_compacto 0 "$total" "$TITULO_CURTO" " "; fi
+  if [ "$DESENHA" -eq 1 ]; then
+    if [ "$CAIXA" -eq 1 ]; then printf '\033[H%s\033[J' "$(render 0 "$total" ok "$tick")"
+    else printf '\033[H%s\033[J' "$(desenhar_compacto 0 "$total" "$TITULO_CURTO" 'concluido')"; fi
+  fi
   mostrar_cursor
   return 0
 }

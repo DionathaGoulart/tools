@@ -46,6 +46,7 @@ RAW=0
 ALT=0
 
 _cleanup() {
+  [ "$DESENHA" -eq 1 ] || return 0
   [ "$ALT" -eq 1 ] && printf '\033[?1049l'          # leave alt screen
   printf '\033[?25h\033[0m'                          # show cursor, reset
   [ -n "$STTY_SAVED" ] && stty "$STTY_SAVED" 2>/dev/null
@@ -95,16 +96,20 @@ _mac()  { printf '%02x:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256))
 # Status brackets follow the style guide: [ OK ] green, [ ERRO ] red — those two
 # colors only. Everything else rides the accent tokens.
 _line() { # $1 tag-color  $2 tag(4 visible chars)  $3 message
-  printf '  %s[ %s ]%s %s%s%s\n' "$1" "$2" "$RESET" "$FG70" "$3" "$RESET"
+  retro_refresh
+  retro_linha_plana "$1[ $2 ]$RESET $FG70$3$RESET" "$COLS"
 }
 _ok()    { _line "$OK"     'OK' "$1"; }
 _warn()  { _line "$ACC"    '~~' "$1"; }
 _err()   { _line "$ALERTA" '!!' "$1"; }
 _info()  { _line "$ACC70"  '>>' "$1"; }
-_pkt()   { printf '  %s>%s %s%s%s\n' "$ACC30" "$RESET" "$FG40" "$1" "$RESET"; }
+_pkt()   { retro_refresh; retro_linha_plana "$ACC30>$RESET $FG40$1$RESET" "$COLS"; }
 
 _type() { # typewriter effect. $1 = text, $2 = color(optional)
   local text="$1" color="${2:-$FG}" i=0 n=${#1}
+  retro_refresh
+  retro_largura "$text"
+  if [ "$COLS" -lt $((REPLY+2)) ]; then retro_linha_plana "$color$text$RESET" "$COLS"; return; fi
   printf '  '
   while [ "$i" -lt "$n" ]; do
     printf '%s%s%s' "$color" "${text:$i:1}" "$RESET"
@@ -116,6 +121,12 @@ _type() { # typewriter effect. $1 = text, $2 = color(optional)
 
 _dots() { # $1 label, $2 count → "label..."  animated
   local label="$1" n="${2:-4}"
+  retro_refresh
+  retro_largura "$label"
+  if [ "$COLS" -lt $((REPLY+n+2)) ]; then
+    retro_linha_plana "$FG70$label$RESET$ACC$(retro_repetir . "$n")$RESET" "$COLS"
+    return
+  fi
   printf '  %s%s%s' "$FG70" "$label" "$RESET"
   while [ "$n" -gt 0 ]; do printf '%s.%s' "$ACC" "$RESET"; _beat 3; n=$((n - 1)); done
   printf '\n'
@@ -124,7 +135,12 @@ _dots() { # $1 label, $2 count → "label..."  animated
 _bar() { # animated progress bar. $1 = label
   local label="$1" total=100 i=0 step
   while [ "$i" -le "$total" ]; do
-    printf '\r  %s%-22s%s %s' "$FG70" "$label" "$RESET" "$(retro_barra "$i" "$total" 28)"
+    retro_refresh
+    if [ "$COLS" -lt 12 ]; then
+      printf '\r%s' "$(retro_cortar "$label $i%" "$COLS")"
+    else
+      printf '\r%s' "$(retro_cortar "$label $(retro_barra "$i" "$total" $((COLS-12)))" "$COLS")"
+    fi
     step=$(( RANDOM % 9 + 3 ))
     i=$((i + step))
     [ "$i" -gt "$total" ] && i=$total
@@ -137,10 +153,12 @@ _bar() { # animated progress bar. $1 = label
 _spinner() { # $1 label, $2 ticks   — pulsing accent head (no jumpy spinner)
   local label="$1" ticks="${2:-16}" frames='█▓▒░' j=0
   while [ "$ticks" -gt 0 ]; do
-    printf '\r  %s[ %s ]%s %s%s%s' "$ACC" "${frames:$((j % 4)):1}" "$RESET" "$FG70" "$label" "$RESET"
+    retro_refresh
+    printf '\r%s' "$(retro_cortar "${ACC}[ ${frames:$((j % 4)):1} ]$RESET $FG70$label$RESET" "$COLS")"
     j=$((j + 1)); ticks=$((ticks - 1)); _beat 1
   done
-  printf '\r  %s[ OK ]%s %s%s%s\n' "$OK" "$RESET" "$FG70" "$label" "$RESET"
+  retro_refresh
+  printf '\r%s\n' "$(retro_cortar "${OK}[ OK ]$RESET $FG70$label$RESET" "$COLS")"
 }
 
 # ---------- framed banners ----------
@@ -185,8 +203,8 @@ scene_matrix() { # $1 = frame count (-1/empty = run until keypress)
   [ "$DESENHA" -eq 1 ] || _no_tty_show
   local frames="${1:--1}"
   local rows cols c f=0
-  rows=$( { tput lines; } 2>/dev/null || echo 24 )
-  retro_eh_numero "$rows" || rows=24
+  retro_refresh
+  rows=$ROWS
   cols=$COLS
   local head=() len=()
   for ((c = 0; c < cols; c++)); do
@@ -201,6 +219,15 @@ scene_matrix() { # $1 = frame count (-1/empty = run until keypress)
 
   local r l et g
   while :; do
+    retro_refresh
+    if [ "$rows" -ne "$ROWS" ] || [ "$cols" -ne "$COLS" ]; then
+      rows=$ROWS; cols=$COLS; head=(); len=()
+      for ((c = 0; c < cols; c++)); do
+        head[c]=$(( -(RANDOM % rows) ))
+        len[c]=$(( RANDOM % (rows / 2 + 1) + 1 ))
+      done
+      printf '\033[2J'
+    fi
     for ((c = 0; c < cols; c++)); do
       r=${head[c]}; l=${len[c]}
       if [ "$r" -ge 1 ] && [ "$r" -le "$rows" ]; then

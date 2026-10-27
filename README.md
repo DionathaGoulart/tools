@@ -30,6 +30,10 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 
 Toda ferramenta responde a `<ferramenta> help` (ex: `goodivers help`, `goodpomo help`) — e `goodhelp` lista as que você tem instaladas. Ele não se instala sozinho: vem junto, automaticamente, ao instalar qualquer ferramenta. O contador `N/M` conta só o que o instalador da raiz oferece; o goodpen tem setup próprio e só entra na conta depois de instalado. `goodhelp doctor` checa a instalação inteira quando algo não aparece no `PATH`.
 
+Os layouts acompanham o tamanho do terminal: caixas viram texto em janelas estreitas,
+menus usam páginas e painéis ao vivo adotam uma versão compacta quando falta altura.
+Relatórios longos continuam acessíveis pela rolagem; saídas em pipe e JSON preservam os dados.
+
 ## Instalação
 
 Clone onde quiser — o repo não precisa ficar em lugar nenhum específico:

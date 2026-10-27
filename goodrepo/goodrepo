@@ -471,9 +471,7 @@ cmd_rm() {
 
 # ---------- menu ----------
 cortar() { # $1 texto  $2 limite
-  local s=$1 lim=$2
-  [ "${#s}" -le "$lim" ] && { printf '%s' "$s"; return; }
-  printf '%s…' "${s:0:$((lim - 1))}"
+  retro_cortar "$1" "$2"
 }
 
 cmd_menu() {
@@ -484,14 +482,30 @@ cmd_menu() {
   fi
   ler_manifesto
   local n=${#IDS[@]} k t seq larg desc caixa marca conteudo cor
-  local SEL=() CUR=0 BTN=$n AVISO="" LARG_NOME=11 ROTULO="INSTALAR"
+  local SEL=() CUR=0 BTN=$n AVISO="" LARG_NOME=11 ROTULO="INSTALAR" PAGE_SIZE=1 PAGE=0 start=0 end=0
   for (( k = 0; k < n; k++ )); do SEL+=(0); done
 
   _draw() {
+    retro_refresh
+    start=$((PAGE*PAGE_SIZE)); end=$((start+PAGE_SIZE)); [ "$end" -gt "$n" ] && end=$n
+    if [ "$CAIXA" -ne 1 ]; then
+      [ "$ROWS" -ge 2 ] && printf '%s\n' "$(retro_cortar "GUIAS $((PAGE+1))/$(((n+PAGE_SIZE-1)/PAGE_SIZE)) · q sai" "$COLS")"
+      for (( k = start; k < end; k++ )); do
+        [ "$ROWS" -le 2 ] && [ "$CUR" -eq "$BTN" ] && break
+        marca=" "; [ "$CUR" = "$k" ] && marca=">"
+        caixa='[ ]'; [ "${SEL[$k]}" = 1 ] && caixa='[x]'
+        printf '%s\n' "$(retro_cortar "$marca$caixa $((k+1)). ${IDS[$k]}" "$COLS")"
+      done
+      if [ "$ROWS" -ge 3 ] || [ "$CUR" -eq "$BTN" ]; then
+        marca=' '; [ "$CUR" -eq "$BTN" ] && marca='>'
+        printf '%s\n' "$(retro_cortar "${marca}[ $ROTULO ] q" "$COLS")"
+      fi
+      return
+    fi
     retro_topo
     retro_chrome "root@goodrepo: ${PROJ/#$HOME/~}" "$n GUIAS"
     retro_sep
-    for (( k = 0; k < n; k++ )); do
+    for (( k = start; k < end; k++ )); do
       desc="$(cortar "${DESCS[$k]}" $((CF - LARG_NOME - 11)))"
       marca="  "; [ "$CUR" = "$k" ] && marca="► "
       caixa="[ ]"
@@ -524,16 +538,29 @@ cmd_menu() {
     retro_status "[↑↓] MOVE · [SPC] MARCA · [A/N] TUDO/NADA" "[Q] SAI"
     retro_base
     retro_sombra
-    printf '  %s[%s✓%s]%s %sjá instalado · dependências vêm junto · vai para .harness/%s%s\n' \
-      "$FG40" "$OK" "$FG40" "$RESET" "$FG40" "$RESET" "$CLR"
-    [ -n "$AVISO" ] && printf '\n  %s[ AVISO ]%s %s%s' "$ALERTA" "$RESET" "$AVISO" "$CLR"
+    [ -n "$AVISO" ] && [ "$ROWS" -gt $((PAGE_SIZE+10)) ] && retro_linha_plana "${ALERTA}[ AVISO ]$RESET $AVISO" "$COLS"
   }
 
+  local MENU_STTY=""
+  MENU_STTY=$(stty -g 2>/dev/null)
+  stty -icanon -echo min 1 time 0 2>/dev/null || MENU_STTY=""
   printf '\033[?25l\033[2J'
-  trap 'printf "\033[?25h"' EXIT INT TERM
+  _menu_cleanup() { [ -n "$MENU_STTY" ] && stty "$MENU_STTY" 2>/dev/null; MENU_STTY=""; printf '\033[?25h'; }
+  trap _menu_cleanup EXIT
+  trap 'exit 130' INT TERM
   while :; do
+    retro_refresh
+    if [ "$CAIXA" -eq 1 ]; then PAGE_SIZE=$((ROWS-10)); else PAGE_SIZE=$((ROWS-2)); fi
+    [ "$PAGE_SIZE" -lt 1 ] && PAGE_SIZE=1
+    [ "$PAGE_SIZE" -gt "$n" ] && PAGE_SIZE=$n
+    [ "$CUR" -lt "$BTN" ] && PAGE=$((CUR/PAGE_SIZE))
+    [ "$PAGE" -ge $(((n+PAGE_SIZE-1)/PAGE_SIZE)) ] && PAGE=$(( (n-1)/PAGE_SIZE ))
     printf '\033[H%s\033[J' "$(_draw)"
-    IFS= read -rsn1 t || t=q
+    t=""
+    if ! IFS= read -rsn1 -t 1 t 2>/dev/null; then
+      [ -t 0 ] && continue
+      t=q
+    fi
     AVISO=""
     if [ "$t" = $'\x1b' ]; then
       seq=""
@@ -572,7 +599,8 @@ cmd_menu() {
         exit 0 ;;
     esac
   done
-  printf '\033[?25h\033[H\033[2J'
+  _menu_cleanup
+  printf '\033[H\033[2J'
   trap - EXIT INT TERM
 
   # conflitos: arquivo que já existe e não é do goodrepo, ou foi editado aqui

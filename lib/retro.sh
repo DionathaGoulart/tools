@@ -51,6 +51,33 @@ retro_espacos() { printf '%*s' "$1" ''; }
 retro_upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 
 # ---------- init ----------
+retro_dimensoes() { # atualiza dimensões; funciona em Bash 3.2 e terminais Windows
+  local size=""
+  if [ -t 0 ]; then size=$(stty size <&0 2>/dev/null); fi
+  if [ -z "$size" ] && [ -t 1 ]; then size=$(stty size </dev/tty 2>/dev/null); fi
+  if [ -n "$size" ]; then
+    ROWS=${size%% *}; COLS=${size##* }
+  else
+    COLS=${COLUMNS:-$(tput cols 2>/dev/null || printf 80)}
+    ROWS=${LINES:-$(tput lines 2>/dev/null || printf 24)}
+  fi
+  retro_eh_numero "$COLS" || COLS=80
+  retro_eh_numero "$ROWS" || ROWS=24
+  [ "$COLS" -ge 1 ] || COLS=1
+  [ "$ROWS" -ge 1 ] || ROWS=1
+}
+
+retro_refresh() { # releia o tamanho antes de redesenhar um painel vivo
+  retro_dimensoes
+  BW="${RETRO_LARGURA_MAX:-52}"
+  [ "$BW" -ge "$COLS" ] && BW=$((COLS - 1)) # sombra ocupa mais uma coluna
+  [ "$BW" -lt 1 ] && BW=1
+  CAIXA=0
+  [ "$DESENHA" -eq 1 ] && [ "$BW" -ge 46 ] && [ "$ROWS" -ge "${RETRO_CAIXA_MIN_ROWS:-12}" ] && CAIXA=1
+  CF=$((BW - 4))
+  [ "$CF" -lt 1 ] && CF=1
+}
+
 retro_init() { # $1 = box width (default 52)
   TEMA="${TEMA:-${RETRO_TEMA:-vault-gold}}"
   retro_tema_hex "$TEMA" >/dev/null 2>&1 || TEMA=vault-gold
@@ -59,7 +86,8 @@ $(retro_tema_hex "$TEMA")
 EOF
 
   USE_COLOR=1
-  [ -n "${NO_COLOR:-}" ] && USE_COLOR=0
+  [ "${NO_COLOR+x}" = x ] && USE_COLOR=0
+  [ "${TERM:-}" = dumb ] && USE_COLOR=0
   [ -t 1 ] || USE_COLOR=0
 
   TRUECOLOR=0
@@ -67,17 +95,12 @@ EOF
   [ "$USE_COLOR" -eq 1 ] || TRUECOLOR=0
 
   DESENHA=0
-  [ -t 1 ] && DESENHA=1
-
-  COLS=$( { tput cols; } 2>/dev/null || echo 80 )
-  retro_eh_numero "$COLS" || COLS=80
-  BW="${1:-52}"
-  [ "$COLS" -lt $((BW + 3)) ] && BW=$((COLS - 3))
-  CAIXA=1
-  { [ "$DESENHA" -eq 1 ] && [ "$BW" -ge 46 ]; } || CAIXA=0
+  [ -t 1 ] && [ "${TERM:-}" != dumb ] && DESENHA=1
+  RETRO_LARGURA_MAX="${1:-52}"
+  retro_eh_numero "$RETRO_LARGURA_MAX" || RETRO_LARGURA_MAX=52
+  retro_refresh
   CLR=""
-  [ "$DESENHA" -eq 1 ] && CLR=$'\033[K'
-  CF=$((BW - 4))   # usable content width inside the box
+  [ "$DESENHA" -eq 1 ] && [ "$USE_COLOR" -eq 1 ] && CLR=$'\033[K'
 
   RESET="" BOLD="" DIM=""
   ACC="" ACC70="" ACC50="" ACC30="" ACC15="" FG="" FG70="" FG40=""
@@ -105,26 +128,90 @@ EOF
   fi
 }
 
-# ---------- box (terminal window recipe) ----------
-retro_topo()   { printf '%s┏%s┓%s%s\n' "$ACC" "$(retro_repetir '━' $((BW - 2)))" "$RESET" "$CLR"; }
-retro_sep()    { printf '%s┠%s┨%s%s▒%s%s\n' "$ACC" "$(retro_repetir '─' $((BW - 2)))" "$RESET" "$ACC15" "$RESET" "$CLR"; }
-retro_base()   { printf '%s┗%s┛%s%s▒%s%s\n' "$ACC" "$(retro_repetir '━' $((BW - 2)))" "$RESET" "$ACC15" "$RESET" "$CLR"; }
-retro_sombra() { printf ' %s%s%s%s\n' "$ACC15" "$(retro_repetir '▒' "$BW")" "$RESET" "$CLR"; }
+# Largura em células. CSI de cor não ocupa espaço. Bash 3.2 não fornece
+# wcwidth; cobre faixas CJK/emoji usuais e marcas combinantes sem dependência.
+retro_char_width() {
+  case "$1" in
+    [̀-ͯ]|[᪰-᫿]|[⃐-⃿]|[︠-︯]|[️-️]) REPLY=0 ;;
+    [一-鿿]|[㐀-䶿]|[ぁ-ゟ]|[゠-ヿ]|[가-힣]|[＀-￯]|[🌀-🫿]|[😀-🙏]) REPLY=2 ;;
+    *) REPLY=1 ;;
+  esac
+}
+retro_largura() { # $1 texto (ANSI opcional) -> REPLY
+  local s=$1 c i=0 n=${#1} esc=$'\033' w=0
+  while [ "$i" -lt "$n" ]; do
+    c=${s:$i:1}
+    if [ "$c" = "$esc" ] && [ "${s:$((i+1)):1}" = '[' ]; then
+      i=$((i+2)); while [ "$i" -lt "$n" ] && [ "${s:$i:1}" != m ]; do i=$((i+1)); done
+    else retro_char_width "$c"; w=$((w+REPLY)); fi
+    i=$((i+1))
+  done
+  REPLY=$w
+}
+retro_fatia() { # $1 texto $2 largura; devolve REPLY e RESTO sem quebrar CSI
+  local s=$1 lim=$2 c i=0 n=${#1} w=0 cw esc=$'\033' out=""
+  [ "$lim" -ge 0 ] 2>/dev/null || lim=0
+  while [ "$i" -lt "$n" ]; do
+    c=${s:$i:1}
+    if [ "$c" = "$esc" ] && [ "${s:$((i+1)):1}" = '[' ]; then
+      local ini=$i
+      i=$((i+2)); while [ "$i" -lt "$n" ] && [ "${s:$i:1}" != m ]; do i=$((i+1)); done
+      out="$out${s:$ini:$((i-ini+1))}"
+    else
+      retro_char_width "$c"; cw=$REPLY
+      [ $((w+cw)) -gt "$lim" ] && break
+      out="$out$c"; w=$((w+cw))
+    fi
+    i=$((i+1))
+  done
+  REPLY=$out RESTO=${s:$i} RETRO_FATIA_LARGURA=$w
+}
+retro_cortar() { # $1 texto $2 largura, com reticências quando necessário
+  local s=$1 lim=$2
+  [ "${DESENHA:-0}" -eq 1 ] || { printf '%s' "$s"; return; }
+  [ "$lim" -gt 0 ] 2>/dev/null || return 0
+  retro_fatia "$s" "$lim"
+  [ -z "$RESTO" ] && { printf '%s' "$REPLY"; return; }
+  [ "$lim" -eq 1 ] && { printf '…'; return; }
+  retro_fatia "$s" $((lim-1))
+  printf '%s…%s' "$REPLY" "$RESET"
+}
+retro_linha_plana() { # quebra sem descartar texto, inclusive em pipe
+  local s=$1 lim=${2:-$COLS} parte
+  [ "${DESENHA:-0}" -eq 1 ] || { printf '%s\n' "$s"; return; }
+  [ "$lim" -ge 1 ] 2>/dev/null || lim=1
+  while [ -n "$s" ]; do
+    retro_fatia "$s" "$lim"; parte=$REPLY; s=$RESTO
+    [ -n "$parte" ] || { parte='?'; s=${s:1}; }
+    printf '%s\n' "$parte"
+  done
+  [ -n "$1" ] || printf '\n'
+}
 
-retro_linha() { # $1 = already-colored content, $2 = visible width of that content
-  local pad=$((CF - $2))
+# ---------- box (terminal window recipe) ----------
+retro_topo()   { retro_refresh; [ "$CAIXA" -eq 1 ] && printf '%s┏%s┓%s%s\n' "$ACC" "$(retro_repetir '━' $((BW - 2)))" "$RESET" "$CLR"; }
+retro_sep()    { [ "$CAIXA" -eq 1 ] && printf '%s┠%s┨%s%s▒%s%s\n' "$ACC" "$(retro_repetir '─' $((BW - 2)))" "$RESET" "$ACC15" "$RESET" "$CLR"; }
+retro_base()   { [ "$CAIXA" -eq 1 ] && printf '%s┗%s┛%s%s▒%s%s\n' "$ACC" "$(retro_repetir '━' $((BW - 2)))" "$RESET" "$ACC15" "$RESET" "$CLR"; }
+retro_sombra() { [ "$CAIXA" -eq 1 ] && printf ' %s%s%s%s\n' "$ACC15" "$(retro_repetir '▒' "$BW")" "$RESET" "$CLR"; }
+
+retro_linha() { # $1 = conteúdo, ANSI opcional
+  if [ "$CAIXA" -ne 1 ]; then retro_linha_plana "$1" "$COLS"; return; fi
+  local content pad
+  content=$(retro_cortar "$1" "$CF")
+  retro_largura "$content"; pad=$((CF - REPLY))
   [ "$pad" -lt 0 ] && pad=0
   printf '%s┃%s %s%s %s┃%s%s▒%s%s\n' \
-    "$ACC" "$RESET" "$1" "$(retro_espacos "$pad")" "$ACC" "$RESET" "$ACC15" "$RESET" "$CLR"
+    "$ACC" "$RESET" "$content" "$(retro_espacos "$pad")" "$ACC" "$RESET" "$ACC15" "$RESET" "$CLR"
 }
 retro_vazia() { retro_linha "" 0; }
 
 retro_chrome() { # $1 = title (path), $2 = right-hand meta
-  local t=$1 m=${2:-}
-  local pad=$((CF - 7 - ${#t} - ${#m}))
-  while [ "$pad" -lt 1 ] && [ -n "$t" ]; do   # title gives way before the meta
-    t="${t%?}"; pad=$((CF - 7 - ${#t} - ${#m}))
-  done
+  [ "$CAIXA" -eq 1 ] || return 0
+  local t m pad m_width
+  m=$(retro_cortar "${2:-}" $((CF/2-4)))
+  retro_largura "$m"; m_width=$REPLY
+  t=$(retro_cortar "$1" $((CF-8-m_width)))
+  retro_largura "$t"; pad=$((CF - 7 - REPLY - m_width))
   [ "$pad" -lt 1 ] && pad=1
   printf '%s┃%s %s●%s %s●%s %s●%s  %s%s%s%s%s%s%s %s┃%s%s▒%s%s\n' \
     "$ACC" "$RESET" "$ACC" "$RESET" "$ACC50" "$RESET" "$ACC30" "$RESET" \
@@ -133,11 +220,12 @@ retro_chrome() { # $1 = title (path), $2 = right-hand meta
 }
 
 retro_status() { # $1 = left (plain), $2 = right (plain)
-  local e=$1 d=${2:-}
-  local pad=$((CF - ${#e} - ${#d}))
-  while [ "$pad" -lt 1 ] && [ -n "$e" ]; do   # left side gives way before the status
-    e="${e%?}"; pad=$((CF - ${#e} - ${#d}))
-  done
+  [ "$CAIXA" -eq 1 ] || return 0
+  local e d pad d_width
+  d=$(retro_cortar "${2:-}" $((CF/2)))
+  retro_largura "$d"; d_width=$REPLY
+  e=$(retro_cortar "$1" $((CF-d_width-1)))
+  retro_largura "$e"; pad=$((CF - REPLY - d_width))
   [ "$pad" -lt 1 ] && pad=1
   printf '%s┃%s%s %s%s%s %s%s┃%s%s▒%s%s\n' \
     "$ACC" "$INV" "$BOLD" "$e" "$(retro_espacos "$pad")" "$d" "$RESET" \
@@ -146,36 +234,48 @@ retro_status() { # $1 = left (plain), $2 = right (plain)
 
 # ---------- flat blocks (outside the box) ----------
 retro_modulo() { # $1 = label, $2 = optional right meta   → [ MODULE: X ]      META
-  local m; m=$(retro_upper "$1")
-  printf '\n  %s%s[ MODULE: %s ]%s' "$ACC" "$BOLD" "$m" "$RESET"
-  [ -n "${2:-}" ] && printf '  %s%s%s' "$ACC30" "$(retro_upper "$2")" "$RESET"
-  printf '\n\n'
+  retro_refresh
+  local m line
+  m=$(retro_upper "$1")
+  line="[ MODULE: $m ]${2:+  $(retro_upper "$2")}"
+  retro_linha_plana "$line" "$COLS"
+  printf '\n'
 }
 
 retro_secao() { # $1 = label   → # HEADING
-  printf '  %s# %s%s\n' "$ACC" "$(retro_upper "$1")" "$RESET"
+  retro_refresh
+  retro_linha_plana "$ACC# $(retro_upper "$1")$RESET" "$COLS"
 }
 
 retro_kv() { # $1 key  $2 value   (dot leader, key dim, value accent-bold)
-  local k=$1 v=$2 pontos=$(( COLS > 60 ? 44 : COLS - 12 ))
-  [ "$pontos" -lt 20 ] && pontos=20
+  retro_refresh
+  local k=$1 v=$2 pontos=$(( COLS > 60 ? 44 : COLS - 2 ))
+  [ "$pontos" -lt 1 ] && pontos=1
   local n=$((pontos - ${#k} - ${#v}))
   [ "$n" -lt 2 ] && n=2
-  printf '  %s%s%s %s%s%s %s%s%s\n' \
-    "$FG40" "$k" "$RESET" "$ACC15" "$(retro_repetir '·' "$n")" "$RESET" "$ACC$BOLD" "$v" "$RESET"
+  if [ $((2 + ${#k} + ${#v} + 4)) -gt "$COLS" ]; then
+    retro_linha_plana "$FG40$k$RESET $ACC$BOLD$v$RESET" "$COLS"
+  else
+    retro_linha_plana "  $FG40$k$RESET $ACC15$(retro_repetir '·' "$n")$RESET $ACC$BOLD$v$RESET" "$COLS"
+  fi
 }
 
 retro_regra() { # thin separator
-  printf '  %s%s%s\n' "$ACC15" "$(retro_repetir '─' $(( COLS > 60 ? 44 : COLS - 12 )))" "$RESET"
+  retro_refresh
+  local n=$(( COLS > 60 ? 44 : COLS - 12 )); [ "$n" -lt 1 ] && n=1
+  retro_linha_plana "  $ACC15$(retro_repetir '─' "$n")$RESET" "$COLS"
 }
 
-retro_ok()     { printf '  %s[ OK ]%s %s%s%s%s\n' "$OK" "$RESET" "$ACC" "$BOLD" "$(retro_upper "$1")" "$RESET"; }
-retro_erro()   { printf '  %s[ ERRO ]%s %s\n' "$ALERTA" "$RESET" "$1"; }
-retro_aviso()  { printf '  %s[ %s ]%s %s\n' "$FG40" "$(retro_upper "$1")" "$RESET" "${2:-}"; }
-retro_proximo(){ printf '  %s>%s %s  %s%s%s%s\n' "$ACC30" "$RESET" "${2:-proximo passo:}" "$ACC" "$BOLD" "$1" "$RESET"; }
+retro_ok()     { retro_refresh; retro_linha_plana "${OK}[ OK ]$RESET $ACC$BOLD$(retro_upper "$1")$RESET" "$COLS"; }
+retro_erro()   { retro_refresh; retro_linha_plana "${ALERTA}[ ERRO ]$RESET $1" "$COLS"; }
+retro_aviso()  { retro_refresh; retro_linha_plana "${FG40}[ $(retro_upper "$1") ]$RESET ${2:-}" "$COLS"; }
+retro_proximo(){ retro_refresh; retro_linha_plana "$ACC30>$RESET ${2:-proximo passo:}  $ACC$BOLD$1$RESET" "$COLS"; }
 
 retro_barra() { # $1 = done, $2 = total, $3 = width   → ████▒▒▒▒  62%
   local n=$1 total=$2 lar=${3:-24} i feito pct s=""
+  retro_refresh
+  [ "$lar" -gt $((COLS - 9)) ] && lar=$((COLS - 9))
+  [ "$lar" -lt 1 ] && lar=1
   [ "$total" -le 0 ] && total=1
   feito=$(( n * lar / total )); pct=$(( n * 100 / total ))
   [ "$feito" -gt "$lar" ] && feito=$lar
@@ -203,8 +303,12 @@ EOF
     else
       swatch="[#$ha]"
     fi
-    printf '  %s%s%s%-16s%s %s  %s#%s%s\n' \
+    local linha
+    printf -v linha '  %s%s%s%-16s%s %s  %s#%s%s' \
       "$ACC" "$marca" "$RESET" "$t" "$RESET" "$swatch" "$ACC15" "$ha" "$RESET"
+    retro_linha_plana "$linha" "$COLS"
   done
-  printf '\n  %sexport %s=<nome>%s\n\n' "$FG40" "$envvar" "$RESET"
+  printf '\n'
+  retro_linha_plana "  ${FG40}export $envvar=<nome>$RESET" "$COLS"
+  printf '\n'
 }

@@ -80,13 +80,9 @@ partir() { # $1 = item   → define GRUPO CMD DESC SETUP
 }
 
 linha_tool() { # $1 = comando, $2 = descrição
-  local pontos=$(( COLS > 60 ? 50 : COLS - 14 ))
-  [ "$pontos" -lt 20 ] && pontos=20
-  local n=$((pontos - ${#1} - ${#2}))
-  [ "$n" -lt 2 ] && n=2
-  printf '  %s%s%s %s%s%s %s%s%s\n' \
-    "$ACC$BOLD" "$1" "$RESET" \
-    "$ACC15" "$(retro_repetir '·' "$n")" "$RESET" "$FG70" "$2" "$RESET"
+  retro_refresh
+  local line="$ACC$BOLD$1$RESET · $FG70$2$RESET"
+  retro_linha_plana "$line" "$COLS"
 }
 
 # ---------- telas ----------
@@ -140,9 +136,9 @@ listar() {
 # família some sem uma mensagem sequer.
 DOC_PROBLEMAS=0
 
-doc_ok()   { printf '  %s✓%s %-22s %s%s%s\n' "$OK" "$RESET" "$1" "$FG70" "${2:-}" "$RESET"; }
+doc_ok()   { retro_refresh; retro_linha_plana "$OK✓$RESET $1 $FG70${2:-}$RESET" "$COLS"; }
 doc_falha() {
-  printf '  %s✗%s %-22s %s%s%s\n' "$ALERTA" "$RESET" "$1" "$ALERTA" "${2:-}" "$RESET"
+  retro_refresh; retro_linha_plana "$ALERTA✗$RESET $1 $ALERTA${2:-}$RESET" "$COLS"
   DOC_PROBLEMAS=$((DOC_PROBLEMAS + 1))
 }
 

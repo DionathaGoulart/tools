@@ -101,9 +101,7 @@ retro_init 92
 
 # corta uma string em N colunas visíveis
 cortar() { # $1 texto  $2 limite
-  local s=$1 lim=$2
-  [ "${#s}" -le "$lim" ] && { printf '%s' "$s"; return; }
-  printf '%s…' "${s:0:$((lim - 1))}"
+  retro_cortar "$1" "$2"
 }
 
 LARG_NOME=16
@@ -118,6 +116,26 @@ draw() {
 
   local meta="$total ITENS"
   [ "$NPAGES" -gt 1 ] && meta="PÁG $((PAGE + 1))/$NPAGES · $total ITENS"
+
+  if [ "$CAIXA" -ne 1 ]; then
+    local label texto
+    if [ "$ROWS" -ge 2 ]; then printf '%s\n' "$(retro_cortar "$ROTULO $meta · q sai" "$COLS")"; fi
+    for (( k = pstart; k < pend; k++ )); do
+      [ "$ROWS" -le 2 ] && [ "$CUR" = "$BTN" ] && break
+      i=${ITENS[$k]}; nome=${NOMES[$i]}
+      caixa='[ ]'; [ "${SEL[$k]}" = 1 ] && caixa='[x]'
+      label=' '; [ "$CUR" = "$k" ] && label='>'
+      texto="$label$caixa $((k+1)). $nome"
+      [ "$ROWS" -ge 1 ] && printf '%s\n' "$(retro_cortar "$texto" "$COLS")"
+    done
+    if [ "$ROWS" -ge 3 ]; then
+      label=' '; [ "$CUR" = "$BTN" ] && label='>'
+      printf '%s\n' "$(retro_cortar "${label}[ $ROTULO ] · q" "$COLS")"
+    elif [ "$CUR" = "$BTN" ]; then
+      printf '%s\n' "$(retro_cortar ">[ $ROTULO ] q" "$COLS")"
+    fi
+    return
+  fi
 
   retro_topo
   retro_chrome "$titulo" "$meta"
@@ -174,23 +192,22 @@ draw() {
   retro_base
   retro_sombra
 
-  if [ "$MODO" = install ]; then
-    printf '  %s[%s✓%s]%s %sjá instalada · desinstalar: bash setup.sh -u · goodpen tem setup próprio%s%s\n' \
-      "$FG40" "$OK" "$FG40" "$RESET" "$FG40" "$RESET" "$CLR"
+  if [ "$MODO" = install ] && [ "$ROWS" -ge $((PAGE_SIZE + 11)) ]; then
+    printf '%s\n' "$(retro_cortar '  [✓] já instalada · bash setup.sh -u' "$COLS")"
   fi
-  [ -n "$AVISO" ] && printf '\n  %s[ AVISO ]%s %s%s' "$ALERTA" "$RESET" "$AVISO" "$CLR"
 }
 
 # recalcula a paginação (itens por página + página atual).
 # roda no shell-pai, NÃO dentro de $(draw), pra que PAGE/PAGE_SIZE persistam.
 paginate() {
   local rows total fits
-  rows=$( { tput lines; } 2>/dev/null || echo 24 )
-  case "$rows" in ''|*[!0-9]*) rows=24 ;; esac
+  retro_refresh
+  rows=$ROWS
   total=${#ITENS[@]}
   # linhas fixas: topo+chrome+sep(3) + vazia+botao+sep+status+base+sombra(6) [+dica]
-  local overhead=9; [ "$MODO" = install ] && overhead=$((overhead + 1))
-  fits=$((rows - overhead - 2))          # -2 reserva pro AVISO
+  local overhead=10
+  if [ "$CAIXA" -ne 1 ]; then overhead=2; [ "$rows" -le 2 ] && overhead=1; fi
+  fits=$((rows - overhead))
   # page size acompanha a altura do terminal: enche o espaço disponível,
   # nunca passa do total de itens (terminal alto = tudo numa página só)
   PAGE_SIZE=$fits
@@ -222,8 +239,15 @@ confirmar() {
 
 # esconde o cursor e limpa a tela uma vez; o loop redesenha por cima (sem piscar)
 if [ "$DESENHA" -eq 1 ]; then
+  MENU_STTY=""
+  if [ -t 0 ]; then
+    MENU_STTY=$(stty -g 2>/dev/null)
+    stty -icanon -echo min 1 time 0 2>/dev/null || MENU_STTY=""
+  fi
   printf '\033[?25l\033[2J'
-  trap 'printf "\033[?25h"' EXIT INT TERM
+  menu_cleanup() { [ -n "$MENU_STTY" ] && stty "$MENU_STTY" 2>/dev/null; MENU_STTY=""; printf '\033[?25h'; }
+  trap menu_cleanup EXIT
+  trap 'exit 130' INT TERM
 fi
 
 while :; do
@@ -236,7 +260,11 @@ while :; do
   else
     draw
   fi
-  IFS= read -rsn1 t || t=q
+  t=""
+  if ! IFS= read -rsn1 -t 1 t 2>/dev/null; then
+    [ -t 0 ] && continue
+    t=q
+  fi
   AVISO=""
   # limites da página atual (ps..pe-1 = itens; BTN = botão logo abaixo)
   ps=$((PAGE * PAGE_SIZE)); pe=$((ps + PAGE_SIZE)); [ "$pe" -gt "$BTN" ] && pe=$BTN
@@ -290,7 +318,7 @@ while :; do
   esac
 done
 
-[ "$DESENHA" -eq 1 ] && printf '\033[?25h'   # cursor de volta antes da saída
+[ "$DESENHA" -eq 1 ] && menu_cleanup
 printf '\033[H\033[2J'
 if [ "$MODO" = install ]; then
   retro_modulo "install_runner" "${#MARCADAS[@]} item(s)"

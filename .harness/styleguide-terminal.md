@@ -64,6 +64,15 @@ Heavy box-drawing = the 2px border. The `▒` column on the right and row undern
 the `6px 6px 0` flat offset shadow (accent at ~18%). Corners are square, always.
 Default width 52; below 46 columns or without a tty, fall back to flat lines.
 
+Measure the actual terminal before each render (`Retro.atualizar_tamanho()`,
+`retro_refresh`, or Go `AtualizarTamanho`); cached `COLUMNS`/`LINES` are not enough.
+Reserve the shadow column. Use `texto`/`retro_linha_plana` for prose so ANSI codes,
+wide characters and combining accents survive wrapping; pipes keep complete text.
+Live panels and menus must poll resize while waiting for input, budget both rows
+and columns, and switch to compact rows or pagination when the frame cannot fit.
+Static reports may scroll vertically. In Python, set `permitir_caixa = False` for
+a persistent flat layout; assigning `caixa` alone is overwritten by measurement.
+
 ### Module header — `modulo("focus_stats", "src: log.csv")`
 `[ MODULE: FOCUS_STATS ]` in accent-bold, optional dim meta on the right. This is the
 CLI form of the bento module card header. Every command output opens with one.

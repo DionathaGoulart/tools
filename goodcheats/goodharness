@@ -40,6 +40,7 @@ RETRO_LIB="$(cd "$TOOL_DIR/../lib" 2>/dev/null && pwd)/retro.sh"
 if [ -f "$RETRO_LIB" ]; then
   . "$RETRO_LIB"
   retro_init 52
+  retro_refresh
 else
   # degradação: sem a lib, tudo sai em texto puro
   RESET="" BOLD="" DIM="" ACC="" ACC70="" ACC50="" ACC30="" ACC15=""

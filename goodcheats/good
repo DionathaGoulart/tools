@@ -329,7 +329,8 @@ if [ "${USE_COLOR:-0}" -eq 1 ]; then
 fi
 
 # ---------- print ----------
-TERM_W="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
+retro_refresh
+TERM_W=$COLS
 
 NLOGO=${#LOGO[@]}
 NINFO=${#INFO[@]}
@@ -386,7 +387,7 @@ else
   fi
   i=0
   while [ "$i" -lt "$NINFO" ]; do
-    printf '  %s\n' "${INFO[$i]}"
+    retro_linha_plana "${INFO[$i]}" "$TERM_W"
     i=$((i + 1))
   done
 fi
