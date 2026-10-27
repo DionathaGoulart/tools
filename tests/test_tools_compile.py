@@ -17,6 +17,7 @@ PY_TOOLS = [
     "lib/retro.py",
     "lib/imgcore.py",
     "goodcodex/goodcodex",
+    "goodmon/goodmon",
     "dark/dark",
     "goodivers/goodivers",
     "goodjob/goodjob",

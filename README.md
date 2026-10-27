@@ -1,6 +1,6 @@
 # tools
 
-Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scripts leves, portáteis e sem dependências — funcionam em macOS, Linux e Windows (Git Bash / WSL).
+Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scripts leves e portáteis — funcionam em macOS, Linux e Windows (Git Bash / WSL). A maioria usa apenas recursos do sistema; o `goodmon` usa Python + psutil e também roda no PowerShell/CMD.
 
 ## Índice
 
@@ -12,6 +12,7 @@ Coleção de ferramentas de terminal pro meu dia a dia como desenvolvedor. Scrip
 | [goodcodex](./goodcodex) | `goodcodex` | Descobre contexto, recomenda modelos, inicia sessões e instala perfis/agentes opcionais com rollback |
 | [goodrepo](./goodrepo) | `goodrepo` | Padroniza um repo: menu que instala no `.harness/` os guias de README, licença, escrita, git, CHANGELOG, SECURITY e visual |
 | [goodpomo](./goodpomo) | `goodpomo` | Pomodoro com notificação nativa e estatísticas |
+| [goodmon](./goodmon) | `goodmon` | Monitor ao vivo de CPU, RAM, swap, disco, rede e processos; texto e JSON |
 | [goodnerd](./goodnerd) | `goodnerd` | Teatro de "hacker" fake no terminal, pra impressionar os leigos |
 | **IA** (OpenRouter `:free`) | | |
 | [goodprof](./goodprof) | `goodprof` | Estudo Feynman invertido: te sabatina até você dominar |
@@ -57,6 +58,7 @@ bash goodcheats/setup.sh
 bash goodrepo/setup.sh
 bash goodcodex/setup.sh  # instala só o comando; perfis exigem goodcodex apply
 bash goodpomo/setup.sh
+bash goodmon/setup.sh   # requer Python + psutil; veja goodmon/README.md
 bash goodnerd/setup.sh
 bash goodprof/setup.sh
 bash goodbio/setup.sh
@@ -179,6 +181,18 @@ goodpomo 50 estudar    # foco de 50 min com rótulo
 goodpomo pausa         # pausa de 5 min
 goodpomo -l            # hoje + últimos 14 dias
 ```
+
+### [goodmon](./goodmon)
+Monitor de recursos ao vivo, com os mesmos temas retrô da família. Mostra CPU total e por núcleo, RAM, swap, disco, tráfego de rede e processos. Funciona em Linux, macOS e Windows; saída redirecionada produz uma única amostra.
+
+```bash
+goodmon                    # painel ao vivo
+goodmon --sort ram          # processos por consumo de RAM
+goodmon --once              # uma amostra em texto
+goodmon --json              # uma amostra em JSON
+```
+
+Requer Python 3.10+ e `psutil`. Instalação e execução no PowerShell/CMD no [README](./goodmon/README.md).
 
 ### [goodnerd](./goodnerd)
 Teatro de "hacker" no terminal — puro efeito visual, **nada real acontece** (sem rede, sem tocar arquivo). Varredura de portas, quebra de senha, compilação/deploy e chuva de código estilo Matrix, pra impressionar quem não programa. `goodnerd` sozinho encadeia tudo numa "operação completa".
