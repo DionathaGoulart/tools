@@ -13,6 +13,7 @@ import signal
 import socket
 import sys
 import time
+from collections import deque
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from retro import Retro, TerminalParser, largura  # noqa: E402
 
 MAX_TOP = 50
+DISPLAY_TOP = 5
+SLICE_COLORS = (36, 35, 33, 32, 34)
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\x1b]")
 
 
@@ -221,6 +224,66 @@ def selected_processes(
     )[:top]
 
 
+def sparkline(values: list[float], width: int) -> str:
+    """Compact 0--100 history graph, readable with and without colour."""
+    if width <= 0:
+        return ""
+    if not values:
+        return " " * width
+    values = values[-width:]
+    prefix = " " * (width - len(values))
+    glyphs = "▁▂▃▄▅▆▇█"
+    return prefix + "".join(glyphs[min(7, max(0, round(value * 7 / 100)))] for value in values)
+
+
+def area_graph(values: list[float], width: int, height: int = 4) -> list[str]:
+    """Fixed 0--100 area plot; missing history stays blank."""
+    if width <= 0 or height <= 0:
+        return []
+    values = values[-width:]
+    values = [None] * (width - len(values)) + values
+    rows = []
+    for row in range(height):
+        line = ""
+        for value in values:
+            if value is None:
+                line += " "
+                continue
+            level = max(0, min(100, value)) * height / 100
+            fill = max(0, min(1, level - (height - row - 1)))
+            line += " ▁▂▃▄▅▆▇█"[math.ceil(fill * 8)] if fill else "·" if row == height - 1 else " "
+        rows.append(line)
+    return rows
+
+
+def pie(processes: list[dict[str, Any]], order: str, colour: bool, width: int = 13, height: int = 6) -> list[str]:
+    """Small terminal pie; slices are proportions within the five shown rows."""
+    key = "cpu" if order == "cpu" else "rss"
+    values = [max(0.0, float(process[key])) for process in processes]
+    total = sum(values)
+    cuts, running = [], 0.0
+    for value in values:
+        running += value / total if total else 0
+        cuts.append(running)
+    out = []
+    for row in range(height):
+        line = ""
+        y = (row + 0.5 - height / 2) / (height / 2)
+        for column in range(width):
+            x = (column + 0.5 - width / 2) / (width / 2)
+            if x * x + y * y > 1:
+                line += " "
+                continue
+            if not total:
+                line += "·"
+                continue
+            angle = (math.atan2(y, x) + math.pi) / (2 * math.pi)
+            index = next((i for i, cut in enumerate(cuts) if angle < cut), len(cuts) - 1)
+            line += f"\033[{SLICE_COLORS[index]}m█\033[0m" if colour else str(index + 1)
+        out.append(line)
+    return out
+
+
 def _fit(text: str, width: int) -> str:
     """Clip terminal cells without splitting escape sequences or wide glyphs."""
     if width <= 0:
@@ -239,70 +302,93 @@ def _fit(text: str, width: int) -> str:
 
 
 def render(
-    ui: Retro, data: dict[str, Any], top: int, order: str, live: bool = False
+    ui: Retro, data: dict[str, Any], top: int, order: str, history: dict[str, deque[float]], live: bool = False
 ) -> int:
     ui.atualizar_tamanho()
-    footer = "Q SAIR · C CPU · M RAM" if live and sys.stdin.isatty() else "CTRL-C SAI" if live else ""
-    if live and ui.rows < 13:
+    footer = "Q sair" if live and sys.stdin.isatty() else "CTRL-C SAI" if live else ""
+    if live and ui.rows < 20:
         ui.permitir_caixa = False
         ui.atualizar_tamanho()
-    memory, cpu, disk, network = (
-        data["memory"],
-        data["cpu"],
-        data["disk"],
-        data["network"],
-    )
+    memory, cpu = data["memory"], data["cpu"]
     width = ui.cf if ui.caixa else max(1, ui.cols - (2 if ui.cols >= 3 else 0))
-    bar_width = max(4, min(16, width - 43))
-    rows = ["[ MODULE: SYSTEM_MONITOR ]"]
-    if width >= 56:
-        rows += [
-            f"CPU {ui.barra(round(cpu['percent']), 100, bar_width)}  {cpu['count']} CPUs",
-            f"RAM {ui.barra(round(memory['percent']), 100, bar_width)}  {human(memory['used'])}/{human(memory['total'])}",
-        ]
-    else:
-        rows += [
-            f"CPU {pct(cpu['percent'])}  ({cpu['count']} CPUs)",
-            f"RAM {pct(memory['percent'])}  {human(memory['used'])}/{human(memory['total'])}",
-        ]
-    if data["swap"]:
-        rows.append(
-            f"SWAP {human(data['swap']['used'])}/{human(data['swap']['total'])}  {pct(data['swap']['percent'])}"
-        )
-    else:
-        rows.append("SWAP N/D")
-    if disk:
-        rows.append(
-            f"DISCO {pct(disk['percent'])} {human(disk['used'])}/{human(disk['total'])} {clean(disk['path'])}"
-        )
-    else:
-        rows.append("DISCO N/D")
-    rows.append(
-        f"REDE ↓ {human(network['recv_per_sec'])}/s  ↑ {human(network['sent_per_sec'])}/s"
-    )
-    if data["uptime_seconds"] is not None:
-        rows.append(
-            f"UPTIME {int(data['uptime_seconds'] // 3600)}h {int(data['uptime_seconds'] % 3600 // 60)}m"
-        )
-    else:
-        rows.append("UPTIME N/D")
-    rows.append("NÚCLEOS " + (" ".join(f"{x:.0f}%" for x in cpu["cores"]) or "N/D"))
-    processes = selected_processes(data, top, order)
-    if top:
-        rows.append(f"TOP PROCESSOS · {order.upper()} · CPU pode superar 100%")
-        rows.append(f"{'PID':>6} {'CPU':>7} {'RAM':>10} NOME")
-    rows += [
-        f"{p['pid']:>6} {p['cpu']:6.1f}% {human(p['rss']):>10} {clean(p['name'])}"
-        for p in processes
-    ]
-    height = ui.rows
     reserve = (7 if footer else 5) if ui.caixa else 0
+    limit = max(1, ui.rows - reserve - 1) if live else 100
+    flat_footer = bool(footer and not ui.caixa and limit >= 10)
+    body_limit = limit - int(flat_footer)
+    large = width >= 60 and body_limit >= 14
+    rows = []
+    if large:
+        panel_width = (width - 3) // 2
+        cpu_graph = area_graph(list(history["cpu"]), panel_width - 6)
+        ram_graph = area_graph(list(history["ram"]), panel_width - 6)
+        cpu_title = f"CPU {pct(cpu['percent'])}"
+        ram_title = _fit(f"RAM {pct(memory['percent'])}  {human(memory['used'])}/{human(memory['total'])}", panel_width)
+        rows.append(f"{cpu_title:<{panel_width}}   {ram_title}")
+        for index in range(4):
+            axis = "100%" if index == 0 else "  0%" if index == 3 else "    "
+            left = f"\033[36m{cpu_graph[index]}\033[0m" if ui.cor else cpu_graph[index]
+            right = f"\033[35m{ram_graph[index]}\033[0m" if ui.cor else ram_graph[index]
+            rows.append(f"{axis} │{left}   {axis} │{right}")
+        rows.append("")
+    else:
+        compact_width = max(1, width - 11)
+        rows += [
+            f"CPU {pct(cpu['percent']):>6} {sparkline(list(history['cpu']), compact_width)}",
+            f"RAM {pct(memory['percent']):>6} {sparkline(list(history['ram']), compact_width)}",
+        ]
+    processes = selected_processes(data, min(DISPLAY_TOP, top), order)
+    metric = "CPU" if order == "cpu" else "RAM"
+    control_index = len(rows)
+    prefix = f"TOP {min(DISPLAY_TOP, top)} · {metric}  "
+    ram_label, cpu_label = "[M RAM]", "[C CPU]"
+    ram_button = f"{ui.INV if order == 'ram' else ui.ACC30}{ram_label}{ui.RESET}"
+    cpu_button = f"{ui.INV if order == 'cpu' else ui.ACC30}{cpu_label}{ui.RESET}"
+    ui.button_bounds = {}
+    if top:
+        caption = f"  · fatias do top {min(DISPLAY_TOP, top)}" if width >= 60 else ""
+        rows.append(f"{prefix}{ram_button} {cpu_button}{caption}")
+    if top and width >= 34:
+        chart_width, chart_height = (15, 7) if large else (11, 5)
+        chart = pie(processes, order, ui.cor, chart_width, chart_height)
+        labels = []
+        values = [pct(process["cpu"]) if order == "cpu" else human(process["rss"]) for process in processes]
+        value_width = max((len(value) for value in values), default=0)
+        name_width = max(1, width - chart_width - value_width - 5)
+        for index, (process, value) in enumerate(zip(processes, values)):
+            swatch = f"\033[{SLICE_COLORS[index]}m■\033[0m" if ui.cor else str(index + 1)
+            name = _fit(clean(process["name"]), name_width)
+            labels.append(f"{swatch} {name}{' ' * (name_width - largura(name))} {value:>{value_width}}")
+        if not processes:
+            labels = ["Nenhum processo disponível"]
+        elif not any(process["cpu" if order == "cpu" else "rss"] > 0 for process in processes) and large:
+            labels.append("Sem uso nesta amostra")
+        count = max(len(chart), len(labels))
+        chart += [" " * chart_width] * (count - len(chart))
+        labels += [""] * (count - len(labels))
+        rows += [f"{chart[i]}  {labels[i]}" for i in range(count)]
+    elif top and processes:
+        rows += [
+            f"{index + 1}. {clean(process['name'], max(8, width - 16))} "
+            + (f"{process['cpu']:.1f}%" if order == "cpu" else human(process["rss"]))
+            for index, process in enumerate(processes)
+        ]
+    elif top:
+        rows.append("Nenhum processo disponível")
     if live:
-        if height < 5:
+        if ui.rows < 5:
             rows = [f"CPU {pct(cpu['percent'])} RAM {pct(memory['percent'])}"]
-        elif not ui.caixa:
-            rows = rows[1:]
-        rows = rows[: max(1, height - reserve - 1)]
+        rows = rows[:body_limit]
+    # Mouse coordinates follow the visible body, including the frame/prefix.
+    if top and control_index < len(rows) and ui.rows >= 5:
+        body_x = 3 if ui.cols >= 3 else 1
+        body_y = control_index + (4 if ui.caixa else 1)
+        offset = largura(prefix)
+        for key, label in (("ram", ram_label), ("cpu", cpu_label)):
+            if offset + len(label) <= width:
+                ui.button_bounds[key] = (body_x + offset, body_x + offset + len(label) - 1, body_y)
+            offset += len(label) + 1
+    if flat_footer:
+        rows.append(footer)
     if ui.tty:
         rows = [_fit(row, width) for row in rows]
     ui.janela(
@@ -324,10 +410,10 @@ def parser() -> argparse.ArgumentParser:
         help="segundos entre amostras (>= 0.1)",
     )
     p.add_argument(
-        "--sort", choices=("cpu", "ram"), default="cpu", help="ordem dos processos"
+        "--sort", choices=("cpu", "ram"), default="ram", help="ordem dos processos"
     )
     p.add_argument(
-        "--top", type=top_count, default=8, help=f"máximo de processos (0-{MAX_TOP})"
+        "--top", type=top_count, default=5, help=f"máximo de processos (0-{MAX_TOP})"
     )
     p.add_argument("--disk", default=root_disk(), help="caminho do disco a medir")
     p.add_argument("--no-color", action="store_true", help="desativa cores")
@@ -371,11 +457,25 @@ def wait_key(seconds: float, size: tuple[int, int] | None = None) -> str | None:
         import select
 
         ready, _, _ = select.select([sys.stdin], [], [], seconds)
-        return (
-            os.read(sys.stdin.fileno(), 1).decode("ascii", errors="ignore").lower()
-            if ready
-            else None
-        )
+        if not ready:
+            return None
+        key = os.read(sys.stdin.fileno(), 1).decode("ascii", errors="ignore").lower()
+        if key != "\x1b":
+            return key
+        # XTerm SGR mouse press: ESC [ < button ; column ; row M.
+        sequence = key
+        until = time.monotonic() + 0.03
+        while time.monotonic() < until and len(sequence) < 64:
+            ready, _, _ = select.select([sys.stdin], [], [], max(0, until - time.monotonic()))
+            if not ready:
+                break
+            sequence += os.read(sys.stdin.fileno(), 1).decode("ascii", errors="ignore")
+            if len(sequence) > 2 and "@" <= sequence[-1:] <= "~":
+                match = re.fullmatch(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])", sequence)
+                if match and match.group(4) == "M" and int(match.group(1)) == 0:
+                    return f"mouse:{match.group(2)}:{match.group(3)}"
+                break
+        return None
     except (OSError, ValueError):
         time.sleep(seconds)
         return None
@@ -403,17 +503,21 @@ def terminal_session(enabled: bool):
                 sig = getattr(signal, name, None)
                 if sig is not None:
                     handlers[sig] = signal.signal(sig, stop)
-            print("\033[?25l", end="", flush=True)
+            print("\033[?1049h\033[?25l", end="", flush=True)
+            if os.name != "nt" and sys.stdin.isatty():
+                print("\033[?1000h\033[?1006h", end="", flush=True)
         yield
     finally:
-        if saved is not None:
-            import termios
+        try:
+            if saved is not None:
+                import termios
 
-            termios.tcsetattr(saved[0], termios.TCSADRAIN, saved[1])
-        for sig, previous in handlers.items():
-            signal.signal(sig, previous)
-        if enabled:
-            print("\033[0m\033[?25h", end="", flush=True)
+                termios.tcsetattr(saved[0], termios.TCSADRAIN, saved[1])
+        finally:
+            for sig, previous in handlers.items():
+                signal.signal(sig, previous)
+            if enabled:
+                print("\033[?1000l\033[?1006l\033[0m\033[?25h\033[?1049l", end="", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -455,13 +559,19 @@ def main(argv: list[str] | None = None) -> int:
         not (args.once or args.json or plain or os.environ.get("GOODMON_SEM_ANIM"))
         and sys.stdout.isatty()
     )
-    lines = 0
+    history: dict[str, deque[float]] = {"cpu": deque(maxlen=48), "ram": deque(maxlen=48)}
+    data: dict[str, Any] | None = None
+    next_sample = 0.0
     try:
         with terminal_session(live):
             monitor.warmup()
             time.sleep(args.interval if not live else 0.1)
             while True:
-                data = monitor.snapshot()
+                if data is None or time.monotonic() >= next_sample:
+                    data = monitor.snapshot()
+                    history["cpu"].append(float(data["cpu"]["percent"]))
+                    history["ram"].append(float(data["memory"]["percent"]))
+                    next_sample = time.monotonic() + args.interval
                 if args.json:
                     data["processes"] = selected_processes(data, args.top, args.sort)
                     print(json.dumps(data, ensure_ascii=False))
@@ -472,35 +582,33 @@ def main(argv: list[str] | None = None) -> int:
                     ui.atualizar_tamanho()
                 captured = io.StringIO()
                 with redirect_stdout(captured):
-                    render(ui, data, args.top, args.sort, live)
+                    render(ui, data, args.top, args.sort, history, live)
                 frame = captured.getvalue().splitlines()
                 if live:
-                    height = ui.rows
-                    if lines:
-                        print(f"\033[{min(lines, max(1, height - 1))}A", end="")
+                    # A fixed origin keeps click targets correct after resizes.
+                    print("\033[H", end="")
                     for line in frame:
                         print(f"\r\033[K{line}")
-                    # Clear trailing rows when the process list shrinks.
-                    extra = min(
-                        max(0, lines - len(frame)), max(0, height - len(frame) - 1)
-                    )
-                    for _ in range(extra):
-                        print("\r\033[K")
-                    if extra:
-                        print(f"\033[{extra}A", end="")
-                    lines = len(frame)
+                    print("\033[J", end="")
                 else:
                     print(captured.getvalue(), end="")
                 sys.stdout.flush()
                 if not live:
                     return 0
-                key = wait_key(args.interval, (ui.cols, ui.rows))
+                key = wait_key(max(0, next_sample - time.monotonic()), (ui.cols, ui.rows))
                 if key == "q":
                     return 0
                 if key == "c":
                     args.sort = "cpu"
                 if key == "m":
                     args.sort = "ram"
+                if key and key.startswith("mouse:"):
+                    _, column, row = key.split(":")
+                    column, row = int(column), int(row)
+                    for metric, (left, right, button_row) in getattr(ui, "button_bounds", {}).items():
+                        if row == button_row and left <= column <= right:
+                            args.sort = metric
+                            break
     except KeyboardInterrupt:
         return 130
     except BrokenPipeError:
